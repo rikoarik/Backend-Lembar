@@ -7,6 +7,8 @@ Modular monolith for `lembar` (API + worker) — see `AGENTS.md`,
 
 - One pnpm package, Node 22 LTS pin (`.nvmrc`, `engines`).
 - Direct Fastify API entrypoint with `GET /health` on port `4000`.
+- Stable `ErrorEnvelope` + request-id propagation for 404/internal responses.
+- Published OpenAPI artifact + checksum + breaking-change detector under `contracts/`.
 - Worker entrypoint emits one structured, secret-free heartbeat and exits `0`.
 - TypeScript strict (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`).
 - ESLint flat config + Prettier; Vitest for unit and smoke tests.
@@ -21,9 +23,36 @@ pnpm lint
 pnpm format:check
 pnpm test
 pnpm build
+pnpm openapi:validate
+pnpm openapi:breaking
 node dist/bootstrap/api.js          # API on :4000
 node dist/bootstrap/worker.js       # one heartbeat, exit 0
 ```
+
+`pnpm openapi:validate` validates `contracts/openapi.yaml` and rewrites
+`contracts/openapi.checksum.txt`. `pnpm openapi:breaking` compares the
+current artifact against `contracts/openapi.previous.yaml` and exits `1`
+on breaking changes.
+
+`contracts/openapi.yaml` is the published contract source. Keep
+`contracts/openapi.previous.yaml` checked in as the accepted comparison
+baseline until a newer artifact is intentionally promoted.
+
+The app echoes/creates `X-Request-Id` and returns the stable envelope on
+unknown routes and internal errors:
+
+```json
+{
+  "error": {
+    "code": "RESOURCE_NOT_FOUND",
+    "message": "Resource tidak ditemukan.",
+    "requestId": "req_...",
+    "retryable": false
+  }
+}
+```
+
+Unknown/internal details stay redacted.
 
 ## Configuration
 

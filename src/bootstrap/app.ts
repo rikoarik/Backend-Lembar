@@ -1,4 +1,12 @@
-import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
+import Fastify, {
+  type FastifyError,
+  type FastifyInstance,
+  type FastifyServerOptions,
+} from 'fastify';
+import type { Server, IncomingMessage, ServerResponse } from 'node:http';
+
+import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/errors/envelope.js';
+import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
 
 export interface HealthResponse {
   status: 'ok';
@@ -14,19 +22,46 @@ export interface BuildAppOptions {
 
 const SERVICE_VERSION = '0.0.0-b001';
 
-export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
-  const app = Fastify({
+function envelopeFor(
+  status: number,
+  code: StableErrorCode,
+  message: string,
+  requestId: string,
+): { status: number; payload: ReturnType<typeof buildErrorEnvelope> } {
+  const retryable = status >= 500;
+  return {
+    status,
+    payload: buildErrorEnvelope({
+      code,
+      message,
+      requestId,
+      retryable,
+    }),
+  };
+}
+
+export async function buildApp(
+  options: BuildAppOptions = {},
+): Promise<FastifyInstance<Server, IncomingMessage, ServerResponse>> {
+  const app: FastifyInstance<Server, IncomingMessage, ServerResponse> = Fastify({
     logger:
       options.logger === false
         ? false
         : {
             level: 'info',
             serializers: {
-              req: () => ({ redacted: true }),
+              req: (req) => ({
+                method: req.method,
+                url: req.url,
+                requestId: (req as { requestId?: string }).requestId ?? null,
+                redacted: true,
+              }),
               res: (res) => ({ statusCode: res.statusCode }),
             },
           },
   });
+
+  registerRequestId(app);
 
   const startedAt = Date.now();
 
@@ -38,6 +73,38 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
       uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
       timestamp: new Date().toISOString(),
     };
+  });
+
+  // 404 handler — emits the stable envelope and echoes the request id.
+  app.setNotFoundHandler((req, reply) => {
+    const id = req.requestId ?? 'req_unknown';
+    const { status, payload } = envelopeFor(
+      404,
+      'RESOURCE_NOT_FOUND',
+      'Resource tidak ditemukan.',
+      id,
+    );
+    void reply.header(REQUEST_ID_HEADER, id);
+    void reply.status(status).send(payload);
+  });
+
+  // Centralized error handler — maps ApiError to envelope, swallows internal detail.
+  app.setErrorHandler((err: FastifyError, req, reply) => {
+    const id = req.requestId ?? 'req_unknown';
+    void reply.header(REQUEST_ID_HEADER, id);
+    if (err instanceof ApiError) {
+      const { status, payload } = envelopeFor(err.status, err.code, err.message, id);
+      void reply.status(status).send(payload);
+      return;
+    }
+    app.log.error({ err: { name: err.name, message: err.message } }, 'unhandled error');
+    const { status, payload } = envelopeFor(
+      500,
+      'INTERNAL_ERROR',
+      'Terjadi kesalahan pada server.',
+      id,
+    );
+    void reply.status(status).send(payload);
   });
 
   return app;

@@ -17,14 +17,19 @@
     "test": "pnpm build && vitest run",
     "test:watch": "vitest",
     "start:api": "node dist/bootstrap/api.js",
-    "start:worker": "node dist/bootstrap/worker.js"
+    "start:worker": "node dist/bootstrap/worker.js",
+    "openapi:validate": "node --experimental-strip-types --no-warnings scripts/openapi-validate.ts",
+    "openapi:breaking": "node --experimental-strip-types --no-warnings scripts/openapi-breaking.ts"
   },
   "dependencies": {
     "fastify": "5.10.0"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
     "@eslint/js": "10.0.1",
     "@types/node": "22.20.1",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "eslint": "10.7.0",
     "eslint-config-prettier": "10.1.8",
     "prettier": "3.9.5",
