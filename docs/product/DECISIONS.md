@@ -42,7 +42,6 @@ Status: `Accepted`, `Open`, `Rejected`, `Superseded`.
 | ----- | ----------------------------------------------- | ---------------- | ----------------------------- | ------------------------------------------------------ |
 | D-001 | Clearance merek/domain `lembar`                 | Owner            | Paid launch                   | Search/legal/domain evidence                           |
 | D-002 | Auth library/provider final                     | BE/Security      | B0 spike                      | Session, revocation, username/school flow, mobile path |
-| D-003 | ORM final: Prisma atau alternatif               | BE               | B0                            | Migration DX, query control, deploy footprint          |
 | D-004 | Queue: BullMQ/Redis atau PostgreSQL-backed      | BE/Ops           | B0                            | Reliability, VPS footprint, retry/idempotency PoC      |
 | D-005 | Hosting topology/vendor                         | Ops              | Before staging                | Region, cost, backup, scaling                          |
 | D-006 | Object storage vendor                           | BE/Ops           | Before source upload          | Private access, malware flow, egress                   |
@@ -53,9 +52,6 @@ Status: `Accepted`, `Open`, `Rejected`, `Superseded`.
 | D-011 | URL/web source P0 atau deferred                 | Product/Security | Source sprint                 | Demand + SSRF protections                              |
 | D-012 | Mapel/cohort pilot tepat                        | Product/Content  | Before AI eval                | Content readiness and teacher access                   |
 | D-013 | AI model routing dan thresholds                 | AI/Product       | AI sprint                     | Eval quality, latency, cost                            |
-| D-016 | HTTP framework: direct Fastify atau NestJS+Fastify | BE/Owner      | Before B0-01                  | Struktur reusable, footprint VPS, DX, benchmark        |
-| D-017 | REST/OpenAPI dan backend-owned generated client | FE/BE            | Before integration foundation | Codegen and compatibility PoC                          |
-| D-018 | API + worker entrypoints dalam repo backend     | BE/Ops           | Before B0-01                  | Long-job reliability without microservices             |
 | D-019 | OpenAI sebagai provider awal backend            | Owner/AI         | Before AI spike               | Data terms, quality, cost, structured output           |
 | D-020 | HTML/CSS + Playwright untuk PDF                 | FE/BE            | Before output spike           | A4 fidelity, memory, font, performance PoC             |
 

@@ -1,6 +1,6 @@
 # Prompt B0-01 — Bootstrap Backend-Lembar
 
-Precondition: D-014, D-016, and D-018 are `Accepted` with the values used below. If not, stop and
+Precondition: D-003, D-014, D-016, D-017, and D-018 are `Accepted` with the values used below. If not, stop and
 return `BLOCKED_BY_DECISION`; do not bootstrap a framework from this proposed prompt.
 
 Paste this prompt only when the owner is ready to start `B0-01`.
@@ -27,13 +27,13 @@ Read and follow, in precedence order:
 7. exact B0-01 task contract
 
 Outcome:
-A clean NestJS + Fastify + TypeScript strict backend repository that boots an API health
+A clean direct Fastify + TypeScript strict backend repository that boots an API health
 endpoint and a worker heartbeat from the same codebase, with reproducible baseline tooling.
 
 Implement only:
 
 - one pnpm package/repository and supported Node LTS pin;
-- NestJS with Fastify adapter selected from current stable compatible releases;
+- direct Fastify selected from current stable compatible releases;
 - `api` entrypoint serving GET `/health` on local port 4000;
 - `worker` entrypoint emitting one structured, secret-free heartbeat and exiting successfully;
 - initial module/layout boundaries without fake business implementations;
@@ -54,7 +54,7 @@ Rules:
 - Inspect repository before editing and preserve owner work.
 - Use official current framework docs for version-sensitive setup.
 - Do not require production secrets for install/build/test.
-- Do not resolve D-002/D-003/D-004 implicitly; their spikes are separate tasks.
+- Do not resolve D-002/D-004 implicitly; their spikes are separate tasks.
 - Keep exactly B0-01 in progress.
 
 Acceptance evidence must include exact commands for install, typecheck, lint, format check,
