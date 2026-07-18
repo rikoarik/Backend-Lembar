@@ -29,8 +29,12 @@ Status: `Accepted`, `Open`, `Rejected`, `Superseded`.
 | T-004 | Backend memakai ekosistem Node.js/JavaScript  | Runtime/tooling mengikuti kemampuan tim |
 | T-005 | CMS adalah modul dalam backend monolith       | Tanpa service/vendor CMS terpisah        |
 | T-006 | CMS publik tidak membutuhkan queue/Redis      | PostgreSQL + HTTP cache cukup untuk MVP   |
-| D-014 | TypeScript strict untuk kedua repo            | Kontrak/type safety konsisten lintas FE/BE |
-| D-015 | Next.js App Router sebagai frontend           | Route group marketing/app/ops code-owned  |
+| D-003 | Drizzle ORM                                    | Migrasi PostgreSQL dan query memakai Drizzle |
+| D-014 | TypeScript strict untuk kedua repo             | Kontrak/type safety konsisten lintas FE/BE |
+| D-015 | Next.js App Router sebagai frontend            | Route group marketing/app/ops code-owned  |
+| D-016 | Direct Fastify                                 | HTTP backend ringan tanpa NestJS           |
+| D-017 | REST/OpenAPI milik backend                     | Backend memvalidasi spesifikasi executable dan menerbitkan generated client artifact |
+| D-018 | API dan worker dalam satu modular monolith     | Dua entrypoint proses berbagi modul dan database; bukan microservices |
 
 ## Open — harus diputuskan sesuai gate
 
