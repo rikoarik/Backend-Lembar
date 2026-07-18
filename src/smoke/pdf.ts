@@ -31,4 +31,10 @@ async function main(): Promise<void> {
   process.stdout.write(`${logLine}\n`);
 }
 
-await main();
+try {
+  await main();
+} catch (err) {
+  const message = err instanceof Error ? err.message : 'unknown pdf smoke failure';
+  process.stderr.write(`pdf.smoke.failed: ${message}\n`);
+  process.exit(1);
+}

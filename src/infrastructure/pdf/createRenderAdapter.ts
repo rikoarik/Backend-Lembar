@@ -5,9 +5,9 @@ import { StubHtmlToPdfAdapter } from './StubHtmlToPdfAdapter.js';
 export type PdfRendererDriver = 'stub' | 'playwright';
 
 export function resolvePdfRendererDriver(env: NodeJS.ProcessEnv = process.env): PdfRendererDriver {
-  const raw = (env['PDF_RENDERER_DRIVER'] ?? 'stub').toLowerCase();
+  const raw = (env['PDF_RENDERER'] ?? env['PDF_RENDERER_DRIVER'] ?? 'stub').toLowerCase();
   if (raw === 'stub' || raw === 'playwright') return raw;
-  throw new Error(`Unsupported PDF_RENDERER_DRIVER: ${raw}`);
+  throw new Error(`Unsupported PDF_RENDERER: ${raw}`);
 }
 
 export function createRenderAdapter(env: NodeJS.ProcessEnv = process.env): RenderAdapter {

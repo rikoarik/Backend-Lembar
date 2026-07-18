@@ -48,7 +48,8 @@ node dist/bootstrap/worker.js       # one heartbeat, exit 0
 ```bash
 STORAGE_DRIVER=memory|local         # default: memory
 STORAGE_LOCAL_ROOT=/tmp/lembar      # required when STORAGE_DRIVER=local
-PDF_RENDERER_DRIVER=stub|playwright # default: stub; playwright throws by design
+PDF_RENDERER=stub|playwright        # default: stub; playwright throws by design
+PDF_RENDERER_DRIVER=stub|playwright # compatibility alias
 ```
 
 ## Security notes for the spike
