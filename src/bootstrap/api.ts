@@ -1,26 +1,43 @@
 import { type FastifyInstance } from 'fastify';
 
+import { parseApiEnv, type ApiEnv } from '../config/api.env.js';
+import { ConfigError, formatConfigError } from '../config/errors.js';
 import { buildApp } from './app.js';
 
 export interface ApiRuntimeOptions {
   port: number;
   host: string;
   logger: boolean;
+  serviceName?: string;
+  serviceVersion?: string;
 }
 
 export function resolveApiOptions(env: NodeJS.ProcessEnv = process.env): ApiRuntimeOptions {
-  const portRaw = env['API_PORT'] ?? '4000';
-  const port = Number(portRaw);
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-    throw new Error(`Invalid API_PORT: ${portRaw}`);
+  let cfg: ApiEnv;
+  try {
+    cfg = parseApiEnv(env);
+  } catch (err) {
+    if (err instanceof ConfigError) {
+      throw new Error(`Invalid API configuration: ${formatConfigError(err.issues)}`, {
+        cause: err,
+      });
+    }
+    throw err;
   }
-  const host = env['API_HOST'] ?? '127.0.0.1';
-  const logger = (env['LOG_LEVEL'] ?? 'info') !== 'silent';
-  return { port, host, logger };
+  return {
+    port: cfg.port,
+    host: cfg.host,
+    logger: cfg.logLevel !== 'silent',
+    serviceName: cfg.serviceName,
+    serviceVersion: cfg.serviceVersion,
+  };
 }
 
 export async function startApi(options: ApiRuntimeOptions): Promise<FastifyInstance> {
-  const app = await buildApp({ logger: options.logger });
+  const buildOpts: Parameters<typeof buildApp>[0] = { logger: options.logger };
+  if (options.serviceName !== undefined) buildOpts.serviceName = options.serviceName;
+  if (options.serviceVersion !== undefined) buildOpts.serviceVersion = options.serviceVersion;
+  const app = await buildApp(buildOpts);
   await app.listen({ port: options.port, host: options.host });
   return app;
 }

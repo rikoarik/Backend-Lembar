@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 
 export interface HealthResponse {
   status: 'ok';
-  service: 'lembar-api';
+  service: string;
   version: string;
   uptimeSeconds: number;
   timestamp: string;
@@ -10,9 +10,12 @@ export interface HealthResponse {
 
 export interface BuildAppOptions {
   logger?: FastifyServerOptions['logger'];
+  serviceName?: string;
+  serviceVersion?: string;
 }
 
-const SERVICE_VERSION = '0.0.0-b001';
+const DEFAULT_SERVICE_NAME = 'lembar-api';
+const DEFAULT_SERVICE_VERSION = '0.0.0-b001';
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -28,13 +31,15 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
           },
   });
 
+  const serviceName = options.serviceName ?? DEFAULT_SERVICE_NAME;
+  const serviceVersion = options.serviceVersion ?? DEFAULT_SERVICE_VERSION;
   const startedAt = Date.now();
 
   app.get('/health', async (): Promise<HealthResponse> => {
     return {
       status: 'ok',
-      service: 'lembar-api',
-      version: SERVICE_VERSION,
+      service: serviceName,
+      version: serviceVersion,
       uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
       timestamp: new Date().toISOString(),
     };
