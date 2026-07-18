@@ -1,0 +1,860 @@
+version: "1.2"
+updated_at: "2026-07-19"
+project: lembar
+repositories:
+  frontend: rikoarik/Frontend-Lembar
+  backend: rikoarik/Backend-Lembar
+
+status_values:
+  - BACKLOG
+  - BLOCKED
+  - READY
+  - IN_PROGRESS
+  - PAUSED
+  - READY_FOR_OWNER_REVIEW
+  - CHANGES_REQUESTED
+  - ACCEPTED
+  - CANCELLED
+
+rules:
+  owner_starts_with: "START <TASK-ID>"
+  owner_accepts_with: "ACCEPT <TASK-ID>"
+  owner_requests_changes_with: "CHANGES_REQUESTED <TASK-ID>: <reason>"
+  max_in_progress_per_repository: 1
+  max_context_documents_per_task: 3
+  max_handoff_words: 500
+  nested_agent_spawn: forbidden_unless_owner_explicit
+  auto_start_next_task: false
+  auto_merge: false
+  production_actions_default: forbidden
+
+tasks:
+  - id: O0-01
+    repository: planning
+    sprint: O0
+    title: Distribute v1.2 documentation snapshots
+    status: READY
+    depends_on: []
+    decisions: []
+    outcome: Safe docs manifests and snapshots in both repositories; no code changes.
+    evidence: [repo inspection, copy/conflict manifest, link/YAML/OpenAPI validation]
+
+  - id: X0-01
+    repository: both
+    sprint: X0
+    title: Accept bootstrap stack and contract baseline
+    status: BLOCKED
+    depends_on: [O0-01]
+    decisions: [D-014, D-015, D-016, D-017, D-018, D-020]
+    outcome: Owner-approved Gate A recorded without implementation.
+    evidence: [decision register update, contradiction scan]
+
+  - id: F0-01
+    repository: Frontend-Lembar
+    sprint: F0
+    title: Bootstrap frontend repository
+    status: BLOCKED
+    depends_on: [X0-01]
+    decisions: [D-014, D-015]
+    outcome: Accepted framework boots a minimal brand-correct shell with reproducible tooling.
+    evidence: [install, typecheck, lint, format, test, build, desktop-and-390-smoke]
+
+  - id: F0-02
+    repository: Frontend-Lembar
+    sprint: F0
+    title: Runtime config and web security baseline
+    status: BLOCKED
+    depends_on: [F0-01]
+    decisions: []
+    outcome: Typed public/server config boundaries, headers, safe env example.
+    evidence: [config-tests, header-smoke, secret-scan]
+
+  - id: F0-03
+    repository: Frontend-Lembar
+    sprint: F0
+    title: Frontend CI and test foundation
+    status: BLOCKED
+    depends_on: [F0-01]
+    decisions: []
+    outcome: Unit, component, accessibility, Playwright, and CI gates are executable.
+    evidence: [all-local-gates, CI-workflow-review]
+
+  - id: F0-04
+    repository: Frontend-Lembar
+    sprint: F0
+    title: Design tokens and accessible primitives
+    status: BLOCKED
+    depends_on: [F0-01, F0-03]
+    decisions: []
+    outcome: BRAND and DESIGN-SYSTEM tokens plus core component states implemented.
+    evidence: [storybook-or-fixtures, a11y, 390, visual-snapshots]
+
+  - id: F0-05
+    repository: Frontend-Lembar
+    sprint: F0
+    title: Generated OpenAPI client PoC
+    status: BLOCKED
+    depends_on: [F0-01, B0-03]
+    decisions: [D-017]
+    outcome: Pinned backend artifact deterministically generates a typed frontend client.
+    evidence: [generation-drift-check, unknown-error-enum-test]
+
+  - id: F1-01
+    repository: Frontend-Lembar
+    sprint: F1
+    title: Landing header, hero, and output specimen
+    status: BLOCKED
+    depends_on: [F0-04]
+    decisions: []
+    outcome: Honest output-first hero and responsive header from landing spec.
+    evidence: [claim-audit, 390-768-1280, keyboard, screenshot]
+
+  - id: F1-02
+    repository: Frontend-Lembar
+    sprint: F1
+    title: Landing workflow, trust, and product depth
+    status: BLOCKED
+    depends_on: [F1-01]
+    decisions: []
+    outcome: How-it-works, source trust, output, teacher/school, and reuse sections.
+    evidence: [content-review, accessibility, no-fabricated-proof]
+
+  - id: F1-03
+    repository: Frontend-Lembar
+    sprint: F1
+    title: Packaging, FAQ, footer, and school landing shell
+    status: BLOCKED
+    depends_on: [F1-02]
+    decisions: []
+    outcome: Pricing-unresolved-safe pages and school value proposition.
+    evidence: [D-009-guard-test, route-metadata, responsive]
+
+  - id: F1-04
+    repository: Frontend-Lembar
+    sprint: F1
+    title: School lead form
+    status: BLOCKED
+    depends_on: [F1-03, B6-04]
+    decisions: [D-007]
+    outcome: Consent-aware, spam-protected school lead capture with complete states.
+    evidence: [validation, rate-limit-state, privacy-review]
+
+  - id: F1-05
+    repository: Frontend-Lembar
+    sprint: F1
+    title: Landing release quality gate
+    status: BLOCKED
+    depends_on: [F1-01, F1-02, F1-03]
+    decisions: []
+    outcome: SEO, performance, accessibility, analytics, and visual release evidence.
+    evidence: [lighthouse-or-equivalent, axe, playwright, metadata, event-audit]
+
+  - id: F1-06
+    repository: Frontend-Lembar
+    sprint: F1
+    title: Published marketing CMS renderer and fallback
+    status: BLOCKED
+    depends_on: [F1-05, F0-05, B1-06]
+    decisions: [P-011, P-012, T-005, T-006, D-017]
+    outcome: All marketing routes render published typed content with ETag cache and visible seed fallback.
+    evidence: [contract-fixtures, timeout-fallback, no-js, reduced-motion, desktop-and-390-visible-pixels]
+
+  - id: F2-01
+    repository: Frontend-Lembar
+    sprint: F2
+    title: Identity screens and session states
+    status: BLOCKED
+    depends_on: [F0-05, B1-01]
+    decisions: [D-002]
+    outcome: Register/login/recovery/invitation UI consumes accepted auth contract.
+    evidence: [enumeration-safe-copy, keyboard, integration]
+
+  - id: F2-02
+    repository: Frontend-Lembar
+    sprint: F2
+    title: Personal onboarding
+    status: BLOCKED
+    depends_on: [F2-01, B1-02]
+    decisions: []
+    outcome: User enters an atomic personal workspace without invented profile data.
+    evidence: [new-existing-account-e2e]
+
+  - id: F2-03
+    repository: Frontend-Lembar
+    sprint: F2
+    title: App shell and workspace switch
+    status: BLOCKED
+    depends_on: [F0-04, F2-01, B1-02]
+    decisions: []
+    outcome: Responsive role-aware shell with safe cache-clearing workspace switch.
+    evidence: [cross-workspace-cache-test, 390, keyboard]
+
+  - id: F2-04
+    repository: Frontend-Lembar
+    sprint: F2
+    title: Teacher dashboard
+    status: BLOCKED
+    depends_on: [F2-03, B1-05]
+    decisions: []
+    outcome: New/populated/error dashboard with trusted summary and recent sheets.
+    evidence: [metric-contract-fixtures, responsive, empty-state]
+
+  - id: F2-05
+    repository: Frontend-Lembar
+    sprint: F2
+    title: Identity and workspace integration gate
+    status: BLOCKED
+    depends_on: [F2-01, F2-02, F2-03, F2-04, B1-05]
+    decisions: []
+    outcome: End-to-end session and tenant context verified across deployed test services.
+    evidence: [login-recovery-switch-logout-e2e]
+
+  - id: F3-01
+    repository: Frontend-Lembar
+    sprint: F3
+    title: Catalog-dependent generate form
+    status: BLOCKED
+    depends_on: [F2-03, F0-05, B1-04, B2-03]
+    decisions: [D-012]
+    outcome: Full generate configuration with dependent selectors and summary.
+    evidence: [dependency-reset, long-content, validation, 390]
+
+  - id: F3-02
+    repository: Frontend-Lembar
+    sprint: F3
+    title: Private PDF source UI
+    status: BLOCKED
+    depends_on: [F3-01, B2-01, B2-02]
+    decisions: [D-006]
+    outcome: Upload, processing, retry, insufficient, and deletion states.
+    evidence: [file-edge-fixtures, token-redaction, accessibility]
+
+  - id: F3-03
+    repository: Frontend-Lembar
+    sprint: F3
+    title: Configuration composition and review modes
+    status: BLOCKED
+    depends_on: [F3-01]
+    decisions: []
+    outcome: Difficulty composition, focus/example, quick/detail semantics without auto-final.
+    evidence: [sum-validation, content-telemetry-audit]
+
+  - id: F3-04
+    repository: Frontend-Lembar
+    sprint: F3
+    title: Idempotent submit and job progress
+    status: BLOCKED
+    depends_on: [F3-01, F3-02, B2-05]
+    decisions: []
+    outcome: One submit, reload-safe neutral progress, cancel/retry where allowed.
+    evidence: [double-submit, reload, all-job-states]
+
+  - id: F3-05
+    repository: Frontend-Lembar
+    sprint: F3
+    title: Generate integration gate
+    status: BLOCKED
+    depends_on: [F3-01, F3-02, F3-03, F3-04, B3-05]
+    decisions: [D-013, D-019]
+    outcome: Real pilot source-to-review draft journey meets quality and failure contracts.
+    evidence: [end-to-end, partial-failure, quota-invariant, content-review]
+
+  - id: F4-01
+    repository: Frontend-Lembar
+    sprint: F4
+    title: Quick review
+    status: BLOCKED
+    depends_on: [F3-05, B4-01]
+    decisions: []
+    outcome: Filterable full question review with source, answer, explanation, and flags.
+    evidence: [keyboard-list, bulk-guard, long-question]
+
+  - id: F4-02
+    repository: Frontend-Lembar
+    sprint: F4
+    title: Detail editor, regenerate, and conflicts
+    status: BLOCKED
+    depends_on: [F4-01, B4-02, B4-03]
+    decisions: []
+    outcome: Guided one-by-one editing with old-version preservation and conflict recovery.
+    evidence: [autosave, concurrent-edit, regeneration-focus]
+
+  - id: F4-03
+    repository: Frontend-Lembar
+    sprint: F4
+    title: Finalization UX
+    status: BLOCKED
+    depends_on: [F4-02, B4-04]
+    decisions: []
+    outcome: Blocking issue summary and immutable-version confirmation.
+    evidence: [blocked-valid-idempotent-finalize]
+
+  - id: F4-04
+    repository: Frontend-Lembar
+    sprint: F4
+    title: Review usability and accessibility gate
+    status: BLOCKED
+    depends_on: [F4-01, F4-02, F4-03, B4-05]
+    decisions: []
+    outcome: Moderated and automated review journey evidence.
+    evidence: [usability-notes, axe, keyboard, e2e]
+
+  - id: F5-01
+    repository: Frontend-Lembar
+    sprint: F5
+    title: Output center and canonical PDF actions
+    status: BLOCKED
+    depends_on: [F4-03, B5-02]
+    decisions: [D-020]
+    outcome: Render/ready/failure preview, print, and download of the same artifact.
+    evidence: [artifact-hash-version, print-download, 390]
+
+  - id: F5-02
+    repository: Frontend-Lembar
+    sprint: F5
+    title: Controlled share link and viewer
+    status: BLOCKED
+    depends_on: [F5-01, B5-03]
+    decisions: []
+    outcome: Create/copy/expire/revoke and safe read-only viewer package.
+    evidence: [no-index, revoked-expired, no-key-leak]
+
+  - id: F5-03
+    repository: Frontend-Lembar
+    sprint: F5
+    title: History
+    status: BLOCKED
+    depends_on: [F2-04, B5-04]
+    decisions: []
+    outcome: Search/filter/list and state-correct review/output/duplicate actions.
+    evidence: [cursor-filter, empty-error-mobile]
+
+  - id: F5-04
+    repository: Frontend-Lembar
+    sprint: F5
+    title: Private bank and templates
+    status: BLOCKED
+    depends_on: [F4-03, B5-04]
+    decisions: []
+    outcome: Save trusted question snapshots and reusable configs, private by default.
+    evidence: [workspace-isolation, archive-run-version]
+
+  - id: F5-05
+    repository: Frontend-Lembar
+    sprint: F5
+    title: Output and library integration gate
+    status: BLOCKED
+    depends_on: [F5-01, F5-02, F5-03, F5-04, B5-05]
+    decisions: []
+    outcome: Golden A4, security, retry, retention, and end-to-end output evidence.
+    evidence: [golden-fixtures, artifact-auth, share-security]
+
+  - id: F6-01
+    repository: Frontend-Lembar
+    sprint: F6
+    title: Entitlement and usage UI
+    status: BLOCKED
+    depends_on: [B6-01]
+    decisions: [D-009]
+    outcome: Honest provider-neutral plan/usage/blocked states.
+    evidence: [zero-max-grace-downgrade-fixtures]
+
+  - id: F6-02
+    repository: Frontend-Lembar
+    sprint: F6
+    title: School admin
+    status: BLOCKED
+    depends_on: [F2-03, B7-01, B7-02]
+    decisions: []
+    outcome: School overview, invite/activation, members, seats, and aggregate usage.
+    evidence: [role-guards, no-content-visibility, activation-e2e]
+
+  - id: F6-03
+    repository: Frontend-Lembar
+    sprint: F6
+    title: Superadmin minimum operations UI
+    status: BLOCKED
+    depends_on: [B6-03]
+    decisions: []
+    outcome: Least-privilege audited catalog/job/account operations without broad content access.
+    evidence: [permission-matrix, step-up, audit]
+
+  - id: F6-04
+    repository: Frontend-Lembar
+    sprint: F6
+    title: Pilot hardening
+    status: BLOCKED
+    depends_on: [F5-05, B6-04]
+    decisions: []
+    outcome: Real-device, accessibility, performance, support, and pilot feedback fixes.
+    evidence: [release-checklist, moderated-journeys]
+
+  - id: F6-05
+    repository: Frontend-Lembar
+    sprint: F6
+    title: Superadmin structured marketing CMS UI
+    status: BLOCKED
+    depends_on: [F6-03, F1-06, B6-06]
+    decisions: [P-011, P-012]
+    outcome: Superadmin can edit, preview, publish, unpublish, and restore structured marketing content.
+    evidence: [role-route, revision-conflict, preview-no-store, publish-confirmation, version-history, a11y]
+
+  - id: B0-01
+    repository: Backend-Lembar
+    sprint: B0
+    title: Bootstrap backend modular monolith
+    status: BLOCKED
+    depends_on: [X0-01]
+    decisions: [D-014, D-016, D-018]
+    outcome: Accepted Node stack boots API health and worker heartbeat with tooling/CI.
+    evidence: [install, typecheck, lint, format, test, build, API-and-worker-smoke]
+
+  - id: B0-02
+    repository: Backend-Lembar
+    sprint: B0
+    title: Per-process runtime config
+    status: BLOCKED
+    depends_on: [B0-01]
+    decisions: []
+    outcome: Typed API/worker schemas, safe local defaults, production strictness, redaction.
+    evidence: [dev-test-prod-config-tests, secret-scan]
+
+  - id: B0-03
+    repository: Backend-Lembar
+    sprint: B0
+    title: OpenAPI and error artifact pipeline
+    status: BLOCKED
+    depends_on: [B0-01]
+    decisions: [D-017]
+    outcome: Validated OpenAPI, stable errors/request IDs, published artifact and breaking check.
+    evidence: [schema-lint, contract-test, artifact-checksum]
+
+  - id: B0-04
+    repository: Backend-Lembar
+    sprint: B0
+    title: PostgreSQL ORM and migration spike
+    status: BLOCKED
+    depends_on: [B0-01, B0-02]
+    decisions: [D-003]
+    outcome: Measured migration/query/deploy PoC and accepted ORM ADR.
+    evidence: [migration-roundtrip, constraints, footprint, ADR]
+
+  - id: B0-05
+    repository: Backend-Lembar
+    sprint: B0
+    title: Auth and session spike
+    status: BLOCKED
+    depends_on: [B0-04]
+    decisions: [D-002]
+    outcome: Session, CSRF, recovery, school activation, revocation, and mobile-path PoC.
+    evidence: [security-tests, enumeration, ADR]
+
+  - id: B0-06
+    repository: Backend-Lembar
+    sprint: B0
+    title: Queue and idempotency spike
+    status: BLOCKED
+    depends_on: [B0-04]
+    decisions: [D-004]
+    outcome: Crash/retry/duplicate/lease PoC and accepted queue ADR.
+    evidence: [failure-injection, VPS-footprint, ADR]
+
+  - id: B0-07
+    repository: Backend-Lembar
+    sprint: B0
+    title: Private storage and A4 PDF spikes
+    status: BLOCKED
+    depends_on: [B0-04]
+    decisions: [D-006, D-020]
+    outcome: Private upload/download plus isolated deterministic A4 renderer evidence.
+    evidence: [signed-access, egress-block, golden-PDF, ADRs]
+
+  - id: B0-08
+    repository: Backend-Lembar
+    sprint: B0
+    title: Product AI provider adapter spike
+    status: BLOCKED
+    depends_on: [B0-06]
+    decisions: [D-019]
+    outcome: Mock-first structured-output adapter plus privacy/quality/latency/cost evidence.
+    evidence: [schema-failure, mock-CI, eval-smoke, ADR]
+
+  - id: B1-01
+    repository: Backend-Lembar
+    sprint: B1
+    title: Account and session integration
+    status: BLOCKED
+    depends_on: [B0-03, B0-04, B0-05]
+    decisions: [D-002]
+    outcome: Register/login/logout/recovery with audit and revocation.
+    evidence: [integration, CSRF, rate-limit, no-secret-log]
+
+  - id: B1-02
+    repository: Backend-Lembar
+    sprint: B1
+    title: Personal workspace and tenant context
+    status: BLOCKED
+    depends_on: [B1-01]
+    decisions: []
+    outcome: Atomic personal workspace and verified active-workspace context.
+    evidence: [transaction, tenant-adversarial, cache-scope]
+
+  - id: B1-03
+    repository: Backend-Lembar
+    sprint: B1
+    title: Permission and tenant adversarial suite
+    status: BLOCKED
+    depends_on: [B1-02]
+    decisions: []
+    outcome: Reusable permission policy and cross-tenant tests for all current resources.
+    evidence: [IDOR-list-count-job-artifact-tests]
+
+  - id: B1-04
+    repository: Backend-Lembar
+    sprint: B1
+    title: Versioned curriculum catalog
+    status: BLOCKED
+    depends_on: [B0-04]
+    decisions: [D-012]
+    outcome: Curriculum/grade/phase/subject/outcome/material versioning and readiness APIs.
+    evidence: [publish-archive-history, source-rights-gate]
+
+  - id: B1-05
+    repository: Backend-Lembar
+    sprint: B1
+    title: Current context and dashboard read API
+    status: BLOCKED
+    depends_on: [B1-02, B1-03, B1-04]
+    decisions: []
+    outcome: "`/me`, workspaces, and trusted dashboard summaries."
+    evidence: [contract, tenant-filter, metric-definition]
+
+  - id: B1-06
+    repository: Backend-Lembar
+    sprint: B1
+    title: Marketing content domain and published read API
+    status: BLOCKED
+    depends_on: [B0-03, B0-04, B1-03]
+    decisions: [P-011, P-012, T-005, T-006, D-003, D-017]
+    outcome: Versioned PostgreSQL content model serves published-only page/global projections with ETag.
+    evidence: [migration, published-only, draft-nondisclosure, schema-validation, etag-304, no-queue]
+
+  - id: B2-01
+    repository: Backend-Lembar
+    sprint: B2
+    title: Private PDF upload lifecycle
+    status: BLOCKED
+    depends_on: [B1-03, B0-07]
+    decisions: [D-006]
+    outcome: Intent, verification, private object, access, and delete request.
+    evidence: [magic-size-check, cross-tenant-signed-URL, redaction]
+
+  - id: B2-02
+    repository: Backend-Lembar
+    sprint: B2
+    title: Source scan, extraction, and indexing job
+    status: BLOCKED
+    depends_on: [B2-01, B0-06]
+    decisions: [D-004]
+    outcome: Versioned page/passages with retryable/terminal source states.
+    evidence: [encrypted-scan-image-only-noise-delete]
+
+  - id: B2-03
+    repository: Backend-Lembar
+    sprint: B2
+    title: Assessment configuration and draft
+    status: BLOCKED
+    depends_on: [B1-04, B2-02, B0-03]
+    decisions: []
+    outcome: Validated source/catalog config and immutable input snapshot.
+    evidence: [state-and-contract-tests, incompatible-catalog]
+
+  - id: B2-04
+    repository: Backend-Lembar
+    sprint: B2
+    title: Quota reservation ledger
+    status: BLOCKED
+    depends_on: [B2-03, B0-06]
+    decisions: []
+    outcome: Append-only reserve/commit/release invariant linked to generation job.
+    evidence: [concurrency, duplicate, failure, balance]
+
+  - id: B2-05
+    repository: Backend-Lembar
+    sprint: B2
+    title: End-to-end job status and recovery
+    status: BLOCKED
+    depends_on: [B2-03, B2-04, B0-06]
+    decisions: []
+    outcome: Reload-safe neutral job state, cancel/retry/partial policy.
+    evidence: [crash-and-lease-injection, quota-invariant]
+
+  - id: B3-01
+    repository: Backend-Lembar
+    sprint: B3
+    title: Tenant-scoped retrieval and source references
+    status: BLOCKED
+    depends_on: [B2-02]
+    decisions: []
+    outcome: Authorized passage retrieval with insufficient-source behavior.
+    evidence: [cross-tenant, prompt-injection, citation-resolution]
+
+  - id: B3-02
+    repository: Backend-Lembar
+    sprint: B3
+    title: Blueprint pipeline
+    status: BLOCKED
+    depends_on: [B3-01, B0-08]
+    decisions: [D-013, D-019]
+    outcome: Versioned schema-constrained blueprint meeting distribution targets.
+    evidence: [schema, coverage, insufficient-source]
+
+  - id: B3-03
+    repository: Backend-Lembar
+    sprint: B3
+    title: Structured question generation
+    status: BLOCKED
+    depends_on: [B3-02]
+    decisions: [D-013, D-019]
+    outcome: Reviewable questions with stable options, answer, explanation, and sources.
+    evidence: [schema-repair-cap, provider-mocks, version-metadata]
+
+  - id: B3-04
+    repository: Backend-Lembar
+    sprint: B3
+    title: Deterministic quality and critic
+    status: BLOCKED
+    depends_on: [B3-03]
+    decisions: [D-013]
+    outcome: Duplicate/answer/source/distribution checks and bounded evaluated critic.
+    evidence: [rule-fixtures, adversarial, no-CoT-storage]
+
+  - id: B3-05
+    repository: Backend-Lembar
+    sprint: B3
+    title: Pilot eval and model route gate
+    status: BLOCKED
+    depends_on: [B3-04]
+    decisions: [D-012, D-013, D-019]
+    outcome: Educator-reviewed eval, latency/cost report, and accepted release thresholds.
+    evidence: [dataset-card, report, canary-plan]
+
+  - id: B4-01
+    repository: Backend-Lembar
+    sprint: B4
+    title: Question review, edit, and audit
+    status: BLOCKED
+    depends_on: [B3-05]
+    decisions: []
+    outcome: Versioned edit/review/delete commands with source and audit integrity.
+    evidence: [validation, authorization, audit]
+
+  - id: B4-02
+    repository: Backend-Lembar
+    sprint: B4
+    title: Targeted question regeneration
+    status: BLOCKED
+    depends_on: [B4-01, B2-05]
+    decisions: []
+    outcome: Idempotent replacement candidate preserving prior question until accepted.
+    evidence: [old-version, duplicate-job, quota-policy]
+
+  - id: B4-03
+    repository: Backend-Lembar
+    sprint: B4
+    title: Optimistic conflict handling
+    status: BLOCKED
+    depends_on: [B4-01]
+    decisions: []
+    outcome: Stable version/ETag conflict contract for concurrent review.
+    evidence: [race-tests, safe-current-state]
+
+  - id: B4-04
+    repository: Backend-Lembar
+    sprint: B4
+    title: Immutable finalization
+    status: BLOCKED
+    depends_on: [B4-01, B4-03]
+    decisions: []
+    outcome: Idempotent final version only after all invariants pass.
+    evidence: [blocking-matrix, immutable-test, audit]
+
+  - id: B4-05
+    repository: Backend-Lembar
+    sprint: B4
+    title: Review and finalization integration gate
+    status: BLOCKED
+    depends_on: [B4-01, B4-02, B4-03, B4-04]
+    decisions: []
+    outcome: Contract, tenant, conflict, and failure end-to-end evidence.
+    evidence: [integration-suite, contract-artifact]
+
+  - id: B5-01
+    repository: Backend-Lembar
+    sprint: B5
+    title: PrintDocument and template contract
+    status: BLOCKED
+    depends_on: [B4-04, B0-07]
+    decisions: [D-020]
+    outcome: Minimal safe versioned print DTO and A4 template.
+    evidence: [escaping, package-exclusion, fixtures]
+
+  - id: B5-02
+    repository: Backend-Lembar
+    sprint: B5
+    title: PDF artifact lifecycle
+    status: BLOCKED
+    depends_on: [B5-01]
+    decisions: [D-006, D-020]
+    outcome: Isolated render, private artifact, deterministic reuse, authorized download.
+    evidence: [golden-A4, egress-block, retry, checksum]
+
+  - id: B5-03
+    repository: Backend-Lembar
+    sprint: B5
+    title: Controlled share links
+    status: BLOCKED
+    depends_on: [B5-02]
+    decisions: []
+    outcome: High-entropy scoped expiry/revoke link and safe public package.
+    evidence: [token-redaction, no-index, revoked-expired, no-key-leak]
+
+  - id: B5-04
+    repository: Backend-Lembar
+    sprint: B5
+    title: History, private bank, and templates
+    status: BLOCKED
+    depends_on: [B4-04]
+    decisions: []
+    outcome: Tenant-scoped read models, question snapshots, and versioned configs.
+    evidence: [cursor, tenant, archive, duplicate-run]
+
+  - id: B5-05
+    repository: Backend-Lembar
+    sprint: B5
+    title: Output and library security gate
+    status: BLOCKED
+    depends_on: [B5-02, B5-03, B5-04]
+    decisions: []
+    outcome: Artifact/share/retry/retention/deletion/tenant evidence for release.
+    evidence: [adversarial, restore-expiry, golden-report]
+
+  - id: B6-01
+    repository: Backend-Lembar
+    sprint: B6
+    title: Effective entitlement and quota enforcement
+    status: BLOCKED
+    depends_on: [B2-04, B5-05]
+    decisions: [D-009]
+    outcome: Versioned plans/grants/limits enforced server-side for personal workspace.
+    evidence: [precedence, grace, adjustment-audit]
+
+  - id: B6-02
+    repository: Backend-Lembar
+    sprint: B6
+    title: Payment integration
+    status: BLOCKED
+    depends_on: [B6-01]
+    decisions: [D-007, D-008, D-009]
+    outcome: Verified idempotent checkout/webhook/reconciliation and subscription transitions.
+    evidence: [signature, duplicate-order, refund, no-payment-log]
+
+  - id: B6-03
+    repository: Backend-Lembar
+    sprint: B6
+    title: Superadmin safe operations and audit
+    status: BLOCKED
+    depends_on: [B1-03, B3-05]
+    decisions: []
+    outcome: Least-privilege account/catalog/job/quality/entitlement operations.
+    evidence: [permission-matrix, step-up, immutable-audit]
+
+  - id: B6-04
+    repository: Backend-Lembar
+    sprint: B6
+    title: Operations and lead capture foundation
+    status: BLOCKED
+    depends_on: [B5-05]
+    decisions: [D-005, D-007]
+    outcome: Observability, alerting, backup/restore/load/incident rehearsal and safe lead intake.
+    evidence: [restore-drill, runbook-drill, load, spam-protection]
+
+  - id: B6-05
+    repository: Backend-Lembar
+    sprint: B6
+    title: Paid teacher pilot gate
+    status: BLOCKED
+    depends_on: [B6-01, B6-02, B6-03, B6-04]
+    decisions: [D-001, D-005, D-008, D-009]
+    outcome: Security, legal, quality, operations, and billing ready for bounded paid pilot.
+    evidence: [release-gate-checklist, owner-acceptance]
+
+  - id: B6-06
+    repository: Backend-Lembar
+    sprint: B6
+    title: Superadmin marketing CMS authoring and publication
+    status: BLOCKED
+    depends_on: [B1-06, B6-03]
+    decisions: [P-011, P-012]
+    outcome: Audited superadmin draft, preview, publish, unpublish, and restore commands with concurrency safety.
+    evidence: [permission-matrix, csrf, revision-conflict, unsafe-content, immutable-version, audit-transaction]
+
+  - id: B7-01
+    repository: Backend-Lembar
+    sprint: B7
+    title: School workspace, invitation, and membership
+    status: BLOCKED
+    depends_on: [B1-03, B6-01]
+    decisions: [D-002, D-007]
+    outcome: Admin-controlled email/one-time activation without reusable plaintext credentials.
+    evidence: [invite-expire-revoke-replay, last-admin, tenant]
+
+  - id: B7-02
+    repository: Backend-Lembar
+    sprint: B7
+    title: School seats and pooled quota
+    status: BLOCKED
+    depends_on: [B7-01, B6-01]
+    decisions: [D-009]
+    outcome: Seat cap and pooled ledger with aggregate admin visibility.
+    evidence: [concurrency, membership-state, no-content-access]
+
+  - id: B7-03
+    repository: Backend-Lembar
+    sprint: B7
+    title: School private library and branding policy
+    status: BLOCKED
+    depends_on: [B7-01, B5-04]
+    decisions: []
+    outcome: Explicit ownership/visibility for school bank/templates and approved print branding.
+    evidence: [permission-and-rights-tests]
+
+  - id: B7-04
+    repository: Backend-Lembar
+    sprint: B7
+    title: School usage and billing operations
+    status: BLOCKED
+    depends_on: [B7-02, B6-02]
+    decisions: [D-008, D-009]
+    outcome: Aggregate reporting and provider-neutral contract/invoice state.
+    evidence: [aggregation-privacy, reconciliation]
+
+  - id: B7-05
+    repository: Backend-Lembar
+    sprint: B7
+    title: School pilot security and operations gate
+    status: BLOCKED
+    depends_on: [B7-01, B7-02, B7-03, B7-04]
+    decisions: []
+    outcome: Tenant/admin adversarial, onboarding, support, and pilot release evidence.
+    evidence: [school-e2e, security-review, owner-acceptance]
+
+  - id: X6-01
+    repository: both
+    sprint: X6
+    title: Marketing CMS cross-repository integration gate
+    status: BLOCKED
+    depends_on: [B1-06, B6-06, F1-06, F6-05]
+    decisions: [P-011, P-012, D-017]
+    outcome: Published changes propagate safely to all marketing routes and ops workflows pass end to end.
+    evidence: [generated-client-drift, publish-under-60s, public-cache, preview-isolation, rollback, screenshots]
