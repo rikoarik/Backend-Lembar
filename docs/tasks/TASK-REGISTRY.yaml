@@ -1,5 +1,15 @@
 version: "1.2"
 updated_at: "2026-07-19"
+execution_target: COMPLETE_LEMBAR_WEB_V1
+checkpoint:
+  mode: shutdown
+  reason: owner_expected_host_shutdown
+  integration_branch: ao/backend-integration
+  integration_commit: b3b0716c4d499d523418594a915903cd5c4a28af
+  pushed: true
+  completed_scope: [B0-01, B0-02, B0-03, B0-07]
+  paused_scope: [B0-04]
+  next_action: "fetch origin; read this registry; inspect feat/B0-04-pg-drizzle-spike at 4753a29938109fb3e64cfa158be72a69a71c72cc; continue B0-04 from latest pushed checkpoint before assigning new work; after B0-04 acceptance run complete PRD-to-registry gap analysis for Web V1"
 project: lembar
 repositories:
   frontend: rikoarik/Frontend-Lembar
@@ -403,41 +413,114 @@ tasks:
     repository: Backend-Lembar
     sprint: B0
     title: Bootstrap backend modular monolith
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [X0-01]
     decisions: [D-014, D-016, D-018]
     outcome: Accepted Node stack boots API health and worker heartbeat with tooling/CI.
     evidence: [install, typecheck, lint, format, test, build, API-and-worker-smoke]
+    branch: feat/B0-01-bootstrap-v2
+    latest_pushed_commit: b4fa5d38e758c72e261639e9501baa360c4cf985
+    integration_commit: 6727537
+    completed_scope:
+      - Direct Fastify API bootstrap with GET /health.
+      - Worker heartbeat process.
+      - Strict TypeScript, pnpm, ESLint, Prettier, Vitest baseline.
+      - B0-01 prompt reconciled from stale NestJS wording to direct Fastify.
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm test
+      - pnpm build
+      - API smoke GET /health on local port
+      - Worker heartbeat smoke
+    verification_still_required: []
+    next_action: "No B0-01 action; preserve as accepted foundation."
 
   - id: B0-02
     repository: Backend-Lembar
     sprint: B0
     title: Per-process runtime config
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B0-01]
     decisions: []
     outcome: Typed API/worker schemas, safe local defaults, production strictness, redaction.
     evidence: [dev-test-prod-config-tests, secret-scan]
+    branch: feat/B0-02-runtime-config
+    latest_pushed_commit: c97554514e9898c9143175be827229a06f2dc968
+    integration_commit: a6755ea
+    completed_scope:
+      - src/config base/api/worker env parsers.
+      - Redaction-safe ConfigError.
+      - API and worker bootstrap consume typed config.
+      - README and .env.example updated.
+    verification_executed:
+      - Built branch and exercised API /health with defaults.
+      - Exercised worker heartbeat with defaults.
+      - APP_ENV=production without PUBLIC_APP_URL exits 1 naming key only.
+      - API_PORT=abc exits 1 naming key only.
+      - Integration smoke after merge reproduced behavior.
+    verification_still_required:
+      - Full secret scan in CI/security task.
+    next_action: "No B0-02 action; B0-04 dependency is satisfied."
 
   - id: B0-03
     repository: Backend-Lembar
     sprint: B0
     title: OpenAPI and error artifact pipeline
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B0-01]
     decisions: [D-017]
     outcome: Validated OpenAPI, stable errors/request IDs, published artifact and breaking check.
     evidence: [schema-lint, contract-test, artifact-checksum]
+    branch: feat/B0-03-openapi-pipeline
+    latest_pushed_commit: eec76fa57678487e9cd4d3a193d6c56767f58053
+    integration_commit: bd20dae
+    completed_scope:
+      - contracts/openapi.yaml, previous baseline, checksum.
+      - openapi:validate and openapi:breaking scripts.
+      - ErrorEnvelope/ApiError and request-id middleware.
+      - Fastify 404/internal error envelope handling.
+    verification_executed:
+      - pnpm openapi:validate
+      - pnpm openapi:breaking
+      - API /health with x-request-id echo.
+      - API 404 envelope with supplied and generated request IDs.
+      - Post-merge smoke verified B0-02 config metadata plus B0-03 request IDs/envelopes.
+    verification_still_required:
+      - CI drift check should ensure openapi:validate cannot silently rewrite checksum without failing.
+    next_action: "No B0-03 action; frontend client and contract expansion can build on contracts/openapi.yaml."
 
   - id: B0-04
     repository: Backend-Lembar
     sprint: B0
     title: PostgreSQL ORM and migration spike
-    status: BLOCKED
+    status: PAUSED
     depends_on: [B0-01, B0-02]
     decisions: [D-003]
     outcome: Measured migration/query/deploy PoC and accepted ORM ADR.
     evidence: [migration-roundtrip, constraints, footprint, ADR]
+    branch: feat/B0-04-pg-drizzle-spike
+    latest_pushed_commit: 4753a29938109fb3e64cfa158be72a69a71c72cc
+    checkpoint_reason: owner_expected_host_shutdown
+    completed_scope:
+      - Branch fast-forwarded to integration commit bd20dae after B0-02/B0-03.
+      - Empty interrupted checkpoint commit created by worker; no implementation files yet.
+    remaining_scope:
+      - Add Drizzle + pg dependencies and drizzle.config.ts.
+      - Add minimal database schema/migration and DB config slot.
+      - Add runtime DB roundtrip smoke applying migration and insert/select.
+      - Add ADR/spike evidence and README/.env.example updates.
+    changed_files_or_modules: []
+    verification_executed:
+      - None for B0-04 implementation; no implementation files existed before checkpoint.
+    verification_still_required:
+      - pnpm typecheck/lint/format:check/build
+      - DB migration/query roundtrip against disposable/local PostgreSQL
+      - Redaction check for DATABASE_URL
+    blockers: []
+    next_action: "Resume B0-04 from feat/B0-04-pg-drizzle-spike at 4753a29938109fb3e64cfa158be72a69a71c72cc; if old AO worker is gone, spawn one fresh worker on the same branch and continue the original B0-04 contract."
 
   - id: B0-05
     repository: Backend-Lembar
@@ -463,11 +546,30 @@ tasks:
     repository: Backend-Lembar
     sprint: B0
     title: Private storage and A4 PDF spikes
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B0-04]
     decisions: [D-006, D-020]
     outcome: Private upload/download plus isolated deterministic A4 renderer evidence.
     evidence: [signed-access, egress-block, golden-PDF, ADRs]
+    branch: feat/B0-07-storage-pdf-spike
+    latest_pushed_commit: 45b58659c98e325610f7762823e51665ddd75fd4
+    integration_commit: b3b0716c4d499d523418594a915903cd5c4a28af
+    dependency_note: "Executed early in owner-approved spike mode even though original registry listed B0-04 dependency; production storage/PDF decisions remain open."
+    completed_scope:
+      - StorageAdapter with memory/local drivers.
+      - RenderAdapter with deterministic stub and disabled Playwright path.
+      - storage:smoke and pdf:smoke runtime scripts.
+      - docs/adr/B0-07-spike.md boundary and owner questions.
+    verification_executed:
+      - pnpm build
+      - pnpm storage:smoke memory driver
+      - STORAGE_DRIVER=local pnpm storage:smoke
+      - pnpm pdf:smoke deterministic golden hash
+      - PDF_RENDERER=playwright pnpm pdf:smoke exits nonzero with clear non-secret disabled message
+      - Integration smoke after conflict resolution.
+    verification_still_required:
+      - Production provider decision/integration after D-006 and D-020 acceptance.
+    next_action: "No B0-07 spike action; downstream B2/B5 tasks must replace stubs with accepted adapters only after decisions."
 
   - id: B0-08
     repository: Backend-Lembar
