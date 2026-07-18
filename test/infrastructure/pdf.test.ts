@@ -1,0 +1,24 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+
+import { describe, expect, it } from 'vitest';
+
+import { StubHtmlToPdfAdapter } from '../../src/infrastructure/pdf/StubHtmlToPdfAdapter.js';
+
+const GOLDEN_SHA256 = '4e39e9a4160996e94a32f87ef7411d3a354542b938e01edc0b628681c2836463';
+
+describe('StubHtmlToPdfAdapter', () => {
+  it('renders deterministic bytes for the A4 fixture', async () => {
+    const html = await readFile('src/infrastructure/pdf/fixture-a4.html', 'utf8');
+    const adapter = new StubHtmlToPdfAdapter();
+    const artifact = await adapter.renderPdf(html, {
+      pageFormat: 'A4',
+      marginMm: { top: 20, right: 16, bottom: 20, left: 16 },
+      printBackground: true,
+      locale: 'id-ID',
+    });
+    const sha = createHash('sha256').update(artifact.bytes).digest('hex');
+    expect(sha).toBe(GOLDEN_SHA256);
+    expect(artifact.mediaType).toBe('application/pdf');
+  });
+});

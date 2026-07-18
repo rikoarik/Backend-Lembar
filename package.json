@@ -16,6 +16,8 @@
     "format:check": "prettier --check .",
     "test": "pnpm build && vitest run",
     "test:watch": "vitest",
+    "storage:smoke": "pnpm build && node dist/smoke/storage.js",
+    "pdf:smoke": "pnpm build && node dist/smoke/pdf.js",
     "start:api": "node dist/bootstrap/api.js",
     "start:worker": "node dist/bootstrap/worker.js"
   },
