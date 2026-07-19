@@ -12,6 +12,7 @@ export const STABLE_ERROR_CODES = [
   'INTERNAL_ERROR',
   'WORKSPACE_ACCESS_DENIED',
   'RATE_LIMITED',
+  'IDEMPOTENCY_KEY_REUSED',
 ] as const;
 
 export type StableErrorCode = (typeof STABLE_ERROR_CODES)[number];
@@ -48,6 +49,7 @@ const HTTP_BY_CODE: Readonly<Record<StableErrorCode, number>> = {
   INTERNAL_ERROR: 500,
   WORKSPACE_ACCESS_DENIED: 404,
   RATE_LIMITED: 429,
+  IDEMPOTENCY_KEY_REUSED: 409,
 };
 
 export function isStableErrorCode(value: string): value is StableErrorCode {

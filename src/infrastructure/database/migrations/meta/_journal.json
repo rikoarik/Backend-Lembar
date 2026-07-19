@@ -15,6 +15,20 @@
       "when": 1784432600000,
       "tag": "0002_users_role_check",
       "breakpoints": false
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784500000000,
+      "tag": "0003_queue_spike",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1784435661034,
+      "tag": "0003_pretty_wendigo",
+      "breakpoints": true
     }
   ]
 }

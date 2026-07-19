@@ -7,6 +7,7 @@ import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 
 import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/errors/envelope.js';
 import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
+import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRoutes.js';
 
 export interface HealthResponse {
   status: 'ok';
@@ -79,6 +80,8 @@ export async function buildApp(
       timestamp: new Date().toISOString(),
     };
   });
+
+  await app.register(registerJobRoutes);
 
   app.setNotFoundHandler((req, reply) => {
     const id = req.requestId ?? 'req_unknown';

@@ -19,6 +19,7 @@ describe('error envelope', () => {
       'INTERNAL_ERROR',
       'WORKSPACE_ACCESS_DENIED',
       'RATE_LIMITED',
+      'IDEMPOTENCY_KEY_REUSED',
     ]);
   });
 
