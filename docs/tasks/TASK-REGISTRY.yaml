@@ -88,10 +88,18 @@ context_management:
     reconstruct_state_and_resume: true
   notes: "Conversation history is not authoritative; the registry and git remote state are. Re-run any check whose success is not persisted before declaring it complete."
 
-active_workers: []
+active_workers:
+  - task: B2-01
+    session: backend-lembar-22
+    branch: feat/B2-01-private-pdf-upload-lifecycle
+    status: idle
+  - task: B6-06
+    session: backend-lembar-23
+    branch: feat/B6-06-marketing-cms-authoring
+    status: idle
 
 completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-08, B0-09, B1-01, B1-02, B1-03, B1-04, B1-05, B1-06]
-active_scope: []
+active_scope: [B2-01, B6-06]
 paused_scope: []
 ready_scope: []
 
@@ -1021,12 +1029,14 @@ tasks:
     repository: Backend-Lembar
     sprint: B2
     title: Private PDF upload lifecycle
-    status: READY
+    status: IN_PROGRESS
     depends_on: [B1-03, B0-07]
     decisions: [D-006]
     outcome: Intent, verification, private object, access, and delete request.
     evidence: [magic-size-check, cross-tenant-signed-URL, redaction]
-    next_action: "B2-01 READY after B1-03 and B0-07 acceptance; candidate after remaining B1/B0 tasks."
+    branch: feat/B2-01-private-pdf-upload-lifecycle
+    dependency_note: "Dispatched on backend-lembar-22 after owner directive and B1-03/B0-07 acceptance. An orphaned partial implementation lives on wip/B2-01-orphan-recovery for reference only; the worker must re-author every file against .impeccable/contracts/B2-01.md."
+    next_action: "Worker backend-lembar-22 is implementing B2-01 on feat/B2-01-private-pdf-upload-lifecycle. Orchestrator will review on handoff against the contract."
 
   - id: B2-02
     repository: Backend-Lembar
@@ -1275,12 +1285,13 @@ tasks:
     repository: Backend-Lembar
     sprint: B6
     title: Superadmin marketing CMS authoring and publication
-    status: BLOCKED
+    status: IN_PROGRESS
     depends_on: [B1-06, B1-03]
     decisions: [P-011, P-012]
     outcome: Audited superadmin draft, preview, publish, unpublish, and restore commands with concurrency safety.
     evidence: [permission-matrix, csrf, revision-conflict, unsafe-content, immutable-version, audit-transaction]
-    dependency_note: "CMS authoring reuses auth/permission/audit from B1-03; it does not require B6-03 broad superadmin ops or B3-05 AI eval."
+    branch: feat/B6-06-marketing-cms-authoring
+    dependency_note: "Dependencies B1-06 and B1-03 are already ACCEPTED, so the prior BLOCKED state was stale. CMS authoring reuses auth/permission/audit from B1-03; it does not require B6-03 broad superadmin ops or B3-05 AI eval. Dispatched on backend-lembar-23."
 
   - id: B7-01
     repository: Backend-Lembar
