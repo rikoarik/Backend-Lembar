@@ -90,10 +90,10 @@ context_management:
 
 active_workers: []
 
-completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-09, B1-01, B1-02, B1-03, B1-04, B1-05]
+completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-09, B1-01, B1-02, B1-03, B1-04, B1-05, B1-06]
 active_scope: []
 paused_scope: []
-ready_scope: [B0-08, B1-06, B2-01]
+ready_scope: [B0-08, B2-01]
 
 branch_policy:
   status: active
@@ -955,13 +955,38 @@ tasks:
     repository: Backend-Lembar
     sprint: B1
     title: Marketing content domain and published read API
-    status: READY
+    status: ACCEPTED
     depends_on: [B0-03, B0-04]
     decisions: [P-011, P-012, T-005, T-006, D-003, D-017]
     outcome: Versioned PostgreSQL content model serves published-only page/global projections with ETag.
     evidence: [migration, published-only, draft-nondisclosure, schema-validation, etag-304, no-queue]
+    branch: feat/B1-06-marketing-content-read-api
+    latest_pushed_commit: bf0e754824e8ba4aa3a228e34374f846497d206d
+    integration_commit: d884de5
     dependency_note: "Public CMS read API is unauthenticated and published-only per MARKETING-CMS-BACKEND.md; superadmin ops permission matrix belongs in B6-06."
-    next_action: "B1-06 READY; public CMS read API can proceed in parallel after higher-priority B1-01 dispatch."
+    completed_scope:
+      - migration 0007_marketing_content.sql adding marketing_content + marketing_content_versions tables with cascading tenant FKs and version >=1 CHECK.
+      - Versioned published-only read API: GET /v1/public/marketing/global and GET /v1/public/marketing/pages/:slug with ETag (sha256 over stable sorted JSON) and 304 honoring If-None-Match.
+      - Hardened published-payload validation (block type/theme allowlists, exact-key allowlists for global/page/block/item/CTA/SEO, max field lengths, max array bounds, and safe href schemes) so the unauthenticated public surface cannot serve arbitrary CMS fields, oversized strings, or javascript:/data: hrefs.
+      - test/modules/marketing/routes.test.ts covering published-only reads, draft nondisclosure, ETag/304, schema rejection, locale rejection, javascript: href rejection, unknown field rejection, and oversized nested strings.
+      - docs/adr/B1-06-marketing-content-read-api.md documenting published-only read model and deferred superadmin authoring (B6-06).
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm build
+      - pnpm test (88 passed / 30 skipped; +5 marketing tests covered separately against DATABASE_URL)
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar pnpm vitest run test/modules/marketing/routes.test.ts (5 passed)
+      - pnpm openapi:validate
+      - pnpm openapi:breaking (additive 1, breaking 0)
+      - pnpm db:check
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm db:smoke
+    verification_still_required:
+      - Cross-suite DB-backed auth/notification/curriculum failures remain pre-existing on the integration base and are not regressions from B1-06 (no marketing code touched).
+      - Superadmin draft/preview/publish/unpublish/restore authoring flows are deferred to B6-06.
+      - Public CMS fallback on stale 5xx and audit/observability belongs to later ops tasks.
+    next_action: "B1-06 ACCEPTED; B6-06 superadmin authoring is unblocked, and frontend F1-06 can consume the published read API."
 
   - id: B2-01
     repository: Backend-Lembar
