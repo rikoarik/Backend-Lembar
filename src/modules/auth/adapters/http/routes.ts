@@ -88,7 +88,8 @@ export async function registerAuthRoutes(
   });
 
   app.get('/v1/me', async (request) => {
-    return auth.currentContext(requireSessionCookie(request));
+    const me = await auth.currentAccount(requireSessionCookie(request));
+    return { data: me };
   });
 }
 

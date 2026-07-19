@@ -1,13 +1,20 @@
 // Auth spike CLI smoke. Exercises the contract flow against an in-process Fastify
-// app wired to an in-memory auth store. Exits `0` on success, `1` on any failure
+// app wired to the DB-backed auth store when DATABASE_URL is set. Exits `0` on success, `1` on any failure
 // with a redacted envelope.
 //
 // Usage:
 //   pnpm build && node dist/smoke/auth.js
 
+import { closeDatabase, createDatabase } from '../infrastructure/database/db.js';
 import { buildApp } from '../bootstrap/app.js';
 import { InMemoryAuthStore } from '../modules/auth/adapters/persistence/InMemoryAuthStore.js';
+import { PostgresAuthStore } from '../modules/auth/adapters/persistence/PostgresAuthStore.js';
 import { createAuthService } from '../modules/auth/application/createAuthService.js';
+import type {
+  NotificationAdapter,
+  NotificationSendInput,
+  NotificationSendResult,
+} from '../modules/notifications/domain/NotificationAdapter.js';
 
 interface SmokeStep {
   label: string;
@@ -16,9 +23,11 @@ interface SmokeStep {
 }
 
 interface MeBody {
-  userId: string;
-  activeWorkspaceId: string;
-  workspaceIds: string[];
+  data: {
+    account: { id: string; displayName: string };
+    activeWorkspaceId: string;
+    workspaces: Array<{ id: string; type: 'personal' | 'school'; name: string; role: string }>;
+  };
 }
 
 type CookieJar = Record<string, string>;
@@ -26,11 +35,38 @@ type CookieJar = Record<string, string>;
 const ALLOWED_ORIGIN = 'http://localhost:3000';
 const BOOTSTRAP_CSRF = 'bootstrap';
 
+type Runtime = {
+  auth: ReturnType<typeof createAuthService>;
+  tokenFromNotification(templateKey: string): string | null;
+  close(): Promise<void>;
+};
+
+function createRuntime(): Runtime {
+  const databaseUrl = process.env['DATABASE_URL'];
+  if (databaseUrl) {
+    const db = createDatabase({ connectionString: databaseUrl });
+    const adapter = new RecordingNotificationAdapter();
+    return {
+      auth: createAuthService({
+        store: new PostgresAuthStore({ db, notificationAdapter: adapter }),
+      }),
+      tokenFromNotification: (templateKey) => adapter.tokenFromNotification(templateKey),
+      close: () => closeDatabase(db),
+    };
+  }
+
+  const store = new InMemoryAuthStore();
+  return {
+    auth: createAuthService({ store }),
+    tokenFromNotification: (templateKey) => store.tokenFromNotification(templateKey),
+    close: async () => {},
+  };
+}
+
 async function main(): Promise<void> {
   const steps: SmokeStep[] = [];
-  const store = new InMemoryAuthStore();
-  const auth = createAuthService({ store });
-  const app = await buildApp({ logger: false, auth });
+  const runtime = createRuntime();
+  const app = await buildApp({ logger: false, auth: runtime.auth });
   await app.ready();
 
   try {
@@ -70,19 +106,29 @@ async function main(): Promise<void> {
       cookies: loginCookies,
     });
     const meBody = me.json() as MeBody;
+    steps.push(
+      step(
+        'me-personal-workspace-context',
+        meBody.data.workspaces.some(
+          (workspace) =>
+            workspace.id === meBody.data.activeWorkspaceId && workspace.type === 'personal',
+        ),
+        me.statusCode,
+      ),
+    );
     const switched = await app.inject({
       method: 'POST',
       url: '/v1/auth/workspace/switch',
       headers: { origin: ALLOWED_ORIGIN, 'x-csrf-token': loginCsrf },
       cookies: loginCookies,
-      payload: { workspaceId: meBody.activeWorkspaceId },
+      payload: { workspaceId: meBody.data.activeWorkspaceId },
     });
     steps.push(
       step('csrf-passed-and-workspace-switch', switched.statusCode === 200, switched.statusCode),
     );
 
-    await auth.requestRecovery({ email });
-    const recoveryToken = store.tokenFromNotification('auth.recovery');
+    await runtime.auth.requestRecovery({ email });
+    const recoveryToken = runtime.tokenFromNotification('auth.recovery');
     if (!recoveryToken) throw new Error('recovery notification token missing');
     const recovery = await app.inject({
       method: 'POST',
@@ -139,13 +185,13 @@ async function main(): Promise<void> {
       ),
     );
 
-    await auth.createSchoolInvitation({
+    await runtime.auth.createSchoolInvitation({
       email: `invitee-${Date.now()}@example.test`,
       role: 'teacher',
-      workspaceId: meBody.activeWorkspaceId,
-      createdByUserId: meBody.userId,
+      workspaceId: meBody.data.activeWorkspaceId,
+      createdByUserId: meBody.data.account.id,
     });
-    const inviteToken = store.tokenFromNotification('workspace.invite');
+    const inviteToken = runtime.tokenFromNotification('workspace.invite');
     if (!inviteToken) throw new Error('invite notification token missing');
     const consume = await app.inject({
       method: 'POST',
@@ -219,6 +265,7 @@ async function main(): Promise<void> {
     );
   } finally {
     await app.close();
+    await runtime.close();
   }
 
   const failed = steps.filter((entry) => !entry.ok);
@@ -229,6 +276,24 @@ async function main(): Promise<void> {
   };
   process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
   process.exit(failed.length === 0 ? 0 : 1);
+}
+
+class RecordingNotificationAdapter implements NotificationAdapter {
+  private readonly tokens = new Map<string, string>();
+
+  async send(input: NotificationSendInput): Promise<NotificationSendResult> {
+    const code = input.payload['code'];
+    if (typeof code === 'string') this.tokens.set(input.templateKey, code);
+    const acceptUrl = input.payload['accept_url'];
+    if (typeof acceptUrl === 'string') {
+      this.tokens.set(input.templateKey, new URL(acceptUrl).searchParams.get('token') ?? '');
+    }
+    return { id: input.eventId, status: 'dispatched' };
+  }
+
+  tokenFromNotification(templateKey: string): string | null {
+    return this.tokens.get(templateKey) ?? null;
+  }
 }
 
 function step(label: string, ok: boolean, statusCode: number): SmokeStep {

@@ -153,7 +153,43 @@ export class InMemoryAuthStore implements AuthStore {
   }
 
   async transaction<T>(fn: (store: AuthStore) => Promise<T>): Promise<T> {
-    return fn(this);
+    const snapshot = {
+      users: new Map(this.users),
+      usersByEmail: new Map(this.usersByEmail),
+      workspaces: new Map(this.workspaces),
+      memberships: new Map(this.memberships),
+      sessions: new Map(this.sessions),
+      recoveryTokens: new Map(this.recoveryTokens),
+      invitations: new Map(this.invitations),
+      audits: [...this.audits],
+      rateLimits: new Map(this.rateLimits),
+      notifications: [...this.notifications],
+    };
+    try {
+      return await fn(this);
+    } catch (err) {
+      this.users.clear();
+      for (const entry of snapshot.users) this.users.set(...entry);
+      this.usersByEmail.clear();
+      for (const entry of snapshot.usersByEmail) this.usersByEmail.set(...entry);
+      this.workspaces.clear();
+      for (const entry of snapshot.workspaces) this.workspaces.set(...entry);
+      this.memberships.clear();
+      for (const entry of snapshot.memberships) this.memberships.set(...entry);
+      this.sessions.clear();
+      for (const entry of snapshot.sessions) this.sessions.set(...entry);
+      this.recoveryTokens.clear();
+      for (const entry of snapshot.recoveryTokens) this.recoveryTokens.set(...entry);
+      this.invitations.clear();
+      for (const entry of snapshot.invitations) this.invitations.set(...entry);
+      this.audits.length = 0;
+      this.audits.push(...snapshot.audits);
+      this.rateLimits.clear();
+      for (const entry of snapshot.rateLimits) this.rateLimits.set(...entry);
+      this.notifications.length = 0;
+      this.notifications.push(...snapshot.notifications);
+      throw err;
+    }
   }
 
   private membershipKey(userId: string, workspaceId: string): string {

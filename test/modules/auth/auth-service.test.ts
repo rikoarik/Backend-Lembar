@@ -55,17 +55,62 @@ describe('AuthService', () => {
       email: ' Teacher@Example.test ',
       password: 'passphrase-1',
     });
+    const context = await service.currentContext(
+      (await service.login({ email: 'teacher@example.test', password: 'passphrase-1' })).session.id,
+    );
     const second = await service.register({
       email: 'teacher@example.test',
       password: 'passphrase-1',
     });
 
     expect(first.status).toBe('created');
+    expect(context).toMatchObject({
+      userId: first.userId,
+      activeWorkspaceId: first.workspaceId,
+      workspaceIds: [first.workspaceId],
+    });
     expect(second.status).toBe('accepted');
+    expect(second.workspaceId).toBe(first.workspaceId);
     expect(second.message).toBe(
       'Jika pendaftaran dapat diproses, instruksi berikutnya akan dikirim.',
     );
     expect(await service.auditCount('register')).toBe(1);
+  });
+
+  test('repairs existing accounts that are missing personal workspace context', async () => {
+    const store = new InMemoryAuthStore();
+    await store.saveUser({
+      id: randomUUID(),
+      email: 'teacher@example.test',
+      passwordHash: 'legacy-hash',
+      sessionVersion: 1,
+      createdAt: new Date('2026-07-18T10:00:00.000Z'),
+    });
+    const service = buildService(store);
+
+    const result = await service.register({
+      email: 'teacher@example.test',
+      password: 'passphrase-1',
+    });
+
+    expect(result.status).toBe('accepted');
+    expect(result.workspaceId).not.toBe(result.userId);
+    expect(await store.getMembership(result.userId, result.workspaceId)).toMatchObject({
+      state: 'active',
+    });
+  });
+
+  test('rolls back first account creation when personal workspace membership creation fails', async () => {
+    const store = new FailingMembershipStore();
+    const service = buildService(store);
+
+    await expect(
+      service.register({ email: 'teacher@example.test', password: 'passphrase-1' }),
+    ).rejects.toThrow('membership write failed');
+
+    expect(await store.getUserByEmail('teacher@example.test')).toBeNull();
+    expect(store.workspaceId).not.toBeNull();
+    expect(await store.getWorkspace(store.workspaceId!)).toBeNull();
   });
 
   test('login rotates session id and logout revokes the session', async () => {
@@ -302,6 +347,10 @@ describeDb('AuthService with Postgres store', () => {
       email: uniqueEmail('switch'),
       password: 'passphrase-1',
     });
+    const other = await service.register({
+      email: uniqueEmail('switch-other'),
+      password: 'passphrase-1',
+    });
     const email = await emailFor(db, registered.userId);
     const login = await service.login({ email, password: 'passphrase-1' });
     const extraWorkspaceId = randomUUID();
@@ -327,9 +376,68 @@ describeDb('AuthService with Postgres store', () => {
     expect(switched.activeWorkspaceId).toBe(extraWorkspaceId);
     expect(me.activeWorkspaceId).toBe(extraWorkspaceId);
     await expect(
+      service.switchWorkspace({ sessionId: login.session.id, workspaceId: other.workspaceId }),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_ACCESS_DENIED' });
+    await expect(
       service.switchWorkspace({ sessionId: login.session.id, workspaceId: randomUUID() }),
     ).rejects.toMatchObject({ code: 'WORKSPACE_ACCESS_DENIED' });
   });
+
+  test('rolls back first account creation in the DB-backed path when membership creation fails', async () => {
+    const db = createDatabase({ connectionString: DATABASE_URL! });
+    dbs.push(db);
+    await ensureTables(db);
+    const store = new FailingMembershipPostgresStore(db);
+    const service = new AuthService({
+      store,
+      now: () => new Date('2026-07-19T10:00:00.000Z'),
+      sessionIdleMs: 30 * 60 * 1000,
+      sessionAbsoluteMs: 8 * 60 * 60 * 1000,
+      recoveryTokenTtlMs: 15 * 60 * 1000,
+      inviteTokenTtlMs: 60 * 60 * 1000,
+      rateLimitWindowMs: 60_000,
+      rateLimitMax: 5,
+    });
+    const email = uniqueEmail('rollback-db');
+    const beforeAccounts = await getPool(db)!.query<{ count: string }>(
+      'select count(*)::text as count from auth_accounts where email = $1',
+      [email],
+    );
+    const beforeTenants = await getPool(db)!.query<{ count: string }>(
+      "select count(*)::text as count from tenants where slug like 'personal-%'",
+    );
+
+    await expect(service.register({ email, password: 'passphrase-1' })).rejects.toThrow(
+      'membership write failed',
+    );
+
+    const afterAccounts = await getPool(db)!.query<{ count: string }>(
+      'select count(*)::text as count from auth_accounts where email = $1',
+      [email],
+    );
+    const afterTenants = await getPool(db)!.query<{ count: string }>(
+      "select count(*)::text as count from tenants where slug like 'personal-%'",
+    );
+
+    expect(afterAccounts.rows[0]?.count).toBe(beforeAccounts.rows[0]?.count);
+    expect(afterTenants.rows[0]?.count).toBe(beforeTenants.rows[0]?.count);
+  });
+
+  class FailingMembershipPostgresStore extends PostgresAuthStore {
+    constructor(private readonly dbRef: Database) {
+      super({ db: dbRef, notificationAdapter: new MemoryNotificationAdapter() });
+    }
+
+    override async saveMembership(): Promise<void> {
+      throw new Error('membership write failed');
+    }
+
+    override async transaction<T>(fn: (store: AuthStore) => Promise<T>): Promise<T> {
+      return this.dbRef.transaction(async (tx) =>
+        fn(new FailingMembershipPostgresStore(tx as Database)),
+      );
+    }
+  }
 
   async function setupDb(): Promise<{
     db: Database;
@@ -387,6 +495,21 @@ async function ensureTables(db: Database): Promise<void> {
     }
   } finally {
     await pool.query('select pg_advisory_unlock(91919)');
+  }
+}
+
+class FailingMembershipStore extends InMemoryAuthStore {
+  workspaceId: string | null = null;
+
+  override async saveWorkspace(
+    workspace: Parameters<AuthStore['saveWorkspace']>[0],
+  ): Promise<void> {
+    this.workspaceId = workspace.id;
+    await super.saveWorkspace(workspace);
+  }
+
+  override async saveMembership(): Promise<void> {
+    throw new Error('membership write failed');
   }
 }
 
