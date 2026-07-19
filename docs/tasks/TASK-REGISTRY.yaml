@@ -784,7 +784,7 @@ tasks:
     branch: feat/B1-01-account-session-integration
     latest_pushed_commit: 35a06ef
     integration_commit: ba2f8df
-    dev_commit: PENDING
+    dev_commit: 07c6b54
     dependency_note: "Takeover worker backend-lembar-14 completed the task after backend-lembar-13 became context-full; one approved surface expansion added src/modules/auth/adapters/persistence/PostgresAuthStore.ts as the smallest safe DB-backed persistence seam."
     completed_scope:
       - DB-backed auth/session persistence via PostgresAuthStore.
