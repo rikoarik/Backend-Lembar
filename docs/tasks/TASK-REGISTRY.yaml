@@ -1,4 +1,4 @@
-version: "1.7"
+version: "1.8"
 updated_at: "2026-07-19"
 execution_target: COMPLETE_LEMBAR_WEB_V1
 checkpoint:
@@ -90,10 +90,10 @@ context_management:
 
 active_workers: []
 
-completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-09, B1-04]
+completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-09, B1-01, B1-04]
 active_scope: []
 paused_scope: []
-ready_scope: [B0-08, B1-01, B1-06]
+ready_scope: [B0-08, B1-02, B1-06]
 
 branch_policy:
   status: active
@@ -776,22 +776,47 @@ tasks:
     repository: Backend-Lembar
     sprint: B1
     title: Account and session integration
-    status: READY
+    status: ACCEPTED
     depends_on: [B0-03, B0-04, B0-05, B0-09]
     decisions: [D-002, D-007]
     outcome: Register/login/logout/recovery with audit and revocation; recovery delivery routes through B0-09 notification adapter.
     evidence: [integration, CSRF, rate-limit, no-secret-log]
-    next_action: "B1-01 READY; start account/session integration against accepted B0-05 auth spike and B0-09 notification adapter."
+    branch: feat/B1-01-account-session-integration
+    latest_pushed_commit: 35a06ef
+    integration_commit: ba2f8df
+    dev_commit: PENDING
+    dependency_note: "Takeover worker backend-lembar-14 completed the task after backend-lembar-13 became context-full; one approved surface expansion added src/modules/auth/adapters/persistence/PostgresAuthStore.ts as the smallest safe DB-backed persistence seam."
+    completed_scope:
+      - DB-backed auth/session persistence via PostgresAuthStore.
+      - Recovery and invitation delivery integrated with the accepted B0-09 notification adapter/outbox.
+      - Updated auth smoke, DB smoke compatibility, and notification integration tests.
+      - B1-01 ADR documenting why the repo remains library-light (no Better Auth yet).
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm build
+      - pnpm test (80 passed / 24 skipped)
+      - pnpm openapi:validate && pnpm openapi:breaking (0 breaking)
+      - pnpm db:check
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm db:smoke
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm auth:smoke
+    verification_still_required:
+      - Mobile bearer-token path remains explicitly deferred.
+      - Future auth-library migration only if owner later accepts a provider beyond the internal module.
+    next_action: "B1-01 ACCEPTED; B1-02 personal workspace and tenant context is now READY."
 
   - id: B1-02
     repository: Backend-Lembar
     sprint: B1
     title: Personal workspace and tenant context
-    status: BLOCKED
+    status: READY
     depends_on: [B1-01]
     decisions: []
     outcome: Atomic personal workspace and verified active-workspace context.
     evidence: [transaction, tenant-adversarial, cache-scope]
+    next_action: "B1-02 READY after B1-01 acceptance; highest-priority next backend task."
 
   - id: B1-03
     repository: Backend-Lembar
