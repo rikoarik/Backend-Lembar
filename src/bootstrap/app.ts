@@ -13,6 +13,7 @@ import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRout
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
 import { registerCurriculumRoutes } from '../modules/curriculum/adapters/http/routes.js';
 import { registerMarketingRoutes } from '../modules/marketing/adapters/http/routes.js';
+import { registerMarketingOpsRoutes } from '../modules/marketing/adapters/http/opsRoutes.js';
 import { registerNotificationRoutes } from '../modules/notifications/adapters/http/routes.js';
 import { registerUploadRoutes } from '../modules/uploads/adapters/http/routes.js';
 import { registerUploadsAuthHook } from '../modules/uploads/adapters/http/preHandler.js';
@@ -148,10 +149,14 @@ export async function buildApp(
   }
   if (marketingDb) {
     await registerMarketingRoutes(app, { db: marketingDb });
+    await registerMarketingOpsRoutes(app, { db: marketingDb });
   }
   await app.register(registerNotificationRoutes, notificationDb ? { db: notificationDb } : {});
   await registerUploadsAuthHook(app);
-  await registerUploadRoutes(app, options.uploadsDb ? { db: options.uploadsDb } : { factory: 'memory' });
+  await registerUploadRoutes(
+    app,
+    options.uploadsDb ? { db: options.uploadsDb } : { factory: 'memory' },
+  );
 
   return app;
 }
