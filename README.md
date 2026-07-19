@@ -139,6 +139,35 @@ they are added per process by later tasks and must never be committed.
 - BullMQ/Redis remains a documented stub seam only (`src/infrastructure/queue/adapters/bullmq/`).
 - See `docs/adr/B0-06-spike.md` for the decision, footprint, and rollback notes.
 
+## Curriculum catalog (B1-04)
+
+- D-012 versioned curriculum catalog: five mutable head tables (`curricula`, `grades`, `phases`,
+  `subjects`, `outcomes`, `materials`) plus five immutable `*_versions` tables. A draft edit
+  mutates only the head row's `current_version`; a publish inserts a new version row and
+  advances `published_version`. Uniqueness on `(parent_id, version)` serializes concurrent
+  publishes; `CHECK (version >= 1)` enforces monotonicity.
+- HTTP surface under `/v1/curriculum/*` (`src/modules/curriculum/adapters/http/routes.ts`):
+  public read endpoints (`GET .../:tenantSlug`, `GET .../:id/versions[/:version]`) honor
+  `If-None-Match` against a deterministic `sha256`-of-payload ETag. Write endpoints require a
+  stub `Authorization: Bearer …` header (the B1-03 permission layer will replace it).
+  Drafts never appear in any read response or in any log.
+- Source-rights gate: `POST /v1/curriculum/{resource}/{id}/source-rights-gate` plus a server
+  check inside the publish transaction. Only `license:internal`, `license:cc-by`, and
+  `license:cc-by-sa` pass; everything else returns `400 VALIDATION_FAILED` with the Bahasa
+  stable envelope.
+- Migration `src/infrastructure/database/migrations/0004_curriculum_catalog.sql` is additive;
+  no prior migration is altered.
+- Tests: `test/modules/curriculum/versioning.test.ts` (8 scenarios — draft stability, atomic
+  publish, concurrent serialization, source-rights gate, draft filtering, ETag determinism,
+  paginated 100-cap history, cross-tenant isolation) and
+  `test/modules/curriculum/source-rights.test.ts` (parametrized license matrix).
+- Run `pnpm curriculum:smoke` against a disposable Postgres for the end-to-end walk; the
+  contract also keeps `pnpm db:smoke` redacted and stable.
+- See `docs/adr/B1-04-curriculum-catalog.md` for the immutable-version model, public-read
+  rationale, ETag strategy, and the deferred items (school-level overrides, public-school
+  directory projection, CMS-side visual maps, worker-driven publish, object-storage of
+  curriculum assets).
+
 ## Spike configuration
 
 ```bash

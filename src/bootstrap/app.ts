@@ -8,7 +8,9 @@ import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/errors/envelope.js';
 import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
 import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRoutes.js';
+import type { Database } from '../infrastructure/database/db.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
+import { registerCurriculumRoutes } from '../modules/curriculum/adapters/http/routes.js';
 import type { AuthService } from '../modules/auth/application/AuthService.js';
 
 export interface HealthResponse {
@@ -24,6 +26,7 @@ export interface BuildAppOptions {
   serviceName?: string;
   serviceVersion?: string;
   auth?: AuthService;
+  curriculumDb?: Database;
 }
 
 const DEFAULT_SERVICE_NAME = 'lembar-api';
@@ -116,6 +119,9 @@ export async function buildApp(
 
   await registerAuthRoutes(app, options.auth === undefined ? {} : { auth: options.auth });
   await app.register(registerJobRoutes);
+  if (options.curriculumDb) {
+    await registerCurriculumRoutes(app, { db: options.curriculumDb });
+  }
 
   return app;
 }
