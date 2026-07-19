@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { ApiError } from '../../../../common/errors/envelope.js';
 import { REQUEST_ID_HEADER } from '../../../../common/middleware/request-id.js';
+import type { Database } from '../../../../infrastructure/database/db.js';
 import { type AuthService } from '../../application/AuthService.js';
 import { createAuthService } from '../../application/createAuthService.js';
 
@@ -13,6 +14,7 @@ type StateChangingMethod = 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 export interface RegisterAuthRoutesOptions {
   auth?: AuthService;
+  db?: Database;
   allowedOrigins?: string[];
 }
 
@@ -20,7 +22,7 @@ export async function registerAuthRoutes(
   app: FastifyInstance,
   options: RegisterAuthRoutesOptions = {},
 ): Promise<void> {
-  const auth = options.auth ?? createAuthService();
+  const auth = options.auth ?? createAuthService(options.db ? { db: options.db } : {});
   const allowedOrigins = new Set(options.allowedOrigins ?? DEFAULT_ALLOWED_ORIGINS);
 
   app.addHook('preHandler', async (request) => {

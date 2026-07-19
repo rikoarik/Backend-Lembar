@@ -1,3 +1,4 @@
+import type { NotificationSendInput } from '../../../notifications/domain/NotificationAdapter.js';
 import type {
   AuditAction,
   AuditEventRecord,
@@ -8,17 +9,52 @@ import type {
   RecoveryTokenRecord,
   SessionRecord,
   WorkspaceMembership,
+  WorkspaceRecord,
 } from '../../application/AuthService.js';
 
 export class InMemoryAuthStore implements AuthStore {
   private readonly users = new Map<string, AuthUser>();
   private readonly usersByEmail = new Map<string, string>();
+  private readonly workspaces = new Map<string, WorkspaceRecord>();
   private readonly memberships = new Map<string, WorkspaceMembership>();
   private readonly sessions = new Map<string, SessionRecord>();
   private readonly recoveryTokens = new Map<string, RecoveryTokenRecord>();
   private readonly invitations = new Map<string, InvitationRecord>();
   private readonly audits: AuditEventRecord[] = [];
   private readonly rateLimits = new Map<string, RateLimitRecord>();
+  readonly notifications: NotificationSendInput[] = [];
+
+  async sendNotification(input: NotificationSendInput): Promise<void> {
+    this.notifications.push(structuredClone(input));
+  }
+
+  latestNotification(): NotificationSendInput | null {
+    return this.notifications.at(-1) ?? null;
+  }
+
+  notificationCount(templateKey?: string): number {
+    return templateKey
+      ? this.notifications.filter((entry) => entry.templateKey === templateKey).length
+      : this.notifications.length;
+  }
+
+  tokenFromNotification(templateKey: string): string | null {
+    const entry = [...this.notifications]
+      .reverse()
+      .find((item) => item.templateKey === templateKey);
+    if (!entry) return null;
+    const payload = entry.payload as { code?: unknown; accept_url?: unknown };
+    if (typeof payload.code === 'string') return payload.code;
+    if (typeof payload.accept_url === 'string') {
+      const url = new URL(payload.accept_url);
+      return url.searchParams.get('token');
+    }
+    return null;
+  }
+
+  clearNotifications(): void {
+    this.notifications.length = 0;
+  }
 
   async getUserByEmail(email: string): Promise<AuthUser | null> {
     const id = this.usersByEmail.get(email);
@@ -32,6 +68,14 @@ export class InMemoryAuthStore implements AuthStore {
   async saveUser(user: AuthUser): Promise<void> {
     this.users.set(user.id, { ...user });
     this.usersByEmail.set(user.email, user.id);
+  }
+
+  async saveWorkspace(workspace: WorkspaceRecord): Promise<void> {
+    this.workspaces.set(workspace.id, { ...workspace });
+  }
+
+  async getWorkspace(workspaceId: string): Promise<WorkspaceRecord | null> {
+    return this.workspaces.get(workspaceId) ?? null;
   }
 
   async saveMembership(membership: WorkspaceMembership): Promise<void> {
@@ -106,6 +150,10 @@ export class InMemoryAuthStore implements AuthStore {
 
   async saveRateLimit(record: RateLimitRecord): Promise<void> {
     this.rateLimits.set(record.key, { ...record });
+  }
+
+  async transaction<T>(fn: (store: AuthStore) => Promise<T>): Promise<T> {
+    return fn(this);
   }
 
   private membershipKey(userId: string, workspaceId: string): string {
