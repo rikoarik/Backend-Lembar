@@ -210,4 +210,146 @@ describe.skipIf(!hasDb)('marketing published read routes', () => {
       await app.close();
     }
   });
+
+  it('rejects invalid nested CTA hrefs and unknown block fields', async () => {
+    const [content] = await db
+      .insert(marketingContent)
+      .values({
+        kind: 'page',
+        slug: 'untuk-sekolah',
+        locale: 'id-ID',
+        currentVersion: 1,
+        publishedVersion: 1,
+      })
+      .returning();
+    await db.insert(marketingContentVersions).values({
+      contentId: content!.id,
+      version: 1,
+      payload: {
+        schemaVersion: 1,
+        blocks: [
+          {
+            id: 'hero-1',
+            type: 'hero',
+            heading: 'Valid heading',
+            extra: 'should fail',
+            ctas: [
+              {
+                id: 'cta-1',
+                label: 'Klik',
+                href: 'javascript:alert(1)',
+                variant: 'primary',
+                placement: 'hero',
+                audience: 'all',
+                trackingKey: 'hero_click',
+                enabled: true,
+              },
+            ],
+          },
+        ],
+        seo: { title: 'Valid title', description: 'Valid description' },
+      },
+    });
+
+    const app = await buildApp({ logger: false, marketingDb: db });
+    await app.ready();
+    try {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/v1/public/marketing/pages/untuk-sekolah',
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe('VALIDATION_FAILED');
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects invalid global CTA arrays and oversized nested strings', async () => {
+    const [content] = await db
+      .insert(marketingContent)
+      .values({
+        kind: 'global',
+        slug: '__global__',
+        locale: 'id-ID',
+        currentVersion: 1,
+        publishedVersion: 1,
+      })
+      .returning();
+    await db.insert(marketingContentVersions).values({
+      contentId: content!.id,
+      version: 1,
+      payload: {
+        navigation: [
+          {
+            id: 'nav-1',
+            title: 'X'.repeat(201),
+          },
+        ],
+        footer: [],
+        ctas: [
+          {
+            id: 'cta-a',
+            label: 'A',
+            href: '/a',
+            variant: 'primary',
+            placement: 'nav',
+            audience: 'all',
+            trackingKey: 'a',
+            enabled: true,
+          },
+          {
+            id: 'cta-b',
+            label: 'B',
+            href: '/b',
+            variant: 'primary',
+            placement: 'nav',
+            audience: 'all',
+            trackingKey: 'b',
+            enabled: true,
+          },
+          {
+            id: 'cta-c',
+            label: 'C',
+            href: '/c',
+            variant: 'primary',
+            placement: 'nav',
+            audience: 'all',
+            trackingKey: 'c',
+            enabled: true,
+          },
+          {
+            id: 'cta-d',
+            label: 'D',
+            href: '/d',
+            variant: 'primary',
+            placement: 'nav',
+            audience: 'all',
+            trackingKey: 'd',
+            enabled: true,
+          },
+          {
+            id: 'cta-e',
+            label: 'E',
+            href: '/e',
+            variant: 'primary',
+            placement: 'nav',
+            audience: 'all',
+            trackingKey: 'e',
+            enabled: true,
+          },
+        ],
+      },
+    });
+
+    const app = await buildApp({ logger: false, marketingDb: db });
+    await app.ready();
+    try {
+      const response = await app.inject({ method: 'GET', url: '/v1/public/marketing/global' });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().error.code).toBe('VALIDATION_FAILED');
+    } finally {
+      await app.close();
+    }
+  });
 });
