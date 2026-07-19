@@ -15,6 +15,8 @@ import type { AuthService } from '../modules/auth/application/AuthService.js';
 import { registerCurriculumRoutes } from '../modules/curriculum/adapters/http/routes.js';
 import { registerMarketingRoutes } from '../modules/marketing/adapters/http/routes.js';
 import { registerNotificationRoutes } from '../modules/notifications/adapters/http/routes.js';
+import { registerUploadRoutes } from '../modules/uploads/adapters/http/routes.js';
+import { registerUploadsAuthHook } from '../modules/uploads/adapters/http/preHandler.js';
 
 export interface HealthResponse {
   status: 'ok';
@@ -33,6 +35,7 @@ export interface BuildAppOptions {
   curriculumDb?: Database;
   marketingDb?: Database;
   notificationDb?: Database;
+  uploadsDb?: Database;
 }
 
 const DEFAULT_SERVICE_NAME = 'lembar-api';
@@ -147,6 +150,8 @@ export async function buildApp(
     await registerMarketingRoutes(app, { db: marketingDb });
   }
   await app.register(registerNotificationRoutes, notificationDb ? { db: notificationDb } : {});
+  await registerUploadsAuthHook(app);
+  await registerUploadRoutes(app, options.uploadsDb ? { db: options.uploadsDb } : { factory: 'memory' });
 
   return app;
 }
@@ -157,7 +162,8 @@ function resolveManagedAuthDb(options: BuildAppOptions): Database | null {
     options.authDb ||
     options.notificationDb ||
     options.curriculumDb ||
-    options.marketingDb
+    options.marketingDb ||
+    options.uploadsDb
   )
     return null;
   try {
