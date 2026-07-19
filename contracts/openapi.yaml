@@ -530,6 +530,758 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/curriculum/curricula/{tenantSlug}:
+    get:
+      summary: Read the published curriculum catalog for a tenant
+      tags: [Curriculum]
+      operationId: getPublishedCurriculumByTenantSlug
+      security: []
+      parameters:
+        - in: path
+          name: tenantSlug
+          required: true
+          schema: { type: string, minLength: 1, maxLength: 80 }
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Published curriculum tree (grades, phases, subjects, outcomes, materials)
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumProjectionResponse" }
+        "304":
+          description: Cached representation is current
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/curricula:
+    post:
+      summary: Create a mutable curriculum draft for a tenant
+      tags: [Curriculum]
+      operationId: createCurriculumDraft
+      parameters:
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CurriculumDraftRequest" }
+      responses:
+        "201":
+          description: Mutable draft created
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/curriculum/curricula/{id}/draft:
+    put:
+      summary: Upsert the mutable draft for a curriculum
+      tags: [Curriculum]
+      operationId: upsertCurriculumDraft
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CurriculumDraftRequest" }
+      responses:
+        "200":
+          description: Draft updated
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/curricula/{id}/publish:
+    post:
+      summary: Snapshot the current draft into a new immutable version
+      tags: [Curriculum]
+      operationId: publishCurriculum
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      responses:
+        "200":
+          description: New version published
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/curriculum/curricula/{id}/versions:
+    get:
+      summary: List published versions for a curriculum
+      tags: [Curriculum]
+      operationId: listCurriculumVersions
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Paginated publish history (capped at 100)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VersionListResponse" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/curricula/{id}/versions/{version}:
+    get:
+      summary: Read a specific immutable curriculum version
+      tags: [Curriculum]
+      operationId: getCurriculumVersion
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - in: path
+          name: version
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Immutable version payload
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "304":
+          description: Cached representation is current
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/grades:
+    post:
+      summary: Create a mutable grade draft under a curriculum
+      tags: [Curriculum]
+      operationId: createGradeDraft
+      parameters:
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GradeDraftRequest" }
+      responses:
+        "201":
+          description: Draft created
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/curriculum/grades/{id}/draft:
+    put:
+      summary: Upsert a mutable grade draft
+      tags: [Curriculum]
+      operationId: upsertGradeDraft
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GradeDraftRequest" }
+      responses:
+        "200":
+          description: Draft updated
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/grades/{id}/publish:
+    post:
+      summary: Snapshot a grade draft into a new immutable version
+      tags: [Curriculum]
+      operationId: publishGrade
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      responses:
+        "200":
+          description: New version published
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/curriculum/grades/{id}/versions:
+    get:
+      summary: List published versions for a grade
+      tags: [Curriculum]
+      operationId: listGradeVersions
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Paginated grade publish history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VersionListResponse" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/grades/{id}/versions/{version}:
+    get:
+      summary: Read a specific immutable grade version
+      tags: [Curriculum]
+      operationId: getGradeVersion
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - in: path
+          name: version
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Immutable grade version
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "304":
+          description: Cached representation is current
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/phases:
+    post:
+      summary: Create a mutable phase draft under a grade
+      tags: [Curriculum]
+      operationId: createPhaseDraft
+      parameters:
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PhaseDraftRequest" }
+      responses:
+        "201":
+          description: Draft created
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/curriculum/phases/{id}/draft:
+    put:
+      summary: Upsert a mutable phase draft
+      tags: [Curriculum]
+      operationId: upsertPhaseDraft
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PhaseDraftRequest" }
+      responses:
+        "200":
+          description: Draft updated
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/phases/{id}/publish:
+    post:
+      summary: Snapshot a phase draft into a new immutable version
+      tags: [Curriculum]
+      operationId: publishPhase
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      responses:
+        "200":
+          description: New version published
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/curriculum/phases/{id}/versions:
+    get:
+      summary: List published versions for a phase
+      tags: [Curriculum]
+      operationId: listPhaseVersions
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Paginated phase publish history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VersionListResponse" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/phases/{id}/versions/{version}:
+    get:
+      summary: Read a specific immutable phase version
+      tags: [Curriculum]
+      operationId: getPhaseVersion
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - in: path
+          name: version
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Immutable phase version
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "304":
+          description: Cached representation is current
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/subjects:
+    post:
+      summary: Create a mutable subject draft under a phase
+      tags: [Curriculum]
+      operationId: createSubjectDraft
+      parameters:
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubjectDraftRequest" }
+      responses:
+        "201":
+          description: Draft created
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/curriculum/subjects/{id}/draft:
+    put:
+      summary: Upsert a mutable subject draft
+      tags: [Curriculum]
+      operationId: upsertSubjectDraft
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SubjectDraftRequest" }
+      responses:
+        "200":
+          description: Draft updated
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/subjects/{id}/publish:
+    post:
+      summary: Snapshot a subject draft into a new immutable version
+      tags: [Curriculum]
+      operationId: publishSubject
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      responses:
+        "200":
+          description: New version published
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/curriculum/subjects/{id}/versions:
+    get:
+      summary: List published versions for a subject
+      tags: [Curriculum]
+      operationId: listSubjectVersions
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Paginated subject publish history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VersionListResponse" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/subjects/{id}/versions/{version}:
+    get:
+      summary: Read a specific immutable subject version
+      tags: [Curriculum]
+      operationId: getSubjectVersion
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - in: path
+          name: version
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Immutable subject version
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "304":
+          description: Cached representation is current
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/outcomes:
+    post:
+      summary: Create a mutable outcome draft under a subject
+      tags: [Curriculum]
+      operationId: createOutcomeDraft
+      parameters:
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OutcomeDraftRequest" }
+      responses:
+        "201":
+          description: Draft created
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/curriculum/outcomes/{id}/draft:
+    put:
+      summary: Upsert a mutable outcome draft
+      tags: [Curriculum]
+      operationId: upsertOutcomeDraft
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OutcomeDraftRequest" }
+      responses:
+        "200":
+          description: Draft updated
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/outcomes/{id}/publish:
+    post:
+      summary: Snapshot an outcome draft into a new immutable version
+      tags: [Curriculum]
+      operationId: publishOutcome
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      responses:
+        "200":
+          description: New version published
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/curriculum/outcomes/{id}/versions:
+    get:
+      summary: List published versions for an outcome
+      tags: [Curriculum]
+      operationId: listOutcomeVersions
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Paginated outcome publish history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VersionListResponse" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/outcomes/{id}/versions/{version}:
+    get:
+      summary: Read a specific immutable outcome version
+      tags: [Curriculum]
+      operationId: getOutcomeVersion
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - in: path
+          name: version
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Immutable outcome version
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "304":
+          description: Cached representation is current
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/materials:
+    post:
+      summary: Create a mutable material draft under an outcome
+      tags: [Curriculum]
+      operationId: createMaterialDraft
+      parameters:
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MaterialDraftRequest" }
+      responses:
+        "201":
+          description: Draft created
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/curriculum/materials/{id}/draft:
+    put:
+      summary: Upsert a mutable material draft
+      tags: [Curriculum]
+      operationId: upsertMaterialDraft
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MaterialDraftRequest" }
+      responses:
+        "200":
+          description: Draft updated
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/materials/{id}/publish:
+    post:
+      summary: Snapshot a material draft into a new immutable version
+      tags: [Curriculum]
+      operationId: publishMaterial
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      responses:
+        "200":
+          description: New version published
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/curriculum/materials/{id}/versions:
+    get:
+      summary: List published versions for a material
+      tags: [Curriculum]
+      operationId: listMaterialVersions
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Paginated material publish history
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VersionListResponse" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/materials/{id}/versions/{version}:
+    get:
+      summary: Read a specific immutable material version
+      tags: [Curriculum]
+      operationId: getMaterialVersion
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/ResourceId"
+        - in: path
+          name: version
+          required: true
+          schema: { type: integer, minimum: 1 }
+        - $ref: "#/components/parameters/IfNoneMatch"
+      responses:
+        "200":
+          description: Immutable material version
+          headers:
+            ETag: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CurriculumResourceResponse" }
+        "304":
+          description: Cached representation is current
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/curriculum/{resource}/{id}/source-rights-gate:
+    post:
+      summary: Verify whether a material's source rights pass the publish gate
+      tags: [Curriculum]
+      operationId: evaluateSourceRightsGate
+      parameters:
+        - in: path
+          name: resource
+          required: true
+          schema:
+            type: string
+            enum: [materials]
+        - $ref: "#/components/parameters/ResourceId"
+        - $ref: "#/components/parameters/WriteBearer"
+      responses:
+        "200":
+          description: Gate evaluation outcome
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourceRightsGateResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 components:
   securitySchemes:
     sessionCookie:
@@ -589,6 +1341,21 @@ components:
       name: jobId
       required: true
       schema: { type: string }
+    ResourceId:
+      in: path
+      name: id
+      required: true
+      schema: { type: string, format: uuid }
+    WriteBearer:
+      in: header
+      name: Authorization
+      required: true
+      schema: { type: string, minLength: 7, maxLength: 256 }
+    IfNoneMatch:
+      in: header
+      name: If-None-Match
+      required: false
+      schema: { type: string, minLength: 1, maxLength: 200 }
   responses:
     Unauthorized:
       description: Authentication required
@@ -948,5 +1715,112 @@ components:
           maxItems: 20
           items: { $ref: "#/components/schemas/MarketingBlock" }
         seo: { $ref: "#/components/schemas/MarketingSeo" }
+    CurriculumResourceResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: true
+    CurriculumProjectionResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          additionalProperties: true
+    VersionListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        page:
+          type: object
+          required: [limit, hasMore]
+          properties:
+            limit: { type: integer, minimum: 1, maximum: 100 }
+            hasMore: { type: boolean }
+    SourceRightsGateResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: object
+          required: [ok]
+          properties:
+            ok: { type: boolean }
+            reason: { type: [string, "null"] }
+    CurriculumDraftRequest:
+      type: object
+      required: [tenantId, slug, code, title, level]
+      properties:
+        tenantId: { type: string, format: uuid }
+        slug: { type: string, minLength: 1, maxLength: 80 }
+        code: { type: string, minLength: 1, maxLength: 80 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: [string, "null"], maxLength: 2000 }
+        level:
+          type: string
+          enum: [sd, smp, sma, smk, other]
+        active: { type: boolean, default: true }
+    GradeDraftRequest:
+      type: object
+      required: [curriculumId, code, label]
+      properties:
+        curriculumId: { type: string, format: uuid }
+        code: { type: string, minLength: 1, maxLength: 40 }
+        label: { type: string, minLength: 1, maxLength: 120 }
+        ordering: { type: integer, minimum: 0, maximum: 1000, default: 0 }
+    PhaseDraftRequest:
+      type: object
+      required: [gradeId, code, label]
+      properties:
+        gradeId: { type: string, format: uuid }
+        code: { type: string, minLength: 1, maxLength: 40 }
+        label: { type: string, minLength: 1, maxLength: 120 }
+        ordering: { type: integer, minimum: 0, maximum: 1000, default: 0 }
+    SubjectDraftRequest:
+      type: object
+      required: [phaseId, code, title]
+      properties:
+        phaseId: { type: string, format: uuid }
+        code: { type: string, minLength: 1, maxLength: 40 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        ordering: { type: integer, minimum: 0, maximum: 1000, default: 0 }
+    OutcomeDraftRequest:
+      type: object
+      required: [subjectId, code, text, bloomLevel]
+      properties:
+        subjectId: { type: string, format: uuid }
+        code: { type: string, minLength: 1, maxLength: 40 }
+        text: { type: string, minLength: 1, maxLength: 1000 }
+        bloomLevel:
+          type: string
+          enum: [remember, understand, apply, analyze, evaluate, create]
+        ordering: { type: integer, minimum: 0, maximum: 1000, default: 0 }
+    MaterialDraftRequest:
+      type: object
+      required: [outcomeId, code, kind, title, sourceRights]
+      properties:
+        outcomeId: { type: string, format: uuid }
+        code: { type: string, minLength: 1, maxLength: 40 }
+        kind:
+          type: string
+          enum: [lesson, exercise, reading, video, assessment, reference]
+        title: { type: string, minLength: 1, maxLength: 200 }
+        sourceRights:
+          type: string
+          enum:
+            - license:internal
+            - license:cc-by
+            - license:cc-by-sa
+            - license:cc-by-nc
+            - license:cc-by-nd
+            - license:unknown
+        ordering: { type: integer, minimum: 0, maximum: 1000, default: 0 }
 security:
   - sessionCookie: []
