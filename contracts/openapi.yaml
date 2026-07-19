@@ -1511,6 +1511,7 @@ components:
               properties:
                 id: { type: string }
                 displayName: { type: string }
+            activeWorkspaceId: { type: string }
             workspaces:
               type: array
               items: { $ref: "#/components/schemas/WorkspaceSummary" }

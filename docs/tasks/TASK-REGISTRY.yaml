@@ -1,4 +1,4 @@
-version: "1.8"
+version: "1.9"
 updated_at: "2026-07-19"
 execution_target: COMPLETE_LEMBAR_WEB_V1
 checkpoint:
@@ -90,10 +90,10 @@ context_management:
 
 active_workers: []
 
-completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-09, B1-01, B1-04]
+completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-09, B1-01, B1-02, B1-04]
 active_scope: []
 paused_scope: []
-ready_scope: [B0-08, B1-02, B1-06]
+ready_scope: [B0-08, B1-03, B1-06]
 
 branch_policy:
   status: active
@@ -811,22 +811,48 @@ tasks:
     repository: Backend-Lembar
     sprint: B1
     title: Personal workspace and tenant context
-    status: READY
+    status: ACCEPTED
     depends_on: [B1-01]
     decisions: []
     outcome: Atomic personal workspace and verified active-workspace context.
     evidence: [transaction, tenant-adversarial, cache-scope]
-    next_action: "B1-02 READY after B1-01 acceptance; highest-priority next backend task."
+    branch: feat/B1-02-personal-workspace-context
+    latest_pushed_commit: f74d99f
+    integration_commit: 74808a5
+    dev_commit: PENDING
+    dependency_note: "No new schema migration was required; B1-02 stays on the accepted B1-01/B0-04 tables and infers personal-vs-school workspace context without adding a persisted workspace-kind column."
+    completed_scope:
+      - Atomic personal workspace creation on initial account creation.
+      - /v1/me returns active workspace and tenant context from the persisted auth path.
+      - Workspace switch rejects non-membership and cross-tenant access in DB-backed flows.
+      - Auth smoke includes me-personal-workspace-context coverage.
+      - B1-02 ADR documenting the atomic creation path and deferred school-workspace expansion.
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm build
+      - pnpm test (82 passed / 25 skipped)
+      - pnpm openapi:validate && pnpm openapi:breaking (0 breaking)
+      - pnpm db:check
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm db:smoke
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm auth:smoke
+    verification_still_required:
+      - School-workspace expansion remains invitation/member-driven only.
+      - Personal-vs-school workspace typing is still inferred from slug prefix, not a dedicated persisted workspace-kind column.
+    next_action: "B1-02 ACCEPTED; B1-03 permission and tenant adversarial suite is now READY."
 
   - id: B1-03
     repository: Backend-Lembar
     sprint: B1
     title: Permission and tenant adversarial suite
-    status: BLOCKED
+    status: READY
     depends_on: [B1-02]
     decisions: []
     outcome: Reusable permission policy and cross-tenant tests for all current resources.
     evidence: [IDOR-list-count-job-artifact-tests]
+    next_action: "B1-03 READY after B1-02 acceptance; highest-priority next backend task."
 
   - id: B1-04
     repository: Backend-Lembar

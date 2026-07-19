@@ -40,6 +40,13 @@ export interface WorkspaceMembership {
   state: MembershipState;
 }
 
+export interface WorkspaceSummary {
+  id: string;
+  type: 'personal' | 'school';
+  name: string;
+  role: UserRole;
+}
+
 export interface SessionRecord {
   id: string;
   userId: string;
@@ -154,7 +161,7 @@ export class AuthService {
     }
     const existing = await this.store.getUserByEmail(email);
     if (existing) {
-      const existingWorkspace = (await this.firstWorkspaceId(existing.id)) ?? existing.id;
+      const existingWorkspace = await this.ensureActiveWorkspaceContext(existing);
       return {
         status: 'accepted',
         message: 'Jika pendaftaran dapat diproses, instruksi berikutnya akan dikirim.',
@@ -165,7 +172,7 @@ export class AuthService {
 
     const now = this.now();
     const userId = randomUUID();
-    const workspaceId = randomUUID();
+    let workspaceId = '';
     await this.store.transaction(async (tx) => {
       await tx.saveUser({
         id: userId,
@@ -174,17 +181,7 @@ export class AuthService {
         sessionVersion: 1,
         createdAt: now,
       });
-      await tx.saveWorkspace({
-        id: workspaceId,
-        slug: `personal-${workspaceId.slice(0, 12)}`,
-        name: `Workspace ${email}`,
-      });
-      await tx.saveMembership({
-        workspaceId,
-        userId,
-        role: 'teacher',
-        state: 'active',
-      });
+      workspaceId = await this.createPersonalWorkspace(tx, { id: userId, email });
       await tx.saveAudit({ action: 'register', userId, workspaceId, occurredAt: now });
     });
 
@@ -445,15 +442,48 @@ export class AuthService {
     userId: string;
     activeWorkspaceId: string;
     workspaceIds: string[];
+    workspaces: WorkspaceSummary[];
   }> {
     const session = await this.requireSession(sessionId);
-    const memberships = await this.store.listMemberships(session.userId);
+    const memberships = (await this.store.listMemberships(session.userId)).filter(
+      (membership) => membership.state === 'active',
+    );
+    const workspaces = (
+      await Promise.all(
+        memberships.map(async (membership) => {
+          const workspace = await this.store.getWorkspace(membership.workspaceId);
+          if (!workspace) return null;
+          return {
+            id: workspace.id,
+            type: workspace.slug.startsWith('personal-') ? 'personal' : 'school',
+            name: workspace.name,
+            role: membership.role,
+          } satisfies WorkspaceSummary;
+        }),
+      )
+    ).filter((workspace): workspace is WorkspaceSummary => workspace !== null);
     return {
       userId: session.userId,
       activeWorkspaceId: session.workspaceId,
-      workspaceIds: memberships
-        .filter((membership) => membership.state === 'active')
-        .map((membership) => membership.workspaceId),
+      workspaceIds: workspaces.map((workspace) => workspace.id),
+      workspaces,
+    };
+  }
+
+  async currentAccount(sessionId: string): Promise<{
+    account: { id: string; displayName: string };
+    workspaces: WorkspaceSummary[];
+    activeWorkspaceId: string;
+  }> {
+    const context = await this.currentContext(sessionId);
+    const user = await this.mustUser(context.userId);
+    return {
+      account: {
+        id: user.id,
+        displayName: user.email,
+      },
+      workspaces: context.workspaces,
+      activeWorkspaceId: context.activeWorkspaceId,
     };
   }
 
@@ -509,6 +539,38 @@ export class AuthService {
       (item) => item.state === 'active',
     );
     return membership?.workspaceId ?? null;
+  }
+
+  private async ensureActiveWorkspaceContext(user: AuthUser): Promise<string> {
+    return this.store.transaction(async (tx) => {
+      const existingWorkspaceId = await tx
+        .listMemberships(user.id)
+        .then(
+          (memberships) =>
+            memberships.find((membership) => membership.state === 'active')?.workspaceId ?? null,
+        );
+      if (existingWorkspaceId) return existingWorkspaceId;
+      return this.createPersonalWorkspace(tx, user);
+    });
+  }
+
+  private async createPersonalWorkspace(
+    store: AuthStore,
+    user: Pick<AuthUser, 'id' | 'email'>,
+  ): Promise<string> {
+    const workspaceId = randomUUID();
+    await store.saveWorkspace({
+      id: workspaceId,
+      slug: `personal-${workspaceId.slice(0, 12)}`,
+      name: `Workspace ${user.email}`,
+    });
+    await store.saveMembership({
+      workspaceId,
+      userId: user.id,
+      role: 'teacher',
+      state: 'active',
+    });
+    return workspaceId;
   }
 
   private async mustUser(id: string): Promise<AuthUser> {
