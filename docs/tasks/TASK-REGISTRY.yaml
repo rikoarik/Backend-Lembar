@@ -813,7 +813,7 @@ tasks:
     branch: feat/B1-04-curriculum-catalog-versioning
     latest_pushed_commit: 1697728
     integration_commit: 1e90052
-    dev_commit: PENDING
+    dev_commit: 70f0b22
     dependency_note: "Smoke script fix 1697728 (smoke): honor CURRICULUM_WRITE_TOKEN was added after worker handoff and pushed directly to the B1-04 branch (no force-push, no shared-history rewrite). Unauthenticated public read API by design; permission layer added by B1-03."
     completed_scope:
       - 12 Drizzle tables (curricula + curricula_versions, grades + grades_versions, phases + phases_versions, subjects + subjects_versions, outcomes + outcomes_versions, materials + materials_versions) with cascading tenant FKs and version >=1 CHECK.
