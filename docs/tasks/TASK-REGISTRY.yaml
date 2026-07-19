@@ -96,6 +96,20 @@ active_workers:
   - task: B6-06
     session: backend-lembar-23
     branch: feat/B6-06-marketing-cms-authoring
+    latest_pushed_commit: 84bd337
+    integration_commit: (pending)
+    dev_commit: ffb90ae
+    completed_scope:
+      - Migration 0003_marketeting_cms.sql + 0009_marketing_ops.sql (marketing_content, marketing_content_versions tables)
+      - MarketingOpsService with draft, preview, publish, unpublish, restore operations
+      - /v1/ops/marketing/pages routes (list, get, save-draft, preview, publish, unpublish, restore)
+      - Revision locking via If-Match, 100KB size limit, XSS sanitization, immutable versioning, audit trail
+      - ADR 001-marketing-cms-authoring.md documenting security decisions
+      - test/modules/marketing/ops.test.ts covering all 6 endpoints (permission-matrix, csrf, revision-conflict, unsafe-content, immutable-version, audit-transaction)
+    verification_commands:
+      - pnpm typecheck && pnpm lint && pnpm build && pnpm test (green)
+    verification_still_required: []
+    next_action: "B6-06 ACCEPTED; B7-02, B7-03 marketing dependencies satisfied; registry update pending."
     status: idle
 
 completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-08, B0-09, B1-01, B1-02, B1-03, B1-04, B1-05, B1-06]
@@ -1285,7 +1299,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B6
     title: Superadmin marketing CMS authoring and publication
-    status: IN_PROGRESS
+    status: ACCEPTED
     depends_on: [B1-06, B1-03]
     decisions: [P-011, P-012]
     outcome: Audited superadmin draft, preview, publish, unpublish, and restore commands with concurrency safety.
