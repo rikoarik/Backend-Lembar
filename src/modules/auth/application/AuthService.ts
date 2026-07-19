@@ -1,0 +1,533 @@
+import { createHash, randomUUID } from 'node:crypto';
+
+import { ApiError } from '../../../common/errors/envelope.js';
+import { USER_ROLES, type UserRole } from '../../../infrastructure/database/schema.js';
+
+export type MembershipState = 'active' | 'suspended' | 'revoked';
+export type InvitationState = 'pending' | 'accepted' | 'expired' | 'revoked';
+export type AuditAction =
+  | 'register'
+  | 'login'
+  | 'logout'
+  | 'logout_all'
+  | 'recovery_request'
+  | 'recovery_complete'
+  | 'role_change'
+  | 'membership_suspended'
+  | 'workspace_switch'
+  | 'invitation_create'
+  | 'invitation_accept';
+
+export interface AuthUser {
+  id: string;
+  email: string;
+  passwordHash: string;
+  sessionVersion: number;
+  createdAt: Date;
+}
+
+export interface WorkspaceMembership {
+  workspaceId: string;
+  userId: string;
+  role: UserRole;
+  state: MembershipState;
+}
+
+export interface SessionRecord {
+  id: string;
+  userId: string;
+  workspaceId: string;
+  csrfToken: string;
+  version: number;
+  idleExpiresAt: Date;
+  absoluteExpiresAt: Date;
+  revokedAt: Date | null;
+}
+
+export interface RecoveryTokenRecord {
+  tokenHash: string;
+  userId: string;
+  expiresAt: Date;
+  consumedAt: Date | null;
+}
+
+export interface InvitationRecord {
+  tokenHash: string;
+  email: string;
+  workspaceId: string;
+  role: UserRole;
+  state: InvitationState;
+  expiresAt: Date;
+}
+
+export interface AuditEventRecord {
+  action: AuditAction;
+  userId: string | null;
+  workspaceId: string | null;
+  occurredAt: Date;
+}
+
+export interface RateLimitRecord {
+  key: string;
+  count: number;
+  windowStartedAt: Date;
+}
+
+export interface AuthStore {
+  getUserByEmail(email: string): Promise<AuthUser | null>;
+  getUserById(id: string): Promise<AuthUser | null>;
+  saveUser(user: AuthUser): Promise<void>;
+  saveMembership(membership: WorkspaceMembership): Promise<void>;
+  getMembership(userId: string, workspaceId: string): Promise<WorkspaceMembership | null>;
+  listMemberships(userId: string): Promise<WorkspaceMembership[]>;
+  saveSession(session: SessionRecord): Promise<void>;
+  getSession(id: string): Promise<SessionRecord | null>;
+  revokeSession(id: string): Promise<void>;
+  revokeSessionsForUser(userId: string): Promise<void>;
+  saveRecoveryToken(token: RecoveryTokenRecord): Promise<void>;
+  getRecoveryToken(tokenHash: string): Promise<RecoveryTokenRecord | null>;
+  consumeRecoveryToken(tokenHash: string, consumedAt: Date): Promise<void>;
+  saveInvitation(invitation: InvitationRecord): Promise<void>;
+  getInvitation(tokenHash: string): Promise<InvitationRecord | null>;
+  saveAudit(event: AuditEventRecord): Promise<void>;
+  countAudit(action: AuditAction): Promise<number>;
+  getRateLimit(key: string): Promise<RateLimitRecord | null>;
+  saveRateLimit(record: RateLimitRecord): Promise<void>;
+}
+
+export interface AuthServiceOptions {
+  store: AuthStore;
+  now?: () => Date;
+  sessionIdleMs: number;
+  sessionAbsoluteMs: number;
+  recoveryTokenTtlMs: number;
+  inviteTokenTtlMs: number;
+  rateLimitWindowMs: number;
+  rateLimitMax: number;
+}
+
+export class AuthService {
+  private readonly store: AuthStore;
+  private readonly now: () => Date;
+  private readonly sessionIdleMs: number;
+  private readonly sessionAbsoluteMs: number;
+  private readonly recoveryTokenTtlMs: number;
+  private readonly inviteTokenTtlMs: number;
+  private readonly rateLimitWindowMs: number;
+  private readonly rateLimitMax: number;
+
+  constructor(options: AuthServiceOptions) {
+    this.store = options.store;
+    this.now = options.now ?? (() => new Date());
+    this.sessionIdleMs = options.sessionIdleMs;
+    this.sessionAbsoluteMs = options.sessionAbsoluteMs;
+    this.recoveryTokenTtlMs = options.recoveryTokenTtlMs;
+    this.inviteTokenTtlMs = options.inviteTokenTtlMs;
+    this.rateLimitWindowMs = options.rateLimitWindowMs;
+    this.rateLimitMax = options.rateLimitMax;
+  }
+
+  async register(input: { email: string; password: string }): Promise<{
+    status: 'created' | 'accepted';
+    message: string;
+    userId: string;
+    workspaceId: string;
+  }> {
+    const email = normalizeEmail(input.email);
+    if (!email || !input.password) {
+      throw this.validationError('Email dan kata sandi tidak valid.');
+    }
+    const existing = await this.store.getUserByEmail(email);
+    if (existing) {
+      const existingWorkspace = (await this.firstWorkspaceId(existing.id)) ?? existing.id;
+      return {
+        status: 'accepted',
+        message: 'Jika pendaftaran dapat diproses, instruksi berikutnya akan dikirim.',
+        userId: existing.id,
+        workspaceId: existingWorkspace,
+      };
+    }
+
+    const now = this.now();
+    const userId = randomUUID();
+    const workspaceId = randomUUID();
+    await this.store.saveUser({
+      id: userId,
+      email,
+      passwordHash: hashSecret(input.password),
+      sessionVersion: 1,
+      createdAt: now,
+    });
+    await this.store.saveMembership({
+      workspaceId,
+      userId,
+      role: 'teacher',
+      state: 'active',
+    });
+    await this.store.saveAudit({ action: 'register', userId, workspaceId, occurredAt: now });
+
+    return {
+      status: 'created',
+      message: 'Akun berhasil dibuat.',
+      userId,
+      workspaceId,
+    };
+  }
+
+  async login(input: { email: string; password: string }): Promise<{ session: SessionRecord }> {
+    const user = await this.store.getUserByEmail(normalizeEmail(input.email));
+    if (!user || user.passwordHash !== hashSecret(input.password)) {
+      throw this.validationError('Email atau kata sandi tidak valid.');
+    }
+
+    const workspaceId = await this.firstWorkspaceId(user.id);
+    if (!workspaceId) {
+      throw this.validationError('Workspace tidak ditemukan.');
+    }
+
+    await this.store.revokeSessionsForUser(user.id);
+    const session = await this.issueSession(user.id, workspaceId, user.sessionVersion);
+    await this.store.saveAudit({
+      action: 'login',
+      userId: user.id,
+      workspaceId,
+      occurredAt: this.now(),
+    });
+    return { session };
+  }
+
+  async logout(input: { sessionId: string }): Promise<void> {
+    const session = await this.requireSession(input.sessionId);
+    await this.store.revokeSession(session.id);
+    await this.store.saveAudit({
+      action: 'logout',
+      userId: session.userId,
+      workspaceId: session.workspaceId,
+      occurredAt: this.now(),
+    });
+  }
+
+  async logoutAll(input: { userId: string }): Promise<void> {
+    const user = await this.mustUser(input.userId);
+    user.sessionVersion += 1;
+    await this.store.saveUser(user);
+    await this.store.revokeSessionsForUser(user.id);
+    await this.store.saveAudit({
+      action: 'logout_all',
+      userId: user.id,
+      workspaceId: null,
+      occurredAt: this.now(),
+    });
+  }
+
+  async requestRecovery(input: {
+    email: string;
+  }): Promise<{ message: string; debugToken: string }> {
+    const email = normalizeEmail(input.email);
+    await this.bumpRateLimit(`recovery:${email}`);
+    const now = this.now();
+    const user = await this.store.getUserByEmail(email);
+    let debugToken = 'redacted';
+    if (user) {
+      debugToken = `recovery_${randomUUID()}`;
+      await this.store.saveRecoveryToken({
+        tokenHash: hashSecret(debugToken),
+        userId: user.id,
+        expiresAt: new Date(now.getTime() + this.recoveryTokenTtlMs),
+        consumedAt: null,
+      });
+    }
+    await this.store.saveAudit({
+      action: 'recovery_request',
+      userId: user?.id ?? null,
+      workspaceId: null,
+      occurredAt: now,
+    });
+    return {
+      message: 'Jika akun ditemukan, instruksi pemulihan akan dikirim.',
+      debugToken,
+    };
+  }
+
+  async completeRecovery(input: {
+    token: string;
+    newPassword: string;
+  }): Promise<{ session: SessionRecord }> {
+    const token = await this.requireUsableRecoveryToken(input.token);
+    const user = await this.mustUser(token.userId);
+    user.passwordHash = hashSecret(input.newPassword);
+    user.sessionVersion += 1;
+    await this.store.saveUser(user);
+    await this.store.consumeRecoveryToken(token.tokenHash, this.now());
+    await this.store.revokeSessionsForUser(user.id);
+    const workspaceId = await this.firstWorkspaceId(user.id);
+    if (!workspaceId) {
+      throw this.validationError('Workspace tidak ditemukan.');
+    }
+    const session = await this.issueSession(user.id, workspaceId, user.sessionVersion);
+    await this.store.saveAudit({
+      action: 'recovery_complete',
+      userId: user.id,
+      workspaceId,
+      occurredAt: this.now(),
+    });
+    return { session };
+  }
+
+  async createSchoolInvitation(input: {
+    email: string;
+    role: UserRole;
+    workspaceId: string;
+    createdByUserId: string;
+  }): Promise<{ debugToken: string; tokenHash: string }> {
+    if (!USER_ROLES.includes(input.role)) {
+      throw this.validationError('Role tidak valid.');
+    }
+    const membership = await this.store.getMembership(input.createdByUserId, input.workspaceId);
+    if (!membership || membership.state !== 'active') {
+      throw new ApiError({
+        code: 'PERMISSION_DENIED',
+        message: 'Permintaan tidak diizinkan.',
+        requestId: 'req_auth',
+      });
+    }
+    const token = `invite_${randomUUID()}`;
+    const tokenHash = hashSecret(token);
+    await this.store.saveInvitation({
+      tokenHash,
+      email: normalizeEmail(input.email),
+      workspaceId: input.workspaceId,
+      role: input.role,
+      state: 'pending',
+      expiresAt: new Date(this.now().getTime() + this.inviteTokenTtlMs),
+    });
+    await this.store.saveAudit({
+      action: 'invitation_create',
+      userId: input.createdByUserId,
+      workspaceId: input.workspaceId,
+      occurredAt: this.now(),
+    });
+    return { debugToken: token, tokenHash };
+  }
+
+  async consumeSchoolInvitation(input: { token: string; password: string }): Promise<{
+    userId: string;
+    workspaceId: string;
+  }> {
+    const invitation = await this.requireUsableInvitation(input.token);
+    let user = await this.store.getUserByEmail(invitation.email);
+    if (!user) {
+      user = {
+        id: randomUUID(),
+        email: invitation.email,
+        passwordHash: hashSecret(input.password),
+        sessionVersion: 1,
+        createdAt: this.now(),
+      };
+      await this.store.saveUser(user);
+    }
+    await this.store.saveMembership({
+      workspaceId: invitation.workspaceId,
+      userId: user.id,
+      role: invitation.role,
+      state: 'active',
+    });
+    invitation.state = 'accepted';
+    await this.store.saveInvitation(invitation);
+    await this.store.saveAudit({
+      action: 'invitation_accept',
+      userId: user.id,
+      workspaceId: invitation.workspaceId,
+      occurredAt: this.now(),
+    });
+    return { userId: user.id, workspaceId: invitation.workspaceId };
+  }
+
+  async suspendMembership(input: { userId: string; workspaceId: string }): Promise<void> {
+    const membership = await this.store.getMembership(input.userId, input.workspaceId);
+    if (!membership) {
+      throw new ApiError({
+        code: 'WORKSPACE_ACCESS_DENIED',
+        message: 'Workspace tidak ditemukan.',
+        requestId: 'req_auth',
+        status: 404,
+      });
+    }
+    membership.state = 'suspended';
+    await this.store.saveMembership(membership);
+    const user = await this.mustUser(input.userId);
+    user.sessionVersion += 1;
+    await this.store.saveUser(user);
+    await this.store.revokeSessionsForUser(user.id);
+    await this.store.saveAudit({
+      action: 'membership_suspended',
+      userId: user.id,
+      workspaceId: input.workspaceId,
+      occurredAt: this.now(),
+    });
+  }
+
+  async switchWorkspace(input: {
+    sessionId: string;
+    workspaceId: string;
+  }): Promise<{ activeWorkspaceId: string }> {
+    const session = await this.requireSession(input.sessionId);
+    const membership = await this.store.getMembership(session.userId, input.workspaceId);
+    if (!membership || membership.state !== 'active') {
+      throw new ApiError({
+        code: 'WORKSPACE_ACCESS_DENIED',
+        message: 'Workspace tidak ditemukan.',
+        requestId: 'req_auth',
+        status: 404,
+      });
+    }
+    session.workspaceId = input.workspaceId;
+    await this.store.saveSession(session);
+    await this.store.saveAudit({
+      action: 'workspace_switch',
+      userId: session.userId,
+      workspaceId: input.workspaceId,
+      occurredAt: this.now(),
+    });
+    return { activeWorkspaceId: input.workspaceId };
+  }
+
+  async currentContext(sessionId: string): Promise<{
+    userId: string;
+    activeWorkspaceId: string;
+    workspaceIds: string[];
+  }> {
+    const session = await this.requireSession(sessionId);
+    const memberships = await this.store.listMemberships(session.userId);
+    return {
+      userId: session.userId,
+      activeWorkspaceId: session.workspaceId,
+      workspaceIds: memberships
+        .filter((membership) => membership.state === 'active')
+        .map((membership) => membership.workspaceId),
+    };
+  }
+
+  async requireSession(sessionId: string): Promise<SessionRecord> {
+    const session = await this.store.getSession(sessionId);
+    if (!session || session.revokedAt) {
+      throw this.authRequired();
+    }
+    const now = this.now();
+    if (session.idleExpiresAt <= now || session.absoluteExpiresAt <= now) {
+      await this.store.revokeSession(session.id);
+      throw this.authRequired();
+    }
+    const user = await this.mustUser(session.userId);
+    if (session.version !== user.sessionVersion) {
+      await this.store.revokeSession(session.id);
+      throw this.authRequired();
+    }
+    const membership = await this.store.getMembership(session.userId, session.workspaceId);
+    if (!membership || membership.state !== 'active') {
+      await this.store.revokeSession(session.id);
+      throw this.authRequired();
+    }
+    return session;
+  }
+
+  async auditCount(action: AuditAction): Promise<number> {
+    return this.store.countAudit(action);
+  }
+
+  private async issueSession(
+    userId: string,
+    workspaceId: string,
+    version: number,
+  ): Promise<SessionRecord> {
+    const now = this.now();
+    const session: SessionRecord = {
+      id: randomUUID(),
+      userId,
+      workspaceId,
+      csrfToken: `csrf_${randomUUID()}`,
+      version,
+      idleExpiresAt: new Date(now.getTime() + this.sessionIdleMs),
+      absoluteExpiresAt: new Date(now.getTime() + this.sessionAbsoluteMs),
+      revokedAt: null,
+    };
+    await this.store.saveSession(session);
+    return session;
+  }
+
+  private async firstWorkspaceId(userId: string): Promise<string | null> {
+    const membership = (await this.store.listMemberships(userId)).find(
+      (item) => item.state === 'active',
+    );
+    return membership?.workspaceId ?? null;
+  }
+
+  private async mustUser(id: string): Promise<AuthUser> {
+    const user = await this.store.getUserById(id);
+    if (!user) {
+      throw this.authRequired();
+    }
+    return user;
+  }
+
+  private async requireUsableRecoveryToken(token: string): Promise<RecoveryTokenRecord> {
+    const record = await this.store.getRecoveryToken(hashSecret(token));
+    if (!record || record.consumedAt || record.expiresAt <= this.now()) {
+      throw this.validationError('Token pemulihan tidak valid.');
+    }
+    return record;
+  }
+
+  private async requireUsableInvitation(token: string): Promise<InvitationRecord> {
+    const invitation = await this.store.getInvitation(hashSecret(token));
+    if (!invitation || invitation.state !== 'pending' || invitation.expiresAt <= this.now()) {
+      throw this.validationError('Undangan tidak valid.');
+    }
+    return invitation;
+  }
+
+  private async bumpRateLimit(key: string): Promise<void> {
+    const now = this.now();
+    const current = await this.store.getRateLimit(key);
+    if (!current || now.getTime() - current.windowStartedAt.getTime() >= this.rateLimitWindowMs) {
+      await this.store.saveRateLimit({ key, count: 1, windowStartedAt: now });
+      return;
+    }
+    if (current.count >= this.rateLimitMax) {
+      throw new ApiError({
+        code: 'RATE_LIMITED',
+        message: 'Terlalu banyak permintaan. Coba lagi nanti.',
+        requestId: 'req_auth',
+        status: 429,
+      });
+    }
+    current.count += 1;
+    await this.store.saveRateLimit(current);
+  }
+
+  private validationError(message: string): ApiError {
+    return new ApiError({
+      code: 'VALIDATION_FAILED',
+      message,
+      requestId: 'req_auth',
+      status: 400,
+    });
+  }
+
+  private authRequired(): ApiError {
+    return new ApiError({
+      code: 'AUTH_REQUIRED',
+      message: 'Autentikasi diperlukan.',
+      requestId: 'req_auth',
+      status: 401,
+    });
+  }
+}
+
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+function hashSecret(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}

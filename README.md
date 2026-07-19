@@ -49,6 +49,7 @@ pnpm openapi:validate
 pnpm openapi:breaking
 pnpm storage:smoke
 pnpm pdf:smoke
+pnpm auth:smoke                       # B0-05 auth/session spike (redacted)
 pnpm db:check                       # drizzle-kit: validate generated SQL
 pnpm db:smoke                       # real Postgres roundtrip smoke (DATABASE_URL required)
 node dist/bootstrap/api.js          # API on :4000
@@ -111,7 +112,20 @@ they are added per process by later tasks and must never be committed.
 - Local disposable Postgres only. Production secrets are never committed.
 - See `docs/adr/B0-04-spike.md` for deferred items and owner-open questions.
 
-## Spike configuration
+## Auth spike (B0-05)
+
+- `src/modules/auth/` is the local-only auth/session spike layered on Fastify and Drizzle. It
+  reuses the B0-04 `tenants` and `users` tables and adds `auth_sessions`,
+  `auth_recovery_tokens`, `auth_school_invitations`, and `auth_audit_events` tables
+  (additive, no B0-04 migration is altered in this spike).
+- HTTP routes expose `POST /v1/auth/{register,login,logout,recovery/*,invitations/consume}`
+  and `POST /v1/auth/workspace/switch` plus `GET /v1/me`. State-changing browser
+  requests are guarded by an `Origin` allowlist and a double-submit CSRF token.
+- Sessions ride an HttpOnly Secure `__Host-lembar_session` cookie plus a
+  `lembar_csrf` cookie. Recovery/invite tokens are stored hashed and are single-use.
+- Run `pnpm auth:smoke` for a CLI end-to-end smoke (redacted JSON output, exits `0`).
+- See `docs/adr/B0-05-spike.md` for the D-002 decision, owner-open questions, and
+  rollback notes.
 
 ```bash
 DATABASE_URL=postgres://...         # required when DATABASE_REQUIRED=true
