@@ -773,6 +773,7 @@ tasks:
     branch: feat/B0-08-product-ai-provider-spike
     latest_pushed_commit: 28c6b0bac77087ee5b7853ccbbdb2cad3c478617
     integration_commit: c1b0801
+    dev_commit: f5f29dc
     dependency_note: "D-019 remains OWNER_PENDING; B0-08 ships provider-neutral adapter with mock-first default and opt-in OpenAI scaffold only. No live provider call or production secret is required."
     completed_scope:
       - Provider-neutral ProductAiAdapter boundary with deterministic MockAiAdapter default and opt-in OpenAI adapter scaffold.
