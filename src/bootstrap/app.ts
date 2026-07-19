@@ -70,23 +70,6 @@ export async function buildApp(
 
   registerRequestId(app);
 
-  const serviceName = options.serviceName ?? DEFAULT_SERVICE_NAME;
-  const serviceVersion = options.serviceVersion ?? DEFAULT_SERVICE_VERSION;
-  const startedAt = Date.now();
-
-  app.get('/health', async (): Promise<HealthResponse> => {
-    return {
-      status: 'ok',
-      service: serviceName,
-      version: serviceVersion,
-      uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
-      timestamp: new Date().toISOString(),
-    };
-  });
-
-  await registerAuthRoutes(app, options.auth === undefined ? {} : { auth: options.auth });
-  await app.register(registerJobRoutes);
-
   app.setNotFoundHandler((req, reply) => {
     const id = req.requestId ?? 'req_unknown';
     const { status, payload } = envelopeFor(
@@ -116,6 +99,23 @@ export async function buildApp(
     );
     void reply.status(status).send(payload);
   });
+
+  const serviceName = options.serviceName ?? DEFAULT_SERVICE_NAME;
+  const serviceVersion = options.serviceVersion ?? DEFAULT_SERVICE_VERSION;
+  const startedAt = Date.now();
+
+  app.get('/health', async (): Promise<HealthResponse> => {
+    return {
+      status: 'ok',
+      service: serviceName,
+      version: serviceVersion,
+      uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+      timestamp: new Date().toISOString(),
+    };
+  });
+
+  await registerAuthRoutes(app, options.auth === undefined ? {} : { auth: options.auth });
+  await app.register(registerJobRoutes);
 
   return app;
 }
