@@ -31,7 +31,8 @@
     "queue:smoke": "pnpm build && node dist/smoke/queue.js",
     "curriculum:smoke": "pnpm build && node dist/smoke/curriculum.js",
     "notification:smoke": "pnpm build && node dist/smoke/notification.js",
-    "notification:smoke:duplicate": "pnpm build && node dist/smoke/notification.js duplicate"
+    "notification:smoke:duplicate": "pnpm build && node dist/smoke/notification.js duplicate",
+    "ai:smoke": "pnpm build && node dist/smoke/ai.js"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
