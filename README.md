@@ -74,6 +74,21 @@ Strict production mode is opt-in via `APP_ENV=production`. Secrets (DB URLs, aut
 signing keys, AI/storage/payment keys, webhook secrets) are not configured here —
 they are added per process by later tasks and must never be committed.
 
+## Database spike (B0-04)
+
+- ORM baseline: Drizzle ORM (D-003) over node-postgres with migrations under
+  `src/infrastructure/database/migrations/`.
+- Typed env: `src/config/database.env.ts` validates `DATABASE_URL`, `DATABASE_POOL_MAX`,
+  `DATABASE_SSL_MODE`, `DATABASE_REQUIRED`. Errors list key names only — values are
+  never logged.
+- Drizzle schema: `tenants`, `users`, `schools` (`src/infrastructure/database/schema.ts`)
+  — minimal spike tables only. No business schema in this task.
+- CLI surface:
+  - `pnpm db:generate` / `pnpm db:migrate` / `pnpm db:push` / `pnpm db:check` — Drizzle Kit.
+  - `pnpm db:smoke` — build then run the real-DB roundtrip smoke (`src/smoke/database.ts`).
+- Local disposable Postgres only. Production secrets are never committed.
+- See `docs/adr/B0-04-spike.md` for deferred items and owner-open questions.
+
 ## Repository layout
 
 ```text
@@ -81,7 +96,9 @@ src/
   bootstrap/   # api.ts, worker.ts, app.ts
   modules/     # domain modules — populated by later tasks
   infrastructure/
+    database/  # Drizzle schema, migrations, db factory (B0-04)
   common/
+  smoke/       # real-binary smoke surfaces (B0-04+)
 contracts/     # OpenAPI artifacts — populated by later tasks
 test/          # unit + smoke
 ```
