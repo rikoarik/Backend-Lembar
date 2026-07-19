@@ -43,6 +43,13 @@
       "when": 1784445600000,
       "tag": "0006_auth_integration_finalize",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786000000000,
+      "tag": "0007_marketing_content",
+      "breakpoints": true
     }
   ]
 }

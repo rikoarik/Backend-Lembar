@@ -13,6 +13,7 @@ import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRout
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
 import type { AuthService } from '../modules/auth/application/AuthService.js';
 import { registerCurriculumRoutes } from '../modules/curriculum/adapters/http/routes.js';
+import { registerMarketingRoutes } from '../modules/marketing/adapters/http/routes.js';
 import { registerNotificationRoutes } from '../modules/notifications/adapters/http/routes.js';
 
 export interface HealthResponse {
@@ -30,6 +31,7 @@ export interface BuildAppOptions {
   auth?: AuthService;
   authDb?: Database;
   curriculumDb?: Database;
+  marketingDb?: Database;
   notificationDb?: Database;
 }
 
@@ -121,6 +123,7 @@ export async function buildApp(
   const authDb = options.authDb ?? managedDb;
   const notificationDb = options.notificationDb ?? managedDb;
   const curriculumDb = options.curriculumDb;
+  const marketingDb = options.marketingDb ?? managedDb;
 
   app.get('/health', async (): Promise<HealthResponse> => {
     return {
@@ -140,13 +143,23 @@ export async function buildApp(
   if (curriculumDb) {
     await registerCurriculumRoutes(app, { db: curriculumDb });
   }
+  if (marketingDb) {
+    await registerMarketingRoutes(app, { db: marketingDb });
+  }
   await app.register(registerNotificationRoutes, notificationDb ? { db: notificationDb } : {});
 
   return app;
 }
 
 function resolveManagedAuthDb(options: BuildAppOptions): Database | null {
-  if (options.auth || options.authDb || options.notificationDb || options.curriculumDb) return null;
+  if (
+    options.auth ||
+    options.authDb ||
+    options.notificationDb ||
+    options.curriculumDb ||
+    options.marketingDb
+  )
+    return null;
   try {
     const env = parseDatabaseEnv(process.env);
     if (!env.url) return null;
