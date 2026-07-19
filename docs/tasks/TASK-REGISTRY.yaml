@@ -928,7 +928,7 @@ tasks:
     branch: feat/B1-05-context-dashboard-read-api
     latest_pushed_commit: 08d8cf0
     integration_commit: d8f6014
-    dev_commit: PENDING
+    dev_commit: a81620b
     dependency_note: "Tracked openapi checksum artifact had to be explicitly allowed after verification because pnpm openapi:validate rewrites contracts/openapi.checksum.txt."
     completed_scope:
       - Stable current context fields on /v1/me.
