@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from 'vitest';
 
 import { buildApp } from '../../../src/bootstrap/app.js';
+import { InMemoryAuthStore } from '../../../src/modules/auth/adapters/persistence/InMemoryAuthStore.js';
+import { createAuthService } from '../../../src/modules/auth/application/createAuthService.js';
 
 const apps: Array<Awaited<ReturnType<typeof buildApp>>> = [];
 
@@ -122,6 +124,50 @@ describe('auth routes', () => {
     expect(body.data.workspaces.map((workspace) => workspace.id)).toContain(
       body.data.activeWorkspaceId,
     );
+  });
+
+  test('denies cross-tenant workspace switch and keeps /v1/me scoped to memberships', async () => {
+    const store = new InMemoryAuthStore();
+    const auth = createAuthService({ store });
+    const app = await buildApp({
+      logger: false,
+      serviceName: 'test',
+      serviceVersion: 'test',
+      auth,
+    });
+    apps.push(app);
+
+    const first = await auth.register({ email: 'first@example.test', password: 'passphrase-1' });
+    const firstLogin = await auth.login({ email: 'first@example.test', password: 'passphrase-1' });
+    const second = await auth.register({ email: 'second@example.test', password: 'passphrase-1' });
+
+    const csrfToken = firstLogin.session.csrfToken;
+    const switchForeign = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/workspace/switch',
+      headers: {
+        origin: 'http://localhost:3000',
+        'x-csrf-token': csrfToken,
+      },
+      cookies: {
+        '__Host-lembar_session': firstLogin.session.id,
+        lembar_csrf: csrfToken,
+      },
+      payload: { workspaceId: second.workspaceId },
+    });
+    const me = await app.inject({
+      method: 'GET',
+      url: '/v1/me',
+      cookies: {
+        '__Host-lembar_session': firstLogin.session.id,
+      },
+    });
+
+    expect(switchForeign.statusCode).toBe(404);
+    expect(switchForeign.json()).toMatchObject({ error: { code: 'WORKSPACE_ACCESS_DENIED' } });
+    expect(me.statusCode).toBe(200);
+    expect(me.json()).toMatchObject({ data: { activeWorkspaceId: first.workspaceId } });
+    expect(JSON.stringify(me.json())).not.toContain(second.workspaceId);
   });
 
   test('recovery and invitation endpoints stay enumeration-safe', async () => {
