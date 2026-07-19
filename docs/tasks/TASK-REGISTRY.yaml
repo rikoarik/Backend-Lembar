@@ -1,4 +1,4 @@
-version: "1.2"
+version: "1.3"
 updated_at: "2026-07-19"
 execution_target: COMPLETE_LEMBAR_WEB_V1
 checkpoint:
@@ -9,7 +9,7 @@ checkpoint:
   pushed: false
   completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-07]
   paused_scope: []
-  next_action: "Run complete PRD-to-registry gap analysis for Web V1, update missing backend tasks, then continue the next unblocked backend task without restarting accepted work."
+  next_action: "Web V1 gap analysis applied: added B0-09, B8-02, X1-01, X3-01, X5-01; flipped B0-05/B0-06/B1-04 to READY; added B0-09/D-007 coverage to B1-01; simplified B1-06/B6-06 dependencies; clarified B0-07 and FR-GEN traceability. Next backend task is B0-05."
 project: lembar
 repositories:
   frontend: rikoarik/Frontend-Lembar
@@ -533,21 +533,23 @@ tasks:
     repository: Backend-Lembar
     sprint: B0
     title: Auth and session spike
-    status: BLOCKED
+    status: READY
     depends_on: [B0-04]
     decisions: [D-002]
     outcome: Session, CSRF, recovery, school activation, revocation, and mobile-path PoC.
     evidence: [security-tests, enumeration, ADR]
+    next_action: "Await owner START to dispatch auth spike worker; resolves D-002."
 
   - id: B0-06
     repository: Backend-Lembar
     sprint: B0
     title: Queue and idempotency spike
-    status: BLOCKED
+    status: READY
     depends_on: [B0-04]
     decisions: [D-004]
     outcome: Crash/retry/duplicate/lease PoC and accepted queue ADR.
     evidence: [failure-injection, VPS-footprint, ADR]
+    next_action: "Await owner START to dispatch queue spike worker; resolves D-004."
 
   - id: B0-07
     repository: Backend-Lembar
@@ -561,7 +563,7 @@ tasks:
     branch: feat/B0-07-storage-pdf-spike
     latest_pushed_commit: 45b58659c98e325610f7762823e51665ddd75fd4
     integration_commit: b3b0716c4d499d523418594a915903cd5c4a28af
-    dependency_note: "Executed early in owner-approved spike mode even though original registry listed B0-04 dependency; production storage/PDF decisions remain open."
+    dependency_note: "Executed early in owner-approved spike mode even though original registry listed B0-04 dependency; D-006 and D-020 remain Open in DECISIONS.md, so this task references decision candidates only. Production storage/PDF acceptance is decided by owner per ADR; downstream tasks remain blocked on actual acceptance."
     completed_scope:
       - StorageAdapter with memory/local drivers.
       - RenderAdapter with deterministic stub and disabled Playwright path.
@@ -593,9 +595,9 @@ tasks:
     sprint: B1
     title: Account and session integration
     status: BLOCKED
-    depends_on: [B0-03, B0-04, B0-05]
-    decisions: [D-002]
-    outcome: Register/login/logout/recovery with audit and revocation.
+    depends_on: [B0-03, B0-04, B0-05, B0-09]
+    decisions: [D-002, D-007]
+    outcome: Register/login/logout/recovery with audit and revocation; recovery delivery routes through B0-09 notification adapter.
     evidence: [integration, CSRF, rate-limit, no-secret-log]
 
   - id: B1-02
@@ -622,11 +624,12 @@ tasks:
     repository: Backend-Lembar
     sprint: B1
     title: Versioned curriculum catalog
-    status: BLOCKED
+    status: READY
     depends_on: [B0-04]
     decisions: [D-012]
     outcome: Curriculum/grade/phase/subject/outcome/material versioning and readiness APIs.
     evidence: [publish-archive-history, source-rights-gate]
+    next_action: "Await owner START; pilot content seeding stays blocked on D-012 acceptance."
 
   - id: B1-05
     repository: Backend-Lembar
@@ -643,10 +646,11 @@ tasks:
     sprint: B1
     title: Marketing content domain and published read API
     status: BLOCKED
-    depends_on: [B0-03, B0-04, B1-03]
+    depends_on: [B0-03, B0-04]
     decisions: [P-011, P-012, T-005, T-006, D-003, D-017]
     outcome: Versioned PostgreSQL content model serves published-only page/global projections with ETag.
     evidence: [migration, published-only, draft-nondisclosure, schema-validation, etag-304, no-queue]
+    dependency_note: "Public CMS read API is unauthenticated and published-only per MARKETING-CMS-BACKEND.md; superadmin ops permission matrix belongs in B6-06."
 
   - id: B2-01
     repository: Backend-Lembar
@@ -675,8 +679,9 @@ tasks:
     status: BLOCKED
     depends_on: [B1-04, B2-02, B0-03]
     decisions: []
-    outcome: Validated source/catalog config and immutable input snapshot.
+    outcome: Validated source/catalog config and immutable input snapshot; owns FR-GEN-001/002 configuration responsibility.
     evidence: [state-and-contract-tests, incompatible-catalog]
+    traceability_note: "TRACEABILITY-MATRIX.md historically lists B3-01 for FR-GEN-001/002; config belongs here, retrieval/source references stay in B3-01."
 
   - id: B2-04
     repository: Backend-Lembar
@@ -707,6 +712,7 @@ tasks:
     decisions: []
     outcome: Authorized passage retrieval with insufficient-source behavior.
     evidence: [cross-tenant, prompt-injection, citation-resolution]
+    traceability_note: "Retrieval/source references only; generate configuration is owned by B2-03."
 
   - id: B3-02
     repository: Backend-Lembar
@@ -857,6 +863,7 @@ tasks:
     decisions: [D-009]
     outcome: Versioned plans/grants/limits enforced server-side for personal workspace.
     evidence: [precedence, grace, adjustment-audit]
+    interim_note: "Generation pipeline requires entitlement validation before expensive work; B2-04 ledger uses a free-tier default until B6-01 lands full enforcement."
 
   - id: B6-02
     repository: Backend-Lembar
@@ -903,10 +910,11 @@ tasks:
     sprint: B6
     title: Superadmin marketing CMS authoring and publication
     status: BLOCKED
-    depends_on: [B1-06, B6-03]
+    depends_on: [B1-06, B1-03]
     decisions: [P-011, P-012]
     outcome: Audited superadmin draft, preview, publish, unpublish, and restore commands with concurrency safety.
     evidence: [permission-matrix, csrf, revision-conflict, unsafe-content, immutable-version, audit-transaction]
+    dependency_note: "CMS authoring reuses auth/permission/audit from B1-03; it does not require B6-03 broad superadmin ops or B3-05 AI eval."
 
   - id: B7-01
     repository: Backend-Lembar
@@ -967,3 +975,60 @@ tasks:
     decisions: [P-011, P-012, D-017]
     outcome: Published changes propagate safely to all marketing routes and ops workflows pass end to end.
     evidence: [generated-client-drift, publish-under-60s, public-cache, preview-isolation, rollback, screenshots]
+    dependency_note: "Sister cross-repo gates X1-01, X3-01, and X5-01 are added by Web V1 gap analysis to match TRACEABILITY-MATRIX.md."
+
+  # --- Web V1 gap-analysis additions (2026-07-19) -------------------------
+  - id: B0-09
+    repository: Backend-Lembar
+    sprint: B0
+    title: Transactional notification provider spike
+    status: BACKLOG
+    depends_on: [B0-01, B0-04]
+    decisions: [D-007]
+    outcome: Outbox event shape, local capture sink, provider-agnostic adapter, template registry, and accepted email provider ADR.
+    evidence: [outbox-test, token-redaction, sandbox-provider, template-locale-fixtures, ADR]
+    notes: "D-007 is due before recovery/invite per DECISIONS.md and is needed by B1-01 recovery and B7-01 school invite."
+
+  - id: B8-02
+    repository: Backend-Lembar
+    sprint: B8
+    title: Data lifecycle, retention, deletion, and backup tombstone gate
+    status: BACKLOG
+    depends_on: [B5-05, B6-04]
+    decisions: []
+    outcome: Retention policy applied across DB, object storage, indexes, share tokens, audit, and backups; restore drill proves tombstones survive snapshot.
+    evidence: [data-inventory, purge-integration, restore-drill, tombstone-invariants]
+    notes: "Closes FR-X-005 deletion traceability row; DATA-LIFECYCLE.md defines deletion semantics and backup restore invariants."
+
+  - id: X1-01
+    repository: both
+    sprint: X1
+    title: Identity and workspace cross-repository integration gate
+    status: BACKLOG
+    depends_on: [B1-01, B1-02, B1-03, F2-05]
+    decisions: [D-002]
+    outcome: Cross-repo gate for identity, workspace, and tenant context per CROSS-REPO-CONTRACT.md.
+    evidence: [generated-client-drift, staging-smoke, login-recovery-switch-logout-e2e]
+    notes: "Closes FR-ID-001 traceability row."
+
+  - id: X3-01
+    repository: both
+    sprint: X3
+    title: Generate configuration and retrieval cross-repository integration gate
+    status: BACKLOG
+    depends_on: [B2-03, B2-05, B3-01, F3-05]
+    decisions: []
+    outcome: Cross-repo gate covering FR-GEN-001/002 config validation and retrieval inputs end to end.
+    evidence: [generated-client-drift, staging-smoke, dependent-fields-e2e, insufficient-source-state]
+    notes: "Closes FR-GEN-001/002 traceability rows. Config responsibility is B2-03; retrieval responsibility is B3-01."
+
+  - id: X5-01
+    repository: both
+    sprint: X5
+    title: Print/PDF/share cross-repository integration gate
+    status: BACKLOG
+    depends_on: [B5-01, B5-02, B5-03, F5-05]
+    decisions: [D-020]
+    outcome: "Cross-repo gate for the canonical artifact path (print, PDF render, secure share link)."
+    evidence: [generated-client-drift, golden-A4, share-security, revocation-e2e]
+    notes: "Closes FR-OUT-001 traceability row."
