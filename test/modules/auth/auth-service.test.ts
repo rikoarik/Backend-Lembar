@@ -129,6 +129,133 @@ describe('AuthService', () => {
     expect(await service.auditCount('logout')).toBe(1);
   });
 
+  test('rejects tampered sessions that point at a foreign workspace', async () => {
+    const store = new InMemoryAuthStore();
+    const service = buildService(store);
+    await service.register({ email: 'first@example.test', password: 'passphrase-1' });
+    const second = await service.register({
+      email: 'second@example.test',
+      password: 'passphrase-1',
+    });
+    const login = await service.login({ email: 'first@example.test', password: 'passphrase-1' });
+
+    await store.saveSession({ ...login.session, workspaceId: second.workspaceId });
+
+    await expect(service.currentAccount(login.session.id)).rejects.toMatchObject({
+      code: 'AUTH_REQUIRED',
+    });
+  });
+
+  test('switches only to member workspaces and never lists foreign workspaces', async () => {
+    const service = buildService();
+    const first = await service.register({ email: 'first@example.test', password: 'passphrase-1' });
+    const second = await service.register({
+      email: 'second@example.test',
+      password: 'passphrase-1',
+    });
+    const login = await service.login({ email: 'first@example.test', password: 'passphrase-1' });
+
+    await expect(
+      service.switchWorkspace({ sessionId: login.session.id, workspaceId: second.workspaceId }),
+    ).rejects.toMatchObject({ code: 'WORKSPACE_ACCESS_DENIED' });
+
+    const context = await service.currentContext(login.session.id);
+    expect(context.activeWorkspaceId).toBe(first.workspaceId);
+    expect(context.workspaceIds).toEqual([first.workspaceId]);
+    expect(context.workspaceIds).not.toContain(second.workspaceId);
+  });
+
+  test('allows workspace member management only for roles with the reusable permission', async () => {
+    const store = new InMemoryAuthStore();
+    const service = buildService(store);
+    const admin = await service.register({ email: 'admin@example.test', password: 'passphrase-1' });
+    await store.saveMembership({
+      workspaceId: admin.workspaceId,
+      userId: admin.userId,
+      role: 'school_admin',
+      state: 'active',
+    });
+
+    await expect(
+      service.createSchoolInvitation({
+        email: 'invitee@example.test',
+        role: 'teacher',
+        workspaceId: admin.workspaceId,
+        createdByUserId: admin.userId,
+      }),
+    ).resolves.toMatchObject({ tokenHash: expect.any(String) });
+  });
+
+  test('denies invitation creation without workspace member permission', async () => {
+    const service = buildService();
+    const teacher = await service.register({
+      email: 'teacher@example.test',
+      password: 'passphrase-1',
+    });
+
+    await expect(
+      service.createSchoolInvitation({
+        email: 'invitee@example.test',
+        role: 'teacher',
+        workspaceId: teacher.workspaceId,
+        createdByUserId: teacher.userId,
+      }),
+    ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+  });
+
+  test('school invitation token is hashed, single-use, and replay-rejected', async () => {
+    const store = new InMemoryAuthStore();
+    const service = buildService(store);
+    const admin = await service.register({ email: 'admin@example.test', password: 'passphrase-1' });
+    await store.saveMembership({
+      workspaceId: admin.workspaceId,
+      userId: admin.userId,
+      role: 'school_admin',
+      state: 'active',
+    });
+    const invite = await service.createSchoolInvitation({
+      email: 'teacher@example.test',
+      role: 'teacher',
+      workspaceId: admin.workspaceId,
+      createdByUserId: admin.userId,
+    });
+    const token = store.tokenFromNotification('workspace.invite');
+    if (!token) throw new Error('invite notification token missing');
+
+    const accepted = await service.consumeSchoolInvitation({ token, password: 'passphrase-2' });
+
+    expect(invite.tokenHash).not.toContain(token);
+    expect(accepted.workspaceId).toBe(admin.workspaceId);
+    await expect(
+      service.consumeSchoolInvitation({ token, password: 'passphrase-3' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
+
+  test('recovery and invitation create emit notification events', async () => {
+    const store = new InMemoryAuthStore();
+    const service = buildService(store);
+    const admin = await service.register({ email: 'admin@example.test', password: 'passphrase-1' });
+    await store.saveMembership({
+      workspaceId: admin.workspaceId,
+      userId: admin.userId,
+      role: 'school_admin',
+      state: 'active',
+    });
+
+    await service.requestRecovery({ email: 'admin@example.test' });
+    await service.createSchoolInvitation({
+      email: 'teacher@example.test',
+      role: 'teacher',
+      workspaceId: admin.workspaceId,
+      createdByUserId: admin.userId,
+    });
+
+    expect(store.notificationCount('auth.recovery')).toBe(1);
+    expect(store.notificationCount('workspace.invite')).toBe(1);
+    expect(await service.auditCount('recovery_request')).toBe(1);
+    expect(await service.auditCount('invitation_create')).toBe(1);
+  });
+
   test('recovery is generic, single-use, and revokes older sessions', async () => {
     const store = new InMemoryAuthStore();
     const service = buildService(store);
@@ -175,47 +302,6 @@ describe('AuthService', () => {
     await expect(
       service.switchWorkspace({ sessionId: after.session.id, workspaceId: registered.workspaceId }),
     ).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
-  });
-
-  test('school invitation token is hashed, single-use, and replay-rejected', async () => {
-    const store = new InMemoryAuthStore();
-    const service = buildService(store);
-    const admin = await service.register({ email: 'admin@example.test', password: 'passphrase-1' });
-    const invite = await service.createSchoolInvitation({
-      email: 'teacher@example.test',
-      role: 'teacher',
-      workspaceId: admin.workspaceId,
-      createdByUserId: admin.userId,
-    });
-    const token = store.tokenFromNotification('workspace.invite');
-    if (!token) throw new Error('invite notification token missing');
-
-    const accepted = await service.consumeSchoolInvitation({ token, password: 'passphrase-2' });
-
-    expect(invite.tokenHash).not.toContain(token);
-    expect(accepted.workspaceId).toBe(admin.workspaceId);
-    await expect(
-      service.consumeSchoolInvitation({ token, password: 'passphrase-3' }),
-    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
-  });
-
-  test('recovery and invitation create emit notification events', async () => {
-    const store = new InMemoryAuthStore();
-    const service = buildService(store);
-    const admin = await service.register({ email: 'admin@example.test', password: 'passphrase-1' });
-
-    await service.requestRecovery({ email: 'admin@example.test' });
-    await service.createSchoolInvitation({
-      email: 'teacher@example.test',
-      role: 'teacher',
-      workspaceId: admin.workspaceId,
-      createdByUserId: admin.userId,
-    });
-
-    expect(store.notificationCount('auth.recovery')).toBe(1);
-    expect(store.notificationCount('workspace.invite')).toBe(1);
-    expect(await service.auditCount('recovery_request')).toBe(1);
-    expect(await service.auditCount('invitation_create')).toBe(1);
   });
 
   test('rate limits repeated recovery requests without leaking account existence', async () => {

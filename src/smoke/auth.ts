@@ -9,6 +9,7 @@ import { closeDatabase, createDatabase } from '../infrastructure/database/db.js'
 import { buildApp } from '../bootstrap/app.js';
 import { InMemoryAuthStore } from '../modules/auth/adapters/persistence/InMemoryAuthStore.js';
 import { PostgresAuthStore } from '../modules/auth/adapters/persistence/PostgresAuthStore.js';
+import type { AuthStore } from '../modules/auth/application/AuthService.js';
 import { createAuthService } from '../modules/auth/application/createAuthService.js';
 import type {
   NotificationAdapter,
@@ -37,6 +38,7 @@ const BOOTSTRAP_CSRF = 'bootstrap';
 
 type Runtime = {
   auth: ReturnType<typeof createAuthService>;
+  store: AuthStore;
   tokenFromNotification(templateKey: string): string | null;
   close(): Promise<void>;
 };
@@ -46,10 +48,10 @@ function createRuntime(): Runtime {
   if (databaseUrl) {
     const db = createDatabase({ connectionString: databaseUrl });
     const adapter = new RecordingNotificationAdapter();
+    const store = new PostgresAuthStore({ db, notificationAdapter: adapter });
     return {
-      auth: createAuthService({
-        store: new PostgresAuthStore({ db, notificationAdapter: adapter }),
-      }),
+      auth: createAuthService({ store }),
+      store,
       tokenFromNotification: (templateKey) => adapter.tokenFromNotification(templateKey),
       close: () => closeDatabase(db),
     };
@@ -58,6 +60,7 @@ function createRuntime(): Runtime {
   const store = new InMemoryAuthStore();
   return {
     auth: createAuthService({ store }),
+    store,
     tokenFromNotification: (templateKey) => store.tokenFromNotification(templateKey),
     close: async () => {},
   };
@@ -185,6 +188,12 @@ async function main(): Promise<void> {
       ),
     );
 
+    await runtime.store.saveMembership({
+      workspaceId: meBody.data.activeWorkspaceId,
+      userId: meBody.data.account.id,
+      role: 'school_admin',
+      state: 'active',
+    });
     await runtime.auth.createSchoolInvitation({
       email: `invitee-${Date.now()}@example.test`,
       role: 'teacher',
