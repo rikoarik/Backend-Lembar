@@ -66,7 +66,16 @@ describe('auth routes', () => {
     const body = me.json() as {
       data: {
         activeWorkspaceId: string;
-        workspaces: Array<{ id: string; type: 'personal' | 'school'; name: string; role: string }>;
+        activeWorkspace: { id: string; permissions: string[]; isActive: boolean };
+        context: { workspaceIds: string[]; permissionSet: string[] };
+        workspaces: Array<{
+          id: string;
+          type: 'personal' | 'school';
+          name: string;
+          role: string;
+          permissions: string[];
+          isActive: boolean;
+        }>;
       };
     };
     const activeWorkspace = body.data.workspaces.find(
@@ -74,6 +83,18 @@ describe('auth routes', () => {
     );
     expect(activeWorkspace?.type).toBe('personal');
     expect(activeWorkspace?.role).toBe('teacher');
+    expect(activeWorkspace?.isActive).toBe(true);
+    expect(activeWorkspace?.permissions).toEqual([
+      'assessment.create',
+      'assessment.read',
+      'assessment.review',
+      'source.manage',
+    ]);
+    expect(body.data.activeWorkspace).toEqual(activeWorkspace);
+    expect(body.data.context).toEqual({
+      workspaceIds: [body.data.activeWorkspaceId],
+      permissionSet: activeWorkspace?.permissions,
+    });
 
     const deniedByCsrf = await app.inject({
       method: 'POST',
@@ -162,12 +183,103 @@ describe('auth routes', () => {
         '__Host-lembar_session': firstLogin.session.id,
       },
     });
+    const dashboard = await app.inject({
+      method: 'GET',
+      url: '/v1/dashboard/summary',
+      cookies: {
+        '__Host-lembar_session': firstLogin.session.id,
+      },
+    });
 
     expect(switchForeign.statusCode).toBe(404);
     expect(switchForeign.json()).toMatchObject({ error: { code: 'WORKSPACE_ACCESS_DENIED' } });
     expect(me.statusCode).toBe(200);
     expect(me.json()).toMatchObject({ data: { activeWorkspaceId: first.workspaceId } });
+    expect(dashboard.statusCode).toBe(200);
+    expect(dashboard.json()).toMatchObject({
+      data: {
+        workspace: { id: first.workspaceId, isActive: true },
+        metrics: {
+          assessments: { total: 0, draft: 0, inReview: 0, final: 0 },
+          sources: { total: 0, ready: 0, processing: 0, failed: 0 },
+          jobs: { total: 0, active: 0, failed: 0 },
+        },
+        emptyState: { isEmpty: true, message: 'Belum ada aktivitas pada workspace ini.' },
+      },
+    });
     expect(JSON.stringify(me.json())).not.toContain(second.workspaceId);
+    expect(JSON.stringify(dashboard.json())).not.toContain(second.workspaceId);
+  });
+
+  test('workspace switch changes current read models only within memberships', async () => {
+    const store = new InMemoryAuthStore();
+    const auth = createAuthService({ store });
+    const app = await buildApp({
+      logger: false,
+      serviceName: 'test',
+      serviceVersion: 'test',
+      auth,
+    });
+    apps.push(app);
+
+    const registered = await auth.register({
+      email: 'teacher@example.test',
+      password: 'passphrase-1',
+    });
+    const login = await auth.login({ email: 'teacher@example.test', password: 'passphrase-1' });
+    const schoolWorkspaceId = 'school-workspace';
+    await store.saveWorkspace({
+      id: schoolWorkspaceId,
+      slug: 'school-workspace',
+      name: 'Sekolah Uji',
+    });
+    await store.saveMembership({
+      workspaceId: schoolWorkspaceId,
+      userId: registered.userId,
+      role: 'school_admin',
+      state: 'active',
+    });
+
+    const csrfToken = login.session.csrfToken;
+    const switched = await app.inject({
+      method: 'POST',
+      url: '/v1/auth/workspace/switch',
+      headers: {
+        origin: 'http://localhost:3000',
+        'x-csrf-token': csrfToken,
+      },
+      cookies: {
+        '__Host-lembar_session': login.session.id,
+        lembar_csrf: csrfToken,
+      },
+      payload: { workspaceId: schoolWorkspaceId },
+    });
+    const me = await app.inject({
+      method: 'GET',
+      url: '/v1/me',
+      cookies: { '__Host-lembar_session': login.session.id },
+    });
+    const dashboard = await app.inject({
+      method: 'GET',
+      url: '/v1/dashboard/summary',
+      cookies: { '__Host-lembar_session': login.session.id },
+    });
+
+    expect(switched.statusCode).toBe(200);
+    expect(me.json()).toMatchObject({
+      data: {
+        activeWorkspaceId: schoolWorkspaceId,
+        activeWorkspace: { id: schoolWorkspaceId, role: 'school_admin', isActive: true },
+        workspaces: [
+          { id: registered.workspaceId, isActive: false },
+          { id: schoolWorkspaceId, isActive: true },
+        ],
+      },
+    });
+    expect(dashboard.json()).toMatchObject({
+      data: { workspace: { id: schoolWorkspaceId, role: 'school_admin', isActive: true } },
+    });
+    expect(JSON.stringify(dashboard.json())).not.toContain('missing-workspace');
   });
 
   test('recovery and invitation endpoints stay enumeration-safe', async () => {
