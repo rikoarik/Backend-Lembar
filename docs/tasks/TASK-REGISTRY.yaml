@@ -1201,7 +1201,7 @@ tasks:
     branch: feat/B0-09-notification-provider-spike
     latest_pushed_commit: bca50bc
     integration_commit: 22cbef9
-    dev_commit: PENDING
+    dev_commit: 00dd252
     dependency_note: "Contract was broadened by orchestrator pre-implementation to include src/bootstrap/app.ts, drizzle.config.ts, and src/smoke/database.ts as required integration seams. Memory-only provider accepted; real provider selection and async outbox drain remain deferred by ADR."
     completed_scope:
       - notification_templates, notification_outbox, notification_send_audit tables via migration 0005_notification_outbox.sql.
