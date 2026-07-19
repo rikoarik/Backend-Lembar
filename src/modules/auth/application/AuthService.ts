@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ApiError } from '../../../common/errors/envelope.js';
 import type { NotificationSendInput } from '../../notifications/domain/NotificationAdapter.js';
 import { USER_ROLES, type UserRole } from '../../../infrastructure/database/schema.js';
+import { hasPermission, PERMISSIONS } from '../policy/Permissions.js';
 
 export type MembershipState = 'active' | 'suspended' | 'revoked';
 export type InvitationState = 'pending' | 'accepted' | 'expired' | 'revoked';
@@ -313,7 +314,11 @@ export class AuthService {
       throw this.validationError('Role tidak valid.');
     }
     const membership = await this.store.getMembership(input.createdByUserId, input.workspaceId);
-    if (!membership || membership.state !== 'active') {
+    if (
+      !membership ||
+      membership.state !== 'active' ||
+      !hasPermission(membership.role, PERMISSIONS.workspaceMemberManage)
+    ) {
       throw new ApiError({
         code: 'PERMISSION_DENIED',
         message: 'Permintaan tidak diizinkan.',
