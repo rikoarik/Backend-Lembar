@@ -100,12 +100,12 @@ active_workers:
   - session: backend-lembar-10
     task: B0-06
     branch: feat/B0-06-queue-idempotency-spike
-    branch_head_local: 50b4455d00c5b3c5a4317512499a9f9fe3aaac08
-    branch_head_matches_integration: false
+    branch_head_local: 60c7342d
+    branch_head_matches_integration: true
     misbase_reason: docs-only root pre-B0-04
-    remediation: re-target branch onto ao/backend-integration (no force-push)
+    remediation: completed; branch reset in owning worktree onto origin/ao/backend-integration after clean status inspection (no force-push)
     status: idle
-    activity: idle
+    activity: resumed_after_base_recovery
     started_command: "START B0-06"
 
 completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-07]
