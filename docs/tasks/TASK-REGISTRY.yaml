@@ -2,14 +2,14 @@ version: "1.2"
 updated_at: "2026-07-19"
 execution_target: COMPLETE_LEMBAR_WEB_V1
 checkpoint:
-  mode: shutdown
-  reason: owner_expected_host_shutdown
+  mode: resumed
+  reason: b0_04_acceptance_completed_after_shutdown_resume
   integration_branch: ao/backend-integration
-  integration_commit: b3b0716c4d499d523418594a915903cd5c4a28af
-  pushed: true
-  completed_scope: [B0-01, B0-02, B0-03, B0-07]
-  paused_scope: [B0-04]
-  next_action: "fetch origin; read this registry; inspect feat/B0-04-pg-drizzle-spike at 4753a29938109fb3e64cfa158be72a69a71c72cc; continue B0-04 from latest pushed checkpoint before assigning new work; after B0-04 acceptance run complete PRD-to-registry gap analysis for Web V1"
+  integration_commit: 767d0f8
+  pushed: false
+  completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-07]
+  paused_scope: []
+  next_action: "Run complete PRD-to-registry gap analysis for Web V1, update missing backend tasks, then continue the next unblocked backend task without restarting accepted work."
 project: lembar
 repositories:
   frontend: rikoarik/Frontend-Lembar
@@ -496,31 +496,38 @@ tasks:
     repository: Backend-Lembar
     sprint: B0
     title: PostgreSQL ORM and migration spike
-    status: PAUSED
+    status: ACCEPTED
     depends_on: [B0-01, B0-02]
     decisions: [D-003]
     outcome: Measured migration/query/deploy PoC and accepted ORM ADR.
     evidence: [migration-roundtrip, constraints, footprint, ADR]
     branch: feat/B0-04-pg-drizzle-spike
-    latest_pushed_commit: 4753a29938109fb3e64cfa158be72a69a71c72cc
-    checkpoint_reason: owner_expected_host_shutdown
+    latest_pushed_commit: 3a45a9a3d2bb5d03b3b883bf0553959d6ad5f7e1
+    integration_commit: 9b55843
+    correction_cycles_used: 1
     completed_scope:
-      - Branch fast-forwarded to integration commit bd20dae after B0-02/B0-03.
-      - Empty interrupted checkpoint commit created by worker; no implementation files yet.
-    remaining_scope:
-      - Add Drizzle + pg dependencies and drizzle.config.ts.
-      - Add minimal database schema/migration and DB config slot.
-      - Add runtime DB roundtrip smoke applying migration and insert/select.
-      - Add ADR/spike evidence and README/.env.example updates.
-    changed_files_or_modules: []
+      - Drizzle ORM + node-postgres dependencies and pnpm 11 build-script allowlist.
+      - drizzle.config.ts and generated SQL migrations under src/infrastructure/database/migrations.
+      - Minimal tenant/user/school schema with DB-side tenant FKs, unique constraints, and users.role CHECK constraint.
+      - Redaction-safe database env parser for DATABASE_URL, DATABASE_REQUIRED, DATABASE_POOL_MAX, DATABASE_SSL_MODE.
+      - Database factory, managed pool shutdown, and healthcheck helper.
+      - Runtime db:smoke CLI applying migrations, inserting tenant/user/school, reading back, checking tenant isolation, and printing redacted JSON.
+      - docs/adr/B0-04-spike.md, README, and .env.example updates.
     verification_executed:
-      - None for B0-04 implementation; no implementation files existed before checkpoint.
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm build
+      - pnpm test
+      - pnpm openapi:validate && pnpm openapi:breaking
+      - pnpm db:check
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm db:smoke against disposable Postgres 16.13
+      - Live DB probe verified users_role_check rejects role='bogus'.
+      - DATABASE_REQUIRED=true without DATABASE_URL exits 1 naming DATABASE_URL only.
     verification_still_required:
-      - pnpm typecheck/lint/format:check/build
-      - DB migration/query roundtrip against disposable/local PostgreSQL
-      - Redaction check for DATABASE_URL
-    blockers: []
-    next_action: "Resume B0-04 from feat/B0-04-pg-drizzle-spike at 4753a29938109fb3e64cfa158be72a69a71c72cc; if old AO worker is gone, spawn one fresh worker on the same branch and continue the original B0-04 contract."
+      - Production Postgres runbook/backup/role/RLS decisions in later tasks.
+    next_action: "No B0-04 action; B0-05/B0-06/B1-04/B1-06 dependencies can now proceed after Web V1 gap analysis."
 
   - id: B0-05
     repository: Backend-Lembar
