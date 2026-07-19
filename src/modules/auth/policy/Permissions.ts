@@ -14,7 +14,7 @@ export const PERMISSIONS = {
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
-const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
+export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   superadmin: [
     PERMISSIONS.assessmentCreate,
     PERMISSIONS.assessmentRead,
@@ -44,6 +44,10 @@ const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   ],
   subscriber: [PERMISSIONS.assessmentRead],
 };
+
+export function permissionsForRole(role: UserRole): Permission[] {
+  return [...ROLE_PERMISSIONS[role]];
+}
 
 export function hasPermission(role: UserRole, permission: Permission): boolean {
   return ROLE_PERMISSIONS[role].includes(permission);

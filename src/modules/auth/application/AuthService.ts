@@ -3,7 +3,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ApiError } from '../../../common/errors/envelope.js';
 import type { NotificationSendInput } from '../../notifications/domain/NotificationAdapter.js';
 import { USER_ROLES, type UserRole } from '../../../infrastructure/database/schema.js';
-import { hasPermission, PERMISSIONS } from '../policy/Permissions.js';
+import {
+  hasPermission,
+  permissionsForRole,
+  PERMISSIONS,
+  type Permission,
+} from '../policy/Permissions.js';
 
 export type MembershipState = 'active' | 'suspended' | 'revoked';
 export type InvitationState = 'pending' | 'accepted' | 'expired' | 'revoked';
@@ -46,6 +51,18 @@ export interface WorkspaceSummary {
   type: 'personal' | 'school';
   name: string;
   role: UserRole;
+  permissions: Permission[];
+  isActive: boolean;
+}
+
+export interface DashboardSummary {
+  workspace: WorkspaceSummary;
+  metrics: {
+    assessments: { total: number; draft: number; inReview: number; final: number };
+    sources: { total: number; ready: number; processing: number; failed: number };
+    jobs: { total: number; active: number; failed: number };
+  };
+  emptyState: { isEmpty: boolean; message: string };
 }
 
 export interface SessionRecord {
@@ -450,23 +467,7 @@ export class AuthService {
     workspaces: WorkspaceSummary[];
   }> {
     const session = await this.requireSession(sessionId);
-    const memberships = (await this.store.listMemberships(session.userId)).filter(
-      (membership) => membership.state === 'active',
-    );
-    const workspaces = (
-      await Promise.all(
-        memberships.map(async (membership) => {
-          const workspace = await this.store.getWorkspace(membership.workspaceId);
-          if (!workspace) return null;
-          return {
-            id: workspace.id,
-            type: workspace.slug.startsWith('personal-') ? 'personal' : 'school',
-            name: workspace.name,
-            role: membership.role,
-          } satisfies WorkspaceSummary;
-        }),
-      )
-    ).filter((workspace): workspace is WorkspaceSummary => workspace !== null);
+    const workspaces = await this.visibleWorkspaces(session.userId, session.workspaceId);
     return {
       userId: session.userId,
       activeWorkspaceId: session.workspaceId,
@@ -479,9 +480,15 @@ export class AuthService {
     account: { id: string; displayName: string };
     workspaces: WorkspaceSummary[];
     activeWorkspaceId: string;
+    activeWorkspace: WorkspaceSummary;
+    context: { workspaceIds: string[]; permissionSet: Permission[] };
   }> {
     const context = await this.currentContext(sessionId);
     const user = await this.mustUser(context.userId);
+    const activeWorkspace = this.requireWorkspaceSummary(
+      context.workspaces,
+      context.activeWorkspaceId,
+    );
     return {
       account: {
         id: user.id,
@@ -489,6 +496,65 @@ export class AuthService {
       },
       workspaces: context.workspaces,
       activeWorkspaceId: context.activeWorkspaceId,
+      activeWorkspace,
+      context: {
+        workspaceIds: context.workspaceIds,
+        permissionSet: activeWorkspace.permissions,
+      },
+    };
+  }
+
+  async dashboardSummary(sessionId: string): Promise<DashboardSummary> {
+    const context = await this.currentContext(sessionId);
+    const workspace = this.requireWorkspaceSummary(context.workspaces, context.activeWorkspaceId);
+    return this.emptyDashboardSummary(workspace);
+  }
+
+  private async visibleWorkspaces(
+    userId: string,
+    activeWorkspaceId: string,
+  ): Promise<WorkspaceSummary[]> {
+    const memberships = (await this.store.listMemberships(userId)).filter(
+      (membership) => membership.state === 'active',
+    );
+    const workspaces = await Promise.all(
+      memberships.map(async (membership) => {
+        const workspace = await this.store.getWorkspace(membership.workspaceId);
+        if (!workspace) return null;
+        return {
+          id: workspace.id,
+          type: workspace.slug.startsWith('personal-') ? 'personal' : 'school',
+          name: workspace.name,
+          role: membership.role,
+          permissions: permissionsForRole(membership.role),
+          isActive: workspace.id === activeWorkspaceId,
+        } satisfies WorkspaceSummary;
+      }),
+    );
+    return workspaces.filter((workspace): workspace is WorkspaceSummary => workspace !== null);
+  }
+
+  private requireWorkspaceSummary(
+    workspaces: WorkspaceSummary[],
+    workspaceId: string,
+  ): WorkspaceSummary {
+    const workspace = workspaces.find((item) => item.id === workspaceId);
+    if (!workspace) throw this.authRequired();
+    return workspace;
+  }
+
+  private emptyDashboardSummary(workspace: WorkspaceSummary): DashboardSummary {
+    return {
+      workspace,
+      metrics: {
+        assessments: { total: 0, draft: 0, inReview: 0, final: 0 },
+        sources: { total: 0, ready: 0, processing: 0, failed: 0 },
+        jobs: { total: 0, active: 0, failed: 0 },
+      },
+      emptyState: {
+        isEmpty: true,
+        message: 'Belum ada aktivitas pada workspace ini.',
+      },
     };
   }
 
