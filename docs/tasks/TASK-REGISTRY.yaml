@@ -9,7 +9,34 @@ checkpoint:
   pushed: false
   completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-07]
   paused_scope: []
-  next_action: "Web V1 gap analysis applied: added B0-09, B8-02, X1-01, X3-01, X5-01; flipped B0-05/B0-06/B1-04 to READY; added B0-09/D-007 coverage to B1-01; simplified B1-06/B6-06 dependencies; clarified B0-07 and FR-GEN traceability. Next backend task is B0-05."
+  next_action: "Web V1 gap analysis applied: added B0-09, B8-02, X1-01, X3-01, X5-01; flipped B0-05/B0-06/B1-04 to READY; added B0-09/D-007 coverage to B1-01; simplified B1-06/B6-06 dependencies; clarified B0-07 and FR-GEN traceability. B0-05 worker dispatched as backend-lembar-9 on feat/B0-05-auth-session-spike. B0-06 worker dispatched as backend-lembar-10 on feat/B0-06-queue-idempotency-spike. B1-04 remains READY pending the next free backend execution slot or explicit independence decision."
+
+owner_directive:
+  status: active
+  scope: Backend-Lembar
+  target: COMPLETE_LEMBAR_WEB_V1
+  policy:
+    continuous_execution: true
+    automatic_resume: true
+    automatic_checkpoint: true
+    max_in_progress_per_repository: 1
+    max_concurrent_workers: 5
+    max_correction_cycles_per_task: 2
+    max_context_documents_per_task: 3
+    native_mobile_boundary: out_of_scope
+    production_actions_default: forbidden
+  safety:
+    never_push_to_main: true
+    never_force_push: true
+    never_access_production_secrets: true
+    never_create_paid_resources: true
+    use_local_adapters_when_credentials_absent: true
+  stop_conditions:
+    - all backend Web V1 responsibilities implemented and verified
+    - genuine owner decision required (changes product behavior or architecture)
+    - irreconcilable cross-repo contract conflict after 2 correction cycles
+    - destructive or production action requiring explicit owner authorization
+  notes: "Persist here so resume after restart finds the directive without re-reading the conversation."
 project: lembar
 repositories:
   frontend: rikoarik/Frontend-Lembar
