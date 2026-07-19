@@ -112,6 +112,53 @@ completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-07]
 active_scope: [B0-05, B0-06]
 paused_scope: []
 ready_scope: [B1-04]
+
+branch_policy:
+  status: active
+  long_lived_branches:
+    - name: main
+      purpose: stable release branch
+      mutation: never_auto
+    - name: dev
+      purpose: shared development branch after repository-level integration verification
+      mutation: promote_only_from_ao_backend_integration
+    - name: ao/backend-integration
+      purpose: orchestrator integration branch combining accepted task branches before promotion to dev
+      mutation: merge_accepted_task_branches_only
+  task_branches:
+    naming:
+      feature: feat/<TASK-ID>-<short-slug>
+      fix: fix/<TASK-ID>-<short-slug>
+      chore: chore/<TASK-ID>-<short-slug>
+    mutation: per_task_work
+  main_protection:
+    never_push_to_main_directly: true
+    never_force_push_main_dev_integration_task_branches: true
+    never_rewrite_shared_branch_history: true
+    never_auto_delete_dev_or_ao_backend_integration: true
+    never_auto_merge_dev_into_main: true
+    release_command_required: "RELEASE BACKEND DEV TO MAIN"
+  merge_flow:
+    - worker_implements_on_task_branch
+    - run_task_acceptance_and_verification
+    - review_worker_result
+    - push_task_branch
+    - merge_accepted_work_normally_into_ao_backend_integration
+    - run_affected_integration_contract_migration_security_regression_checks
+    - keep_ao_backend_integration_for_additional_compatible_integrations
+    - after_integration_batch_stable_promote_ao_backend_integration_into_dev
+    - push_dev
+    - continue_with_next_eligible_task
+  integration_gates:
+    working_tree_clean: true
+    included_tasks_satisfy_acceptance: true
+    no_incomplete_checkpoint_work: true
+    verification_evidence_recorded: true
+    migrations_and_rollback_checked_when_applicable: true
+    openapi_artifacts_synchronized_when_applicable: true
+    no_unresolved_merge_conflict: true
+    task_registry_reflects_integrated_state: true
+  notes: "Persist here for restart-safe resume. The orchestrator must respect this policy for every backend task, including B0-05/B0-06 currently in progress and B1-04/B0-09/etc. in the future."
 project: lembar
 repositories:
   frontend: rikoarik/Frontend-Lembar
