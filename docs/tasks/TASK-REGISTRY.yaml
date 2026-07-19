@@ -19,7 +19,7 @@ owner_directive:
     continuous_execution: true
     automatic_resume: true
     automatic_checkpoint: true
-    max_in_progress_per_repository: 1
+    max_in_progress_per_repository: 5
     max_concurrent_workers: 5
     max_correction_cycles_per_task: 2
     max_context_documents_per_task: 3
@@ -93,7 +93,7 @@ active_workers: []
 completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-08, B0-09, B1-01, B1-02, B1-03, B1-04, B1-05, B1-06]
 active_scope: []
 paused_scope: []
-ready_scope: [B2-01]
+ready_scope: []
 
 branch_policy:
   status: active
@@ -161,12 +161,12 @@ rules:
   owner_starts_with: "START <TASK-ID>"
   owner_accepts_with: "ACCEPT <TASK-ID>"
   owner_requests_changes_with: "CHANGES_REQUESTED <TASK-ID>: <reason>"
-  max_in_progress_per_repository: 1
+  max_in_progress_per_repository: 5
   max_context_documents_per_task: 3
   max_handoff_words: 500
   nested_agent_spawn: forbidden_unless_owner_explicit
-  auto_start_next_task: false
-  auto_merge: false
+  auto_start_next_task: true
+  auto_merge: true
   production_actions_default: forbidden
 
 tasks:
