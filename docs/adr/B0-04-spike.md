@@ -11,8 +11,12 @@ Status: READY_FOR_OWNER_REVIEW (B0-04 spike)
   B0-02.
 - `src/infrastructure/database/schema.ts` with three spike tables only: `tenants`,
   `users`, `schools`. Inferred row types exported as `Tenant`, `User`, `School`.
-- Migration `src/infrastructure/database/migrations/0001_init.sql` + Drizzle journal
-  under `meta/_journal.json`. Migration applies via `migrate()` programmatically.
+- `users.role` is enforced by a DB-level `CHECK` constraint that mirrors `USER_ROLES`
+  (`superadmin` | `school_admin` | `teacher` | `subscriber`). The TypeScript union is
+  the source of truth; the SQL CHECK is defense-in-depth against bad direct writes.
+- Migration `src/infrastructure/database/migrations/0001_init.sql` + role-check follow-up
+  `0002_users_role_check.sql` + Drizzle journal under `meta/_journal.json`. Migrations
+  apply via `migrate()` programmatically.
 - `drizzle.config.ts` (dialect postgresql, schema `./src/infrastructure/database/schema.ts`,
   out `./src/infrastructure/database/migrations`).
 - `src/infrastructure/database/db.ts` with `createDatabase({ connectionString, poolMax?,

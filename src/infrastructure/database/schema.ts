@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { check, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
 export const USER_ROLES = ['superadmin', 'school_admin', 'teacher', 'subscriber'] as const;
 export type UserRole = (typeof USER_ROLES)[number];
@@ -34,6 +34,10 @@ export const users = pgTable(
   },
   (t) => ({
     tenantEmailUnique: uniqueIndex('users_tenant_email_unique').on(t.tenantId, t.email),
+    roleCheck: check(
+      'users_role_check',
+      sql`${t.role} in ('superadmin','school_admin','teacher','subscriber')`,
+    ),
   }),
 );
 
