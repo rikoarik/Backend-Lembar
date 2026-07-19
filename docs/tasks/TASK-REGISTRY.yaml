@@ -855,7 +855,7 @@ tasks:
     branch: feat/B1-03-permission-tenant-suite
     latest_pushed_commit: 8f5ad9b
     integration_commit: fd8af14
-    dev_commit: PENDING
+    dev_commit: ba45e42
     dependency_note: "Reusable permission helper landed in auth policy layer first; broader non-auth resource adoption remains deferred until those modules exist."
     completed_scope:
       - Reusable permission helper in auth policy layer.
