@@ -56,6 +56,62 @@ start_authorization:
     - paid_resource_or_production_secret_required_without_local_alternative
     - correction_cycles_exhausted
   notes: "Internal execution gate only; orchestrator may send START on the owner's behalf."
+
+context_management:
+  status: active
+  policy:
+    auto_compaction: authorized_and_enabled
+    explicit_compact_invocation_allowed_only_when_runtime_supports: true
+    forbid_compact_via_shell: true
+    persistence_source_of_truth:
+      - TASK-REGISTRY.yaml
+      - accepted repository decisions
+      - PRD and architecture documents
+      - backend-owned OpenAPI contracts
+      - git task branches
+      - ao/backend-integration
+      - verification evidence in the repository
+      - latest remote commit history
+  pre_compaction_checkpoint:
+    inspect_all_active_workers: true
+    update_registry_with_active_completed_blocked: true
+    record_per_task_branch_and_latest_pushed_commit: true
+    record_completed_remaining_scope_changed_files: true
+    record_verification_done_and_still_required: true
+    record_next_action: true
+    commit_and_push_meaningful_progress: true
+  post_compaction_rehydration:
+    read_registry_first: true
+    read_only_max_relevant_documents: true
+    inspect_git_status_and_fetch: true
+    inspect_integration_and_active_branches: true
+    reconstruct_state_and_resume: true
+  notes: "Conversation history is not authoritative; the registry and git remote state are. Re-run any check whose success is not persisted before declaring it complete."
+
+active_workers:
+  - session: backend-lembar-9
+    task: B0-05
+    branch: feat/B0-05-auth-session-spike
+    branch_head_local: 2792363c864203565d28f49a3c6b7456ea024f52
+    branch_head_matches_integration: true
+    status: working
+    activity: active
+    started_command: "START B0-05"
+  - session: backend-lembar-10
+    task: B0-06
+    branch: feat/B0-06-queue-idempotency-spike
+    branch_head_local: 50b4455d00c5b3c5a4317512499a9f9fe3aaac08
+    branch_head_matches_integration: false
+    misbase_reason: docs-only root pre-B0-04
+    remediation: re-target branch onto ao/backend-integration (no force-push)
+    status: idle
+    activity: idle
+    started_command: "START B0-06"
+
+completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-07]
+active_scope: [B0-05, B0-06]
+paused_scope: []
+ready_scope: [B1-04]
 project: lembar
 repositories:
   frontend: rikoarik/Frontend-Lembar
