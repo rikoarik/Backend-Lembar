@@ -168,6 +168,43 @@ they are added per process by later tasks and must never be committed.
   directory projection, CMS-side visual maps, worker-driven publish, object-storage of
   curriculum assets).
 
+## Notification spike (B0-09)
+
+D-007 transactional notification provider spike. The memory-backed `NotificationAdapter` and
+`notification_outbox` table are wired behind a stable boundary so a real provider
+(SendGrid / Twilio / AWS SES / Resend / etc.) can drop in later without touching
+auth/curriculum modules.
+
+- Migration `src/infrastructure/database/migrations/0005_notification_outbox.sql` adds
+  `notification_templates`, `notification_outbox`, and `notification_send_audit`. It also seeds
+  two templates (`auth.recovery`, `workspace.invite`) in both `id-ID` and `en-US`.
+- Locale strategy: `id-ID` is the default and the fallback when the requested locale is missing.
+- Dedupe boundary: `(template_key, recipient_hash, payload_hash)` partial unique index on
+  `status = 'sent'`. `eventId` is **not** part of the dedupe key.
+- The dispatcher runs the `eventId` insert, template lookup, adapter send, and audit insert in
+  one `db.transaction` so a caller-side rollback leaves no rows behind.
+- PII: the recipient string and rendered body **never** appear in logs or the audit row.
+- Async drain worker (B2-N) is deferred. The spike synchronously dispatches.
+
+HTTP surface (read-only + stub bearer on dispatch — B1-03 will tighten):
+
+| Method | Path                                       |
+| ------ | ------------------------------------------ |
+| `GET`  | `/v1/notifications/templates`              |
+| `GET`  | `/v1/notifications/templates/:templateKey` |
+| `POST` | `/v1/notifications/dispatch`               |
+| `GET`  | `/v1/notifications/audit`                  |
+
+Smokes (disposable Postgres at `127.0.0.1:55443`):
+
+```bash
+DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm notification:smoke
+DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm notification:smoke:duplicate
+```
+
+See `docs/adr/B0-09-notification-provider.md` for the decision, locale strategy, dedupe
+boundary, and deferred items.
+
 ## Spike configuration
 
 ```bash

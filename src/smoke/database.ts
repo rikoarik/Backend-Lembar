@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { randomUUID } from 'node:crypto';
 
 import { parseDatabaseEnv } from '../config/database.env.js';
 import { ConfigError, formatConfigError } from '../config/errors.js';
@@ -14,6 +15,9 @@ import {
   type Tenant,
   type User,
 } from '../infrastructure/database/schema.js';
+import { MemoryNotificationAdapter } from '../modules/notifications/domain/NotificationAdapter.js';
+import { NotificationService } from '../modules/notifications/domain/NotificationService.js';
+import { NotificationRepository } from '../modules/notifications/persistence/NotificationRepository.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, '..', '..');
@@ -27,6 +31,11 @@ interface SmokeSummary {
   school: { id: string; name: string; level: string };
   tenantIsolation: { otherTenantId: string; userCount: number };
   healthcheck: { ok: boolean; latencyMs: number };
+  notifications: {
+    templates: { seededKeys: number; locales: number };
+    dispatch: { status: string; auditRows: number };
+    duplicate: { status: string; auditDelta: number };
+  };
 }
 
 function emit(summary: SmokeSummary): void {
@@ -117,6 +126,10 @@ async function main(): Promise<void> {
 
     const health = await healthcheck(db);
 
+    // B0-09 — Notifications spike section. Exercises one dispatch and one
+    // duplicate against the same payload to assert audit-row idempotence.
+    const notifications = await runNotificationsSection(db);
+
     const summary: SmokeSummary = {
       status: 'ok',
       migrations: { folder: migrationsFolder, applied: true },
@@ -125,6 +138,7 @@ async function main(): Promise<void> {
       school: { id: inserted.school.id, name: inserted.school.name, level: inserted.school.level },
       tenantIsolation: { otherTenantId: otherTenantRow.id, userCount: isolatedUsers.length },
       healthcheck: { ok: health.ok, latencyMs: health.latencyMs },
+      notifications,
     };
     emit(summary);
 
@@ -150,6 +164,62 @@ async function cleanupTenant(
     process.stdout.write(
       `${JSON.stringify({ cleanup: 'tenant', id: t.id, slug: t.slug, users: u.length, schools: s.length })}\n`,
     );
+}
+
+async function runNotificationsSection(
+  db: ReturnType<typeof createDatabase>,
+): Promise<SmokeSummary['notifications']> {
+  const repository = new NotificationRepository(db);
+  const adapter = new MemoryNotificationAdapter();
+  const service = new NotificationService({ adapter, repository });
+  await repository.seedTemplates();
+
+  const seeded = await repository.listTemplates();
+  const seededKeys = new Set(seeded.map((row) => row.templateKey)).size;
+
+  const eventId = randomUUID();
+  const recipient = { kind: 'email' as const, value: `smoke-db-${Date.now()}@example.test` };
+  const payload = {
+    workspace_name: 'Tim Kurikulum',
+    inviter_name: 'Bu Rini',
+    accept_url: 'https://lembar.test/accept/smoke',
+  };
+
+  const first = await service.dispatch({
+    templateKey: 'workspace.invite',
+    locale: 'id-ID',
+    recipient,
+    payload,
+    eventId,
+  });
+  const auditAfterFirst = await repository.countAudit();
+
+  const second = await service.dispatch({
+    templateKey: 'workspace.invite',
+    locale: 'id-ID',
+    recipient,
+    payload,
+    eventId,
+  });
+  const auditAfterSecond = await repository.countAudit();
+
+  if (first.status !== 'dispatched') {
+    throw new Error(`notifications.dispatch expected dispatched, got ${first.status}`);
+  }
+  if (second.status !== 'duplicate') {
+    throw new Error(`notifications.duplicate expected duplicate, got ${second.status}`);
+  }
+  if (auditAfterSecond - auditAfterFirst !== 0) {
+    throw new Error(
+      `notifications.duplicate should NOT grow the audit table; delta=${auditAfterSecond - auditAfterFirst}`,
+    );
+  }
+
+  return {
+    templates: { seededKeys, locales: seeded.length },
+    dispatch: { status: first.status, auditRows: auditAfterFirst },
+    duplicate: { status: second.status, auditDelta: auditAfterSecond - auditAfterFirst },
+  };
 }
 
 const isDirectRun =

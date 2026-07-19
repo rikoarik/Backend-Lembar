@@ -1,4 +1,4 @@
-version: "1.6"
+version: "1.7"
 updated_at: "2026-07-19"
 execution_target: COMPLETE_LEMBAR_WEB_V1
 checkpoint:
@@ -90,10 +90,10 @@ context_management:
 
 active_workers: []
 
-completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B1-04]
+completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-09, B1-04]
 active_scope: []
 paused_scope: []
-ready_scope: [B0-08, B0-09]
+ready_scope: [B0-08, B1-01, B1-06]
 
 branch_policy:
   status: active
@@ -765,21 +765,23 @@ tasks:
     repository: Backend-Lembar
     sprint: B0
     title: Product AI provider adapter spike
-    status: BLOCKED
+    status: READY
     depends_on: [B0-06]
     decisions: [D-019]
     outcome: Mock-first structured-output adapter plus privacy/quality/latency/cost evidence.
     evidence: [schema-failure, mock-CI, eval-smoke, ADR]
+    next_action: "B0-08 READY after B0-06 acceptance; candidate parallel spike behind B1-01 priority."
 
   - id: B1-01
     repository: Backend-Lembar
     sprint: B1
     title: Account and session integration
-    status: BLOCKED
+    status: READY
     depends_on: [B0-03, B0-04, B0-05, B0-09]
     decisions: [D-002, D-007]
     outcome: Register/login/logout/recovery with audit and revocation; recovery delivery routes through B0-09 notification adapter.
     evidence: [integration, CSRF, rate-limit, no-secret-log]
+    next_action: "B1-01 READY; start account/session integration against accepted B0-05 auth spike and B0-09 notification adapter."
 
   - id: B1-02
     repository: Backend-Lembar
@@ -853,12 +855,13 @@ tasks:
     repository: Backend-Lembar
     sprint: B1
     title: Marketing content domain and published read API
-    status: BLOCKED
+    status: READY
     depends_on: [B0-03, B0-04]
     decisions: [P-011, P-012, T-005, T-006, D-003, D-017]
     outcome: Versioned PostgreSQL content model serves published-only page/global projections with ETag.
     evidence: [migration, published-only, draft-nondisclosure, schema-validation, etag-304, no-queue]
     dependency_note: "Public CMS read API is unauthenticated and published-only per MARKETING-CMS-BACKEND.md; superadmin ops permission matrix belongs in B6-06."
+    next_action: "B1-06 READY; public CMS read API can proceed in parallel after higher-priority B1-01 dispatch."
 
   - id: B2-01
     repository: Backend-Lembar
@@ -1190,12 +1193,38 @@ tasks:
     repository: Backend-Lembar
     sprint: B0
     title: Transactional notification provider spike
-    status: READY
+    status: ACCEPTED
     depends_on: [B0-01, B0-04]
     decisions: [D-007]
     outcome: Outbox event shape, local capture sink, provider-agnostic adapter, template registry, and accepted email provider ADR.
     evidence: [outbox-test, token-redaction, sandbox-provider, template-locale-fixtures, ADR]
-    notes: "D-007 is due before recovery/invite per DECISIONS.md and is needed by B1-01 recovery and B7-01 school invite."
+    branch: feat/B0-09-notification-provider-spike
+    latest_pushed_commit: bca50bc
+    integration_commit: 22cbef9
+    dev_commit: PENDING
+    dependency_note: "Contract was broadened by orchestrator pre-implementation to include src/bootstrap/app.ts, drizzle.config.ts, and src/smoke/database.ts as required integration seams. Memory-only provider accepted; real provider selection and async outbox drain remain deferred by ADR."
+    completed_scope:
+      - notification_templates, notification_outbox, notification_send_audit tables via migration 0005_notification_outbox.sql.
+      - Provider-agnostic notification adapter + service with memory sink, locale fallback, and duplicate suppression.
+      - /v1/notifications/templates, /v1/notifications/templates/:templateKey, /v1/notifications/dispatch, /v1/notifications/audit routes.
+      - notification:smoke and notification:smoke:duplicate runtime scripts.
+      - docs/adr/B0-09-notification-provider.md documenting D-007 and async-drain deferral.
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm build
+      - pnpm test (79 passed / 16 skipped)
+      - pnpm openapi:validate && pnpm openapi:breaking (0 breaking)
+      - pnpm db:check
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm db:smoke
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm notification:smoke
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm notification:smoke:duplicate
+    verification_still_required:
+      - Production provider selection/secret handling after D-007 owner acceptance.
+      - Async outbox drain and queue-backed delivery in later job work.
+    next_action: "B0-09 ACCEPTED; B1-01 and B7-01 notification dependencies are satisfied."
 
   - id: B8-02
     repository: Backend-Lembar
