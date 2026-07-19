@@ -1,4 +1,4 @@
-version: "1.10"
+version: "1.11"
 updated_at: "2026-07-19"
 execution_target: COMPLETE_LEMBAR_WEB_V1
 checkpoint:
@@ -90,10 +90,10 @@ context_management:
 
 active_workers: []
 
-completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-09, B1-01, B1-02, B1-03, B1-04]
+completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-09, B1-01, B1-02, B1-03, B1-04, B1-05]
 active_scope: []
 paused_scope: []
-ready_scope: [B0-08, B1-05, B1-06]
+ready_scope: [B0-08, B1-06, B2-01]
 
 branch_policy:
   status: active
@@ -920,12 +920,36 @@ tasks:
     repository: Backend-Lembar
     sprint: B1
     title: Current context and dashboard read API
-    status: READY
+    status: ACCEPTED
     depends_on: [B1-02, B1-03, B1-04]
     decisions: []
     outcome: "`/me`, workspaces, and trusted dashboard summaries."
     evidence: [contract, tenant-filter, metric-definition]
-    next_action: "B1-05 READY after B1-02/B1-03/B1-04 acceptance; highest-priority next backend task."
+    branch: feat/B1-05-context-dashboard-read-api
+    latest_pushed_commit: 08d8cf0
+    integration_commit: d8f6014
+    dev_commit: PENDING
+    dependency_note: "Tracked openapi checksum artifact had to be explicitly allowed after verification because pnpm openapi:validate rewrites contracts/openapi.checksum.txt."
+    completed_scope:
+      - Stable current context fields on /v1/me.
+      - Tenant-safe dashboard summary read model via GET /v1/dashboard/summary.
+      - Explicit empty-state safe projections and workspace-switch-scoped read results.
+      - B1-05 ADR documenting metric definitions and deferred richer dashboard projections.
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm build
+      - pnpm test (88 passed / 25 skipped)
+      - pnpm openapi:validate && pnpm openapi:breaking (additive 1, breaking 0)
+      - pnpm db:check
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm db:smoke
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm auth:smoke
+    verification_still_required:
+      - Richer dashboard projections should wait for later module read models.
+      - No broader tenant summary endpoint beyond active workspace dashboard was added.
+    next_action: "B1-05 ACCEPTED; B1 dashboard/context surface is available for downstream integrations."
 
   - id: B1-06
     repository: Backend-Lembar
@@ -943,11 +967,12 @@ tasks:
     repository: Backend-Lembar
     sprint: B2
     title: Private PDF upload lifecycle
-    status: BLOCKED
+    status: READY
     depends_on: [B1-03, B0-07]
     decisions: [D-006]
     outcome: Intent, verification, private object, access, and delete request.
     evidence: [magic-size-check, cross-tenant-signed-URL, redaction]
+    next_action: "B2-01 READY after B1-03 and B0-07 acceptance; candidate after remaining B1/B0 tasks."
 
   - id: B2-02
     repository: Backend-Lembar
