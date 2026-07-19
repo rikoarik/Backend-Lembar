@@ -208,6 +208,181 @@ paths:
                 $ref: "#/components/schemas/SourceResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/uploads/sources/intake:
+    post:
+      summary: Intake a private PDF source upload
+      tags: [Sources]
+      operationId: intakeSourceUpload
+      requestBody:
+        required: true
+        content:
+          application/pdf:
+            schema: { type: string, format: binary }
+      responses:
+        "201":
+          description: Upload accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [uploadId, status, byteSize, contentType, maxBytes]
+                    properties:
+                      uploadId: { type: string, format: uuid }
+                      status: { type: string, enum: [received, verified, rejected, deleted] }
+                      byteSize: { type: integer, minimum: 0 }
+                      contentType: { type: string, const: application/pdf }
+                      maxBytes: { type: integer, minimum: 0 }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/uploads/sources/{id}:
+    get:
+      summary: Read source upload metadata (redacted)
+      tags: [Sources]
+      operationId: getSourceUpload
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Upload metadata (redacted)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [id, tenantId, workspaceId, uploaderUserId, filenameRedacted, byteSize, status]
+                    properties:
+                      id: { type: string, format: uuid }
+                      tenantId: { type: string, format: uuid }
+                      workspaceId: { type: string, format: uuid }
+                      uploaderUserId: { type: string, format: uuid }
+                      filenameRedacted: { type: string }
+                      contentType: { type: string }
+                      byteSize: { type: integer }
+                      pageCountHint: { type: [integer, 'null'] }
+                      magicSignature: { type: ['string', 'null'] }
+                      status: { type: string, enum: [received, verified, rejected, deleted] }
+                      failureCode: { type: ['string', 'null'] }
+                      createdAt: { type: string, format: date-time }
+                      updatedAt: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/uploads/sources/{id}/verify:
+    post:
+      summary: Verify PDF magic bytes and size
+      tags: [Sources]
+      operationId: verifySourceUpload
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [uploadId, status, magicSignature]
+                    properties:
+                      uploadId: { type: string, format: uuid }
+                      status: { type: string, enum: [verified, rejected, deleted] }
+                      magicSignature: { type: string }
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/uploads/sources/{id}/access:
+    post:
+      summary: Get signed download intent
+      tags: [Sources]
+      operationId: getSourceAccess
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Signed download intent
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [uploadId, workspaceId, expiresAtEpochMs, signedUrlFingerprint]
+                    properties:
+                      uploadId: { type: string, format: uuid }
+                      workspaceId: { type: string, format: uuid }
+                      expiresAtEpochMs: { type: integer, minimum: 0 }
+                      signedUrlFingerprint: { type: string }
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/uploads/sources/{id}/delete:
+    post:
+      summary: Delete a source upload (tombstone + audit)
+      tags: [Sources]
+      operationId: deleteSourceUpload
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Delete completed
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [uploadId, status, bytesRemoved]
+                    properties:
+                      uploadId: { type: string, format: uuid }
+                      status: { type: string, enum: [deleted] }
+                      bytesRemoved: { type: boolean }
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /v1/assessments:
     get:
       summary: List assessments in the active workspace
@@ -1440,6 +1615,26 @@ components:
       name: If-None-Match
       required: false
       schema: { type: string, minLength: 1, maxLength: 200 }
+    SourceUserId:
+      in: header
+      name: X-Source-User-Id
+      required: true
+      schema: { type: string, format: uuid }
+      description: Authenticated user ID for source upload routes.
+    SourceRole:
+      in: header
+      name: X-Source-Role
+      required: true
+      schema:
+        type: string
+        enum: [superadmin, school_admin, teacher, subscriber]
+      description: Role for source upload authorization.
+    SourceFilename:
+      in: header
+      name: X-Source-Filename
+      required: false
+      schema: { type: string }
+      description: Original filename for redacted storage.
   responses:
     Unauthorized:
       description: Authentication required
