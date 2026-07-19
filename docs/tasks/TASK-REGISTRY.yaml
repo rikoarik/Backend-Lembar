@@ -963,6 +963,7 @@ tasks:
     branch: feat/B1-06-marketing-content-read-api
     latest_pushed_commit: bf0e754824e8ba4aa3a228e34374f846497d206d
     integration_commit: d884de5
+    dev_commit: 5e2c9fc
     dependency_note: "Public CMS read API is unauthenticated and published-only per MARKETING-CMS-BACKEND.md; superadmin ops permission matrix belongs in B6-06."
     completed_scope:
       - migration 0007_marketing_content.sql adding marketing_content + marketing_content_versions tables with cascading tenant FKs and version >=1 CHECK.

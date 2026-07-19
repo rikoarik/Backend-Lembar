@@ -50,6 +50,7 @@ pnpm openapi:breaking
 pnpm storage:smoke
 pnpm pdf:smoke
 pnpm auth:smoke                       # B0-05 auth/session spike (redacted)
+pnpm ai:smoke                         # B0-08 product AI adapter spike (redacted)
 pnpm db:check                       # drizzle-kit: validate generated SQL
 pnpm db:smoke                       # real Postgres roundtrip smoke (DATABASE_URL required)
 node dist/bootstrap/api.js          # API on :4000
@@ -204,6 +205,40 @@ DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnp
 
 See `docs/adr/B0-09-notification-provider.md` for the decision, locale strategy, dedupe
 boundary, and deferred items.
+
+## Product AI adapter spike (B0-08)
+
+D-019 candidate evidence: a provider-neutral `ProductAiAdapter` boundary with mock-first
+coverage and an opt-in `openai` driver. The spike routes every outcome through the
+established B0-09-style redacted audit pattern (`prompt_fingerprint` /
+`response_fingerprint` only, no raw prompt or response body) and caps schema-repair
+attempts via `AI_SCHEMA_REPAIR_MAX`. No HTTP surface is added by the spike.
+
+- Migration `src/infrastructure/database/migrations/0008_product_ai_audit.sql` adds
+  `ai_jobs_audit` (additive only). `pnpm db:check` validates the journal.
+- Driver defaults to `mock`; the live `openai` driver only fires when `AI_DRIVER=openai`
+  is set AND a non-empty `OPENAI_API_KEY` is present in the runtime environment. The
+  spike deliberately refuses to read a real key from `.env.example`.
+- Queue integration is provided by the existing accepted B0-06 seam — this spike owns
+  the adapter, the env parser, the audit row, and the smoke script. Worker integration
+  belongs to B2-N.
+- Test coverage at `test/infrastructure/ai/*` proves: mock determinism across N calls,
+  structured success + repair cap + `SCHEMA_VALIDATION_FAILED`, rate-limit / refusal
+  envelope mapping, no real provider call when `AI_DRIVER=mock`, and prompt/response
+  redaction in audit rows.
+
+Run:
+
+```bash
+pnpm ai:smoke
+```
+
+Output is a single redacted JSON envelope covering privacy (`promptFingerprint`,
+`promptByteLength`, leak checks), latency (`mockLatencyFloorMs`), schema-repair attempts,
+mock-vs-live adapter instantiation, and audit row counts.
+
+See `docs/adr/B0-08-product-ai-provider.md` for the D-019 candidate recommendation,
+privacy review, structured-output reliability, latency + cost model, and rollback plan.
 
 ## Spike configuration
 
