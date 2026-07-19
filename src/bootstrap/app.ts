@@ -7,12 +7,13 @@ import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 
 import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/errors/envelope.js';
 import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
+import { parseDatabaseEnv } from '../config/database.env.js';
+import { closeDatabase, createDatabase, type Database } from '../infrastructure/database/db.js';
 import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRoutes.js';
-import type { Database } from '../infrastructure/database/db.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
+import type { AuthService } from '../modules/auth/application/AuthService.js';
 import { registerCurriculumRoutes } from '../modules/curriculum/adapters/http/routes.js';
 import { registerNotificationRoutes } from '../modules/notifications/adapters/http/routes.js';
-import type { AuthService } from '../modules/auth/application/AuthService.js';
 
 export interface HealthResponse {
   status: 'ok';
@@ -27,6 +28,7 @@ export interface BuildAppOptions {
   serviceName?: string;
   serviceVersion?: string;
   auth?: AuthService;
+  authDb?: Database;
   curriculumDb?: Database;
   notificationDb?: Database;
 }
@@ -105,9 +107,20 @@ export async function buildApp(
     void reply.status(status).send(payload);
   });
 
+  const managedDb = resolveManagedAuthDb(options);
+  if (managedDb) {
+    app.addHook('onClose', async () => {
+      await closeDatabase(managedDb);
+    });
+  }
+
   const serviceName = options.serviceName ?? DEFAULT_SERVICE_NAME;
   const serviceVersion = options.serviceVersion ?? DEFAULT_SERVICE_VERSION;
   const startedAt = Date.now();
+
+  const authDb = options.authDb ?? managedDb;
+  const notificationDb = options.notificationDb ?? managedDb;
+  const curriculumDb = options.curriculumDb;
 
   app.get('/health', async (): Promise<HealthResponse> => {
     return {
@@ -119,15 +132,30 @@ export async function buildApp(
     };
   });
 
-  await registerAuthRoutes(app, options.auth === undefined ? {} : { auth: options.auth });
+  const authRouteOptions: Parameters<typeof registerAuthRoutes>[1] = {};
+  if (options.auth) authRouteOptions.auth = options.auth;
+  if (authDb) authRouteOptions.db = authDb;
+  await registerAuthRoutes(app, authRouteOptions);
   await app.register(registerJobRoutes);
-  if (options.curriculumDb) {
-    await registerCurriculumRoutes(app, { db: options.curriculumDb });
+  if (curriculumDb) {
+    await registerCurriculumRoutes(app, { db: curriculumDb });
   }
-  await app.register(
-    registerNotificationRoutes,
-    options.notificationDb ? { db: options.notificationDb } : {},
-  );
+  await app.register(registerNotificationRoutes, notificationDb ? { db: notificationDb } : {});
 
   return app;
+}
+
+function resolveManagedAuthDb(options: BuildAppOptions): Database | null {
+  if (options.auth || options.authDb || options.notificationDb || options.curriculumDb) return null;
+  try {
+    const env = parseDatabaseEnv(process.env);
+    if (!env.url) return null;
+    return createDatabase({
+      connectionString: env.url,
+      poolMax: env.poolMax,
+      ssl: env.sslMode === 'require',
+    });
+  } catch {
+    return null;
+  }
 }

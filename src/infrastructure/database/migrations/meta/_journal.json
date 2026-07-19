@@ -36,6 +36,13 @@
       "when": 1785900000000,
       "tag": "0005_notification_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784445600000,
+      "tag": "0006_auth_integration_finalize",
+      "breakpoints": true
     }
   ]
 }

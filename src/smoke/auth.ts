@@ -6,6 +6,7 @@
 //   pnpm build && node dist/smoke/auth.js
 
 import { buildApp } from '../bootstrap/app.js';
+import { InMemoryAuthStore } from '../modules/auth/adapters/persistence/InMemoryAuthStore.js';
 import { createAuthService } from '../modules/auth/application/createAuthService.js';
 
 interface SmokeStep {
@@ -27,7 +28,8 @@ const BOOTSTRAP_CSRF = 'bootstrap';
 
 async function main(): Promise<void> {
   const steps: SmokeStep[] = [];
-  const auth = createAuthService();
+  const store = new InMemoryAuthStore();
+  const auth = createAuthService({ store });
   const app = await buildApp({ logger: false, auth });
   await app.ready();
 
@@ -79,12 +81,14 @@ async function main(): Promise<void> {
       step('csrf-passed-and-workspace-switch', switched.statusCode === 200, switched.statusCode),
     );
 
-    const recoveryRequest = await auth.requestRecovery({ email });
+    await auth.requestRecovery({ email });
+    const recoveryToken = store.tokenFromNotification('auth.recovery');
+    if (!recoveryToken) throw new Error('recovery notification token missing');
     const recovery = await app.inject({
       method: 'POST',
       url: '/v1/auth/recovery/complete',
       headers: { origin: ALLOWED_ORIGIN, 'x-csrf-token': BOOTSTRAP_CSRF },
-      payload: { token: recoveryRequest.debugToken, newPassword: 'passphrase-2' },
+      payload: { token: recoveryToken, newPassword: 'passphrase-2' },
     });
     const recoveryCookies = collectCookies(recovery.cookies);
     steps.push(step('recovery-complete', recovery.statusCode === 200, recovery.statusCode));
@@ -135,17 +139,19 @@ async function main(): Promise<void> {
       ),
     );
 
-    const invite = await auth.createSchoolInvitation({
+    await auth.createSchoolInvitation({
       email: `invitee-${Date.now()}@example.test`,
       role: 'teacher',
       workspaceId: meBody.activeWorkspaceId,
       createdByUserId: meBody.userId,
     });
+    const inviteToken = store.tokenFromNotification('workspace.invite');
+    if (!inviteToken) throw new Error('invite notification token missing');
     const consume = await app.inject({
       method: 'POST',
       url: '/v1/auth/invitations/consume',
       headers: { origin: ALLOWED_ORIGIN, 'x-csrf-token': BOOTSTRAP_CSRF },
-      payload: { token: invite.debugToken, password: 'passphrase-1' },
+      payload: { token: inviteToken, password: 'passphrase-1' },
     });
     steps.push(step('invitation-consume', consume.statusCode === 200, consume.statusCode));
 
@@ -153,7 +159,7 @@ async function main(): Promise<void> {
       method: 'POST',
       url: '/v1/auth/invitations/consume',
       headers: { origin: ALLOWED_ORIGIN, 'x-csrf-token': BOOTSTRAP_CSRF },
-      payload: { token: invite.debugToken, password: 'passphrase-1' },
+      payload: { token: inviteToken, password: 'passphrase-1' },
     });
     steps.push(step('invitation-replay-rejected', replay.statusCode === 400, replay.statusCode));
 
