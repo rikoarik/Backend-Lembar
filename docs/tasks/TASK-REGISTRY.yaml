@@ -90,10 +90,10 @@ context_management:
 
 active_workers: []
 
-completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-09, B1-01, B1-02, B1-03, B1-04, B1-05, B1-06]
+completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B0-08, B0-09, B1-01, B1-02, B1-03, B1-04, B1-05, B1-06]
 active_scope: []
 paused_scope: []
-ready_scope: [B0-08, B2-01]
+ready_scope: [B2-01]
 
 branch_policy:
   status: active
@@ -765,12 +765,39 @@ tasks:
     repository: Backend-Lembar
     sprint: B0
     title: Product AI provider adapter spike
-    status: READY
+    status: ACCEPTED
     depends_on: [B0-06]
     decisions: [D-019]
     outcome: Mock-first structured-output adapter plus privacy/quality/latency/cost evidence.
     evidence: [schema-failure, mock-CI, eval-smoke, ADR]
-    next_action: "B0-08 READY after B0-06 acceptance; candidate parallel spike behind B1-01 priority."
+    branch: feat/B0-08-product-ai-provider-spike
+    latest_pushed_commit: 28c6b0bac77087ee5b7853ccbbdb2cad3c478617
+    integration_commit: c1b0801
+    dependency_note: "D-019 remains OWNER_PENDING; B0-08 ships provider-neutral adapter with mock-first default and opt-in OpenAI scaffold only. No live provider call or production secret is required."
+    completed_scope:
+      - Provider-neutral ProductAiAdapter boundary with deterministic MockAiAdapter default and opt-in OpenAI adapter scaffold.
+      - parseAiEnv typed AI runtime config with mock-safe defaults and no production secret requirement.
+      - ProductAiService structured-output flow with bounded schema repair, stable error mapping, and redacted audit rows.
+      - ai_jobs_audit table via migration 0008_product_ai_audit.sql plus Drizzle snapshot metadata.
+      - pnpm ai:smoke redacted smoke covering mock mode, schema repair, rate-limit/refusal/error mapping, and no prompt/response leakage.
+      - B0-08 ADR documenting D-019 candidate recommendation, privacy review, cost/latency model, and rollback/deferred live-provider path.
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm build
+      - pnpm test (106 passed / 30 skipped)
+      - pnpm openapi:validate
+      - pnpm openapi:breaking (additive 1, breaking 0)
+      - pnpm db:check
+      - pnpm ai:smoke
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm db:smoke
+    verification_still_required:
+      - Owner decision D-019 before live provider use.
+      - Live OpenAI smoke only after owner supplies non-production secret intentionally.
+      - Later B3 pipeline must add real prompt templates/evals and route long-running calls through queue jobs.
+    next_action: "B0-08 ACCEPTED as a spike; B3-02/B3-03 can build on the provider adapter once retrieval/config dependencies land."
 
   - id: B1-01
     repository: Backend-Lembar

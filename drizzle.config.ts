@@ -7,6 +7,7 @@ export default defineConfig({
   schema: [
     './src/infrastructure/database/schema.ts',
     './src/infrastructure/queue/persistence/schema.ts',
+    './src/infrastructure/ai/persistence/schema.ts',
     './src/modules/curriculum/persistence/schema.ts',
     './src/modules/notifications/persistence/schema.ts',
     './src/modules/auth/persistence/schema.ts',
