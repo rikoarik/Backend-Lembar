@@ -91,6 +91,11 @@ export async function registerAuthRoutes(
     const me = await auth.currentAccount(requireSessionCookie(request));
     return { data: me };
   });
+
+  app.get('/v1/dashboard/summary', async (request) => {
+    const summary = await auth.dashboardSummary(requireSessionCookie(request));
+    return { data: summary };
+  });
 }
 
 function enforceBrowserMutationProtection(
