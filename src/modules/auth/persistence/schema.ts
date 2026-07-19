@@ -1,25 +1,14 @@
-// Drizzle schema for the auth/session spike. Reuses existing `tenants` and `users`
-// tables from the B0-04 baseline (see src/infrastructure/database/schema.ts). This
-// file defines the four new tables required by the B0-05 contract:
-//   - sessions
-//   - recovery_tokens
-//   - school_invitations
-//   - audit_events
-// Schema changes are kept additive so the B0-04 migration remains the only path
-// applied at boot; this file is the source of truth for future migrations created
-// during B1-01.
-//
-// Storage/retention policy for these tables will be revisited in B8-02.
+// Drizzle schema for the integrated auth/session foundation. Reuses `tenants`
+// from the B0-04 baseline so workspace IDs stay first-class DB entities,
+// while keeping auth-specific state inside additive `auth_*` tables.
 
 import { sql } from 'drizzle-orm';
-import { check, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
+import { check, integer, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core';
 
-import {
-  tenants,
-  users,
-  USER_ROLES,
-  type UserRole,
-} from '../../../infrastructure/database/schema.js';
+import { tenants, USER_ROLES, type UserRole } from '../../../infrastructure/database/schema.js';
+
+export const MEMBERSHIP_STATES = ['active', 'suspended', 'revoked'] as const;
+export type MembershipStateDb = (typeof MEMBERSHIP_STATES)[number];
 
 export const SESSION_STATES = ['active', 'revoked'] as const;
 export type SessionState = (typeof SESSION_STATES)[number];
@@ -45,24 +34,72 @@ export const AUDIT_ACTIONS = [
 ] as const;
 export type AuditActionDb = (typeof AUDIT_ACTIONS)[number];
 
+export const authAccounts = pgTable(
+  'auth_accounts',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    email: text('email').notNull(),
+    passwordHash: text('password_hash').notNull(),
+    sessionVersion: integer('session_version').notNull().default(1),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    emailUnique: uniqueIndex('auth_accounts_email_unique').on(t.email),
+  }),
+);
+
+export const authWorkspaceMemberships = pgTable(
+  'auth_workspace_memberships',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    accountId: uuid('account_id')
+      .notNull()
+      .references(() => authAccounts.id, { onDelete: 'cascade' }),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    role: text('role').$type<UserRole>().notNull(),
+    state: text('state').$type<MembershipStateDb>().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    accountTenantUnique: uniqueIndex('auth_workspace_memberships_account_tenant_unique').on(
+      t.accountId,
+      t.tenantId,
+    ),
+    roleCheck: check(
+      'auth_workspace_memberships_role_check',
+      sql`${t.role} in (${sql.raw(USER_ROLES.map((role) => `'${role}'`).join(','))})`,
+    ),
+    stateCheck: check(
+      'auth_workspace_memberships_state_check',
+      sql`${t.state} in ('active','suspended','revoked')`,
+    ),
+  }),
+);
+
 export const sessions = pgTable(
   'auth_sessions',
   {
     id: uuid('id').primaryKey().defaultRandom(),
     userId: uuid('user_id')
       .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+      .references(() => authAccounts.id, { onDelete: 'cascade' }),
     tenantId: uuid('tenant_id')
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
     csrfToken: text('csrf_token').notNull(),
-    sessionVersion: text('session_version').notNull(),
+    sessionVersion: integer('session_version').notNull(),
     idleExpiresAt: timestamp('idle_expires_at', { withTimezone: true, mode: 'date' }).notNull(),
     absoluteExpiresAt: timestamp('absolute_expires_at', {
       withTimezone: true,
       mode: 'date',
     }).notNull(),
-    state: text('state').$type<SessionState>().notNull(),
+    state: text('state').$type<SessionState>().notNull().default('active'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .default(sql`now()`),
@@ -80,9 +117,9 @@ export const recoveryTokens = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     userId: uuid('user_id')
       .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+      .references(() => authAccounts.id, { onDelete: 'cascade' }),
     tokenHash: text('token_hash').notNull(),
-    state: text('state').$type<RecoveryState>().notNull(),
+    state: text('state').$type<RecoveryState>().notNull().default('pending'),
     expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
     consumedAt: timestamp('consumed_at', { withTimezone: true, mode: 'date' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
@@ -107,10 +144,10 @@ export const schoolInvitations = pgTable(
       .references(() => tenants.id, { onDelete: 'cascade' }),
     email: text('email').notNull(),
     role: text('role').$type<UserRole>().notNull(),
-    state: text('state').$type<InvitationState>().notNull(),
+    state: text('state').$type<InvitationState>().notNull().default('pending'),
     tokenHash: text('token_hash').notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
-    acceptedBy: uuid('accepted_by').references(() => users.id, { onDelete: 'set null' }),
+    acceptedBy: uuid('accepted_by').references(() => authAccounts.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .default(sql`now()`),
@@ -133,7 +170,7 @@ export const auditEvents = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     action: text('action').$type<AuditActionDb>().notNull(),
-    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    userId: uuid('user_id').references(() => authAccounts.id, { onDelete: 'set null' }),
     tenantId: uuid('tenant_id').references(() => tenants.id, { onDelete: 'set null' }),
     occurredAt: timestamp('occurred_at', { withTimezone: true, mode: 'date' })
       .notNull()
@@ -149,7 +186,16 @@ export const auditEvents = pgTable(
   }),
 );
 
+export const rateLimits = pgTable('auth_rate_limits', {
+  key: text('key').primaryKey(),
+  count: integer('count').notNull(),
+  windowStartedAt: timestamp('window_started_at', { withTimezone: true, mode: 'date' }).notNull(),
+});
+
+export type AuthAccountRow = typeof authAccounts.$inferSelect;
+export type AuthWorkspaceMembershipRow = typeof authWorkspaceMemberships.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
 export type RecoveryTokenRow = typeof recoveryTokens.$inferSelect;
 export type SchoolInvitationRow = typeof schoolInvitations.$inferSelect;
 export type AuditEventRow = typeof auditEvents.$inferSelect;
+export type RateLimitRow = typeof rateLimits.$inferSelect;

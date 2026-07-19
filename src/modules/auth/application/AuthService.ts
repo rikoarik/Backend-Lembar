@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 
 import { ApiError } from '../../../common/errors/envelope.js';
+import type { NotificationSendInput } from '../../notifications/domain/NotificationAdapter.js';
 import { USER_ROLES, type UserRole } from '../../../infrastructure/database/schema.js';
 
 export type MembershipState = 'active' | 'suspended' | 'revoked';
@@ -24,6 +25,12 @@ export interface AuthUser {
   passwordHash: string;
   sessionVersion: number;
   createdAt: Date;
+}
+
+export interface WorkspaceRecord {
+  id: string;
+  slug: string;
+  name: string;
 }
 
 export interface WorkspaceMembership {
@@ -58,6 +65,7 @@ export interface InvitationRecord {
   role: UserRole;
   state: InvitationState;
   expiresAt: Date;
+  acceptedBy?: string | null;
 }
 
 export interface AuditEventRecord {
@@ -77,6 +85,8 @@ export interface AuthStore {
   getUserByEmail(email: string): Promise<AuthUser | null>;
   getUserById(id: string): Promise<AuthUser | null>;
   saveUser(user: AuthUser): Promise<void>;
+  saveWorkspace(workspace: WorkspaceRecord): Promise<void>;
+  getWorkspace(workspaceId: string): Promise<WorkspaceRecord | null>;
   saveMembership(membership: WorkspaceMembership): Promise<void>;
   getMembership(userId: string, workspaceId: string): Promise<WorkspaceMembership | null>;
   listMemberships(userId: string): Promise<WorkspaceMembership[]>;
@@ -93,6 +103,8 @@ export interface AuthStore {
   countAudit(action: AuditAction): Promise<number>;
   getRateLimit(key: string): Promise<RateLimitRecord | null>;
   saveRateLimit(record: RateLimitRecord): Promise<void>;
+  transaction<T>(fn: (store: AuthStore) => Promise<T>): Promise<T>;
+  sendNotification?(input: NotificationSendInput): Promise<void>;
 }
 
 export interface AuthServiceOptions {
@@ -104,6 +116,7 @@ export interface AuthServiceOptions {
   inviteTokenTtlMs: number;
   rateLimitWindowMs: number;
   rateLimitMax: number;
+  appUrl?: string;
 }
 
 export class AuthService {
@@ -115,6 +128,7 @@ export class AuthService {
   private readonly inviteTokenTtlMs: number;
   private readonly rateLimitWindowMs: number;
   private readonly rateLimitMax: number;
+  private readonly appUrl: string;
 
   constructor(options: AuthServiceOptions) {
     this.store = options.store;
@@ -125,6 +139,7 @@ export class AuthService {
     this.inviteTokenTtlMs = options.inviteTokenTtlMs;
     this.rateLimitWindowMs = options.rateLimitWindowMs;
     this.rateLimitMax = options.rateLimitMax;
+    this.appUrl = stripTrailingSlash(options.appUrl ?? 'http://localhost:3000');
   }
 
   async register(input: { email: string; password: string }): Promise<{
@@ -151,20 +166,27 @@ export class AuthService {
     const now = this.now();
     const userId = randomUUID();
     const workspaceId = randomUUID();
-    await this.store.saveUser({
-      id: userId,
-      email,
-      passwordHash: hashSecret(input.password),
-      sessionVersion: 1,
-      createdAt: now,
+    await this.store.transaction(async (tx) => {
+      await tx.saveUser({
+        id: userId,
+        email,
+        passwordHash: hashSecret(input.password),
+        sessionVersion: 1,
+        createdAt: now,
+      });
+      await tx.saveWorkspace({
+        id: workspaceId,
+        slug: `personal-${workspaceId.slice(0, 12)}`,
+        name: `Workspace ${email}`,
+      });
+      await tx.saveMembership({
+        workspaceId,
+        userId,
+        role: 'teacher',
+        state: 'active',
+      });
+      await tx.saveAudit({ action: 'register', userId, workspaceId, occurredAt: now });
     });
-    await this.store.saveMembership({
-      workspaceId,
-      userId,
-      role: 'teacher',
-      state: 'active',
-    });
-    await this.store.saveAudit({ action: 'register', userId, workspaceId, occurredAt: now });
 
     return {
       status: 'created',
@@ -220,33 +242,43 @@ export class AuthService {
     });
   }
 
-  async requestRecovery(input: {
-    email: string;
-  }): Promise<{ message: string; debugToken: string }> {
+  async requestRecovery(input: { email: string }): Promise<{ message: string }> {
     const email = normalizeEmail(input.email);
     await this.bumpRateLimit(`recovery:${email}`);
     const now = this.now();
     const user = await this.store.getUserByEmail(email);
-    let debugToken = 'redacted';
-    if (user) {
-      debugToken = `recovery_${randomUUID()}`;
-      await this.store.saveRecoveryToken({
-        tokenHash: hashSecret(debugToken),
-        userId: user.id,
-        expiresAt: new Date(now.getTime() + this.recoveryTokenTtlMs),
-        consumedAt: null,
-      });
+    if (!user) {
+      return { message: 'Jika akun ditemukan, instruksi pemulihan akan dikirim.' };
     }
-    await this.store.saveAudit({
-      action: 'recovery_request',
-      userId: user?.id ?? null,
-      workspaceId: null,
-      occurredAt: now,
-    });
-    return {
-      message: 'Jika akun ditemukan, instruksi pemulihan akan dikirim.',
-      debugToken,
-    };
+
+    const recoveryToken = `recovery_${randomUUID()}`;
+    try {
+      await this.store.transaction(async (tx) => {
+        await tx.saveRecoveryToken({
+          tokenHash: hashSecret(recoveryToken),
+          userId: user.id,
+          expiresAt: new Date(now.getTime() + this.recoveryTokenTtlMs),
+          consumedAt: null,
+        });
+        await tx.saveAudit({
+          action: 'recovery_request',
+          userId: user.id,
+          workspaceId: null,
+          occurredAt: now,
+        });
+        await tx.sendNotification?.({
+          templateKey: 'auth.recovery',
+          locale: 'id-ID',
+          recipient: { kind: 'email', value: user.email },
+          payload: { code: recoveryToken },
+          eventId: randomUUID(),
+        });
+      });
+    } catch {
+      return { message: 'Jika akun ditemukan, instruksi pemulihan akan dikirim.' };
+    }
+
+    return { message: 'Jika akun ditemukan, instruksi pemulihan akan dikirim.' };
   }
 
   async completeRecovery(input: {
@@ -279,7 +311,7 @@ export class AuthService {
     role: UserRole;
     workspaceId: string;
     createdByUserId: string;
-  }): Promise<{ debugToken: string; tokenHash: string }> {
+  }): Promise<{ tokenHash: string }> {
     if (!USER_ROLES.includes(input.role)) {
       throw this.validationError('Role tidak valid.');
     }
@@ -291,23 +323,39 @@ export class AuthService {
         requestId: 'req_auth',
       });
     }
+
+    const creator = await this.mustUser(input.createdByUserId);
+    const workspace = await this.store.getWorkspace(input.workspaceId);
     const token = `invite_${randomUUID()}`;
     const tokenHash = hashSecret(token);
-    await this.store.saveInvitation({
-      tokenHash,
-      email: normalizeEmail(input.email),
-      workspaceId: input.workspaceId,
-      role: input.role,
-      state: 'pending',
-      expiresAt: new Date(this.now().getTime() + this.inviteTokenTtlMs),
+    await this.store.transaction(async (tx) => {
+      await tx.saveInvitation({
+        tokenHash,
+        email: normalizeEmail(input.email),
+        workspaceId: input.workspaceId,
+        role: input.role,
+        state: 'pending',
+        expiresAt: new Date(this.now().getTime() + this.inviteTokenTtlMs),
+      });
+      await tx.saveAudit({
+        action: 'invitation_create',
+        userId: input.createdByUserId,
+        workspaceId: input.workspaceId,
+        occurredAt: this.now(),
+      });
+      await tx.sendNotification?.({
+        templateKey: 'workspace.invite',
+        locale: 'id-ID',
+        recipient: { kind: 'email', value: normalizeEmail(input.email) },
+        payload: {
+          inviter_name: creator.email,
+          workspace_name: workspace?.name ?? input.workspaceId,
+          accept_url: `${this.appUrl}/auth/invitations/consume?token=${encodeURIComponent(token)}`,
+        },
+        eventId: randomUUID(),
+      });
     });
-    await this.store.saveAudit({
-      action: 'invitation_create',
-      userId: input.createdByUserId,
-      workspaceId: input.workspaceId,
-      occurredAt: this.now(),
-    });
-    return { debugToken: token, tokenHash };
+    return { tokenHash };
   }
 
   async consumeSchoolInvitation(input: { token: string; password: string }): Promise<{
@@ -333,6 +381,7 @@ export class AuthService {
       state: 'active',
     });
     invitation.state = 'accepted';
+    invitation.acceptedBy = user.id;
     await this.store.saveInvitation(invitation);
     await this.store.saveAudit({
       action: 'invitation_accept',
@@ -526,6 +575,10 @@ export class AuthService {
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function stripTrailingSlash(url: string): string {
+  return url.endsWith('/') ? url.slice(0, -1) : url;
 }
 
 function hashSecret(value: string): string {

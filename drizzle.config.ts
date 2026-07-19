@@ -9,6 +9,7 @@ export default defineConfig({
     './src/infrastructure/queue/persistence/schema.ts',
     './src/modules/curriculum/persistence/schema.ts',
     './src/modules/notifications/persistence/schema.ts',
+    './src/modules/auth/persistence/schema.ts',
   ],
   out: './src/infrastructure/database/migrations',
   dbCredentials: { url },
