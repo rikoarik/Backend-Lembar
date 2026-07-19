@@ -7,6 +7,8 @@ import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 
 import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/errors/envelope.js';
 import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
+import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
+import type { AuthService } from '../modules/auth/application/AuthService.js';
 
 export interface HealthResponse {
   status: 'ok';
@@ -20,6 +22,7 @@ export interface BuildAppOptions {
   logger?: FastifyServerOptions['logger'];
   serviceName?: string;
   serviceVersion?: string;
+  auth?: AuthService;
 }
 
 const DEFAULT_SERVICE_NAME = 'lembar-api';
@@ -79,6 +82,8 @@ export async function buildApp(
       timestamp: new Date().toISOString(),
     };
   });
+
+  await registerAuthRoutes(app, options.auth === undefined ? {} : { auth: options.auth });
 
   app.setNotFoundHandler((req, reply) => {
     const id = req.requestId ?? 'req_unknown';

@@ -26,7 +26,8 @@
     "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
     "db:push": "drizzle-kit push --config=drizzle.config.ts",
     "db:check": "drizzle-kit check --config=drizzle.config.ts",
-    "db:smoke": "pnpm build && node dist/smoke/database.js"
+    "db:smoke": "pnpm build && node dist/smoke/database.js",
+    "auth:smoke": "pnpm build && node dist/smoke/auth.js"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
