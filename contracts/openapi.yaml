@@ -30,6 +30,8 @@ tags:
     description: Published structured marketing content.
   - name: MarketingOps
     description: Superadmin-only marketing authoring and publication.
+  - name: Notifications
+    description: Transactional notification templates, dispatch, and redacted audit log.
 paths:
   /health:
     get:
@@ -1282,6 +1284,74 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/notifications/templates:
+    get:
+      summary: List active notification templates
+      tags: [Notifications]
+      operationId: listNotificationTemplates
+      security: []
+      responses:
+        "200":
+          description: Active templates without body content
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationTemplateListResponse" }
+  /v1/notifications/templates/{templateKey}:
+    get:
+      summary: Read all locale variants for one template
+      tags: [Notifications]
+      operationId: getNotificationTemplateVariants
+      security: []
+      parameters:
+        - in: path
+          name: templateKey
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: All locale variants for the template
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationTemplateVariantsResponse" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/notifications/dispatch:
+    post:
+      summary: Dispatch one transactional notification through the memory adapter
+      tags: [Notifications]
+      operationId: dispatchNotification
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/WriteBearer"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NotificationDispatchRequest" }
+      responses:
+        "200":
+          description: Dispatch result or duplicate acknowledgement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationDispatchResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/notifications/audit:
+    get:
+      summary: List redacted notification audit rows
+      tags: [Notifications]
+      operationId: listNotificationAudit
+      security: []
+      responses:
+        "200":
+          description: Redacted audit rows only
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NotificationAuditResponse" }
 components:
   securitySchemes:
     sessionCookie:
@@ -1822,5 +1892,85 @@ components:
             - license:cc-by-nd
             - license:unknown
         ordering: { type: integer, minimum: 0, maximum: 1000, default: 0 }
+    NotificationTemplateSummary:
+      type: object
+      required: [templateKey, locale, version, subject]
+      properties:
+        templateKey: { type: string }
+        locale: { type: string, enum: [id-ID, en-US] }
+        version: { type: integer, minimum: 1 }
+        subject: { type: string }
+    NotificationTemplateVariant:
+      allOf:
+        - $ref: "#/components/schemas/NotificationTemplateSummary"
+        - type: object
+          required: [bodyText]
+          properties:
+            bodyText: { type: string }
+    NotificationTemplateListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/NotificationTemplateSummary" }
+    NotificationTemplateVariantsResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/NotificationTemplateVariant" }
+    NotificationRecipient:
+      type: object
+      required: [kind, value]
+      properties:
+        kind: { type: string, enum: [email, sms] }
+        value: { type: string, minLength: 1, maxLength: 320 }
+    NotificationDispatchRequest:
+      type: object
+      required: [templateKey, recipient, payload, eventId]
+      properties:
+        templateKey: { type: string }
+        locale: { type: string, default: id-ID }
+        recipient: { $ref: "#/components/schemas/NotificationRecipient" }
+        payload:
+          type: object
+          additionalProperties: true
+        eventId: { type: string, format: uuid }
+        visibleAt: { type: [string, "null"], format: date-time }
+    NotificationDispatchResult:
+      type: object
+      required: [status, outboxId, locale, redactedRecipient, subjectHash]
+      properties:
+        status: { type: string, enum: [dispatched, duplicate, rejected] }
+        outboxId: { type: [string, "null"], format: uuid }
+        locale: { type: string, enum: [id-ID, en-US] }
+        redactedRecipient: { type: string }
+        subjectHash: { type: string }
+    NotificationDispatchResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: "#/components/schemas/NotificationDispatchResult" }
+    NotificationAuditRow:
+      type: object
+      required: [id, adapter, status, redactedRecipient, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        outboxId: { type: [string, "null"], format: uuid }
+        adapter: { type: string, enum: [memory] }
+        status: { type: string, enum: [dispatched, failed] }
+        redactedRecipient: { type: string }
+        redactedSubjectHash: { type: [string, "null"] }
+        latencyMs: { type: [integer, "null"], minimum: 0 }
+        createdAt: { type: string, format: date-time }
+    NotificationAuditResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/NotificationAuditRow" }
 security:
   - sessionCookie: []
