@@ -31,6 +31,11 @@ interface SeedFixture {
 
 const STUB_BEARER = 'smoke-stub-token';
 
+function smokeBearer(): string {
+  const configured = process.env.CURRICULUM_WRITE_TOKEN?.trim();
+  return configured && configured.length > 0 ? configured : STUB_BEARER;
+}
+
 async function main(): Promise<void> {
   let env;
   try {
@@ -100,7 +105,7 @@ async function main(): Promise<void> {
         detail: `status=${denied.statusCode}`,
       });
 
-      const auth = { authorization: `Bearer ${STUB_BEARER}` };
+      const auth = { authorization: `Bearer ${smokeBearer()}` };
 
       // 2. Create the mutable curriculum draft.
       const curriculumCreate = await app.inject({
