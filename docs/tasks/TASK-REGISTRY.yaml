@@ -819,7 +819,7 @@ tasks:
     branch: feat/B1-02-personal-workspace-context
     latest_pushed_commit: f74d99f
     integration_commit: 74808a5
-    dev_commit: PENDING
+    dev_commit: edd4b56
     dependency_note: "No new schema migration was required; B1-02 stays on the accepted B1-01/B0-04 tables and infers personal-vs-school workspace context without adding a persisted workspace-kind column."
     completed_scope:
       - Atomic personal workspace creation on initial account creation.
