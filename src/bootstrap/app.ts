@@ -11,6 +11,7 @@ import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRout
 import type { Database } from '../infrastructure/database/db.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
 import { registerCurriculumRoutes } from '../modules/curriculum/adapters/http/routes.js';
+import { registerNotificationRoutes } from '../modules/notifications/adapters/http/routes.js';
 import type { AuthService } from '../modules/auth/application/AuthService.js';
 
 export interface HealthResponse {
@@ -27,6 +28,7 @@ export interface BuildAppOptions {
   serviceVersion?: string;
   auth?: AuthService;
   curriculumDb?: Database;
+  notificationDb?: Database;
 }
 
 const DEFAULT_SERVICE_NAME = 'lembar-api';
@@ -122,6 +124,10 @@ export async function buildApp(
   if (options.curriculumDb) {
     await registerCurriculumRoutes(app, { db: options.curriculumDb });
   }
+  await app.register(
+    registerNotificationRoutes,
+    options.notificationDb ? { db: options.notificationDb } : {},
+  );
 
   return app;
 }
