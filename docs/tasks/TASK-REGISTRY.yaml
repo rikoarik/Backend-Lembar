@@ -1,4 +1,4 @@
-version: "1.4"
+version: "1.5"
 updated_at: "2026-07-19"
 execution_target: COMPLETE_LEMBAR_WEB_V1
 checkpoint:
@@ -90,10 +90,10 @@ context_management:
 
 active_workers: []
 
-completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07]
+completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B1-04]
 active_scope: []
 paused_scope: []
-ready_scope: [B1-04]
+ready_scope: []
 
 branch_policy:
   status: active
@@ -805,12 +805,39 @@ tasks:
     repository: Backend-Lembar
     sprint: B1
     title: Versioned curriculum catalog
-    status: READY
+    status: ACCEPTED
     depends_on: [B0-04]
     decisions: [D-012]
     outcome: Curriculum/grade/phase/subject/outcome/material versioning and readiness APIs.
     evidence: [publish-archive-history, source-rights-gate]
-    next_action: "Await owner START; pilot content seeding stays blocked on D-012 acceptance."
+    branch: feat/B1-04-curriculum-catalog-versioning
+    latest_pushed_commit: 1697728
+    integration_commit: 1e90052
+    dev_commit: PENDING
+    dependency_note: "Smoke script fix 1697728 (smoke): honor CURRICULUM_WRITE_TOKEN was added after worker handoff and pushed directly to the B1-04 branch (no force-push, no shared-history rewrite). Unauthenticated public read API by design; permission layer added by B1-03."
+    completed_scope:
+      - 12 Drizzle tables (curricula + curricula_versions, grades + grades_versions, phases + phases_versions, subjects + subjects_versions, outcomes + outcomes_versions, materials + materials_versions) with cascading tenant FKs and version >=1 CHECK.
+      - 31 HTTP routes under /v1/curriculum/* (six verbs per resource plus source-rights gate).
+      - Public projection GET /v1/curriculum/curricula/:tenantSlug with ETag/304.
+      - D-012 ADR: docs/adr/B1-04-curriculum-catalog.md.
+      - Two test suites (versioning, source-rights) covering 8 acceptance scenarios + license matrix.
+      - src/smoke/curriculum.ts + pnpm curriculum:smoke; pnpm db:smoke extended with curriculum chain.
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm build
+      - pnpm test (73 passed / 10 skipped)
+      - pnpm openapi:validate && pnpm openapi:breaking (32 additive, 0 breaking)
+      - pnpm db:check
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm db:smoke
+      - DATABASE_URL=... pnpm curriculum:smoke (default bearer and explicit-token modes)
+    verification_still_required:
+      - School-level overrides (deferred to later catalog expansion).
+      - Public-school-directory projection (deferred to CMS side).
+      - Visual curriculum maps (deferred to CMS side).
+    next_action: "B1-04 ACCEPTED; unblocks pilot content seeding (D-012 satisfied)."
 
   - id: B1-05
     repository: Backend-Lembar
