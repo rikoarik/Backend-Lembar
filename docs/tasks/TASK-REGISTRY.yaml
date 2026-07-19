@@ -1,4 +1,4 @@
-version: "1.5"
+version: "1.6"
 updated_at: "2026-07-19"
 execution_target: COMPLETE_LEMBAR_WEB_V1
 checkpoint:
@@ -93,7 +93,7 @@ active_workers: []
 completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07, B1-04]
 active_scope: []
 paused_scope: []
-ready_scope: []
+ready_scope: [B0-08, B0-09]
 
 branch_policy:
   status: active
@@ -1190,7 +1190,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B0
     title: Transactional notification provider spike
-    status: BACKLOG
+    status: READY
     depends_on: [B0-01, B0-04]
     decisions: [D-007]
     outcome: Outbox event shape, local capture sink, provider-agnostic adapter, template registry, and accepted email provider ADR.
