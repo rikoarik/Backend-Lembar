@@ -1,5 +1,164 @@
-version: "1.2"
+version: "1.3"
 updated_at: "2026-07-19"
+execution_target: COMPLETE_LEMBAR_WEB_V1
+checkpoint:
+  mode: resumed
+  reason: b0_04_acceptance_completed_after_shutdown_resume
+  integration_branch: ao/backend-integration
+  integration_commit: 767d0f8
+  pushed: false
+  completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-07]
+  paused_scope: []
+  next_action: "Web V1 gap analysis applied: added B0-09, B8-02, X1-01, X3-01, X5-01; flipped B0-05/B0-06/B1-04 to READY; added B0-09/D-007 coverage to B1-01; simplified B1-06/B6-06 dependencies; clarified B0-07 and FR-GEN traceability. B0-05 worker dispatched as backend-lembar-9 on feat/B0-05-auth-session-spike. B0-06 worker dispatched as backend-lembar-10 on feat/B0-06-queue-idempotency-spike. B1-04 remains READY pending the next free backend execution slot or explicit independence decision."
+
+owner_directive:
+  status: active
+  scope: Backend-Lembar
+  target: COMPLETE_LEMBAR_WEB_V1
+  policy:
+    continuous_execution: true
+    automatic_resume: true
+    automatic_checkpoint: true
+    max_in_progress_per_repository: 1
+    max_concurrent_workers: 5
+    max_correction_cycles_per_task: 2
+    max_context_documents_per_task: 3
+    native_mobile_boundary: out_of_scope
+    production_actions_default: forbidden
+  safety:
+    never_push_to_main: true
+    never_force_push: true
+    never_access_production_secrets: true
+    never_create_paid_resources: true
+    use_local_adapters_when_credentials_absent: true
+  stop_conditions:
+    - all backend Web V1 responsibilities implemented and verified
+    - genuine owner decision required (changes product behavior or architecture)
+    - irreconcilable cross-repo contract conflict after 2 correction cycles
+    - destructive or production action requiring explicit owner authorization
+  notes: "Persist here so resume after restart finds the directive without re-reading the conversation. Owner also authorizes the orchestrator to satisfy internal worker start gates by sending exact START <TASK-ID> commands for eligible tasks without another owner message."
+
+start_authorization:
+  status: active
+  command: START <TASK-ID>
+  rules:
+    auto_send_for_eligible_tasks: true
+    require_task_exists: true
+    require_dependencies_satisfied: true
+    require_not_active_completed_or_duplicated: true
+    require_no_branch_or_module_conflict: true
+    require_complete_web_v1_eligibility: true
+  do_not_auto_start_when:
+    - dependencies_not_satisfied
+    - active_file_or_module_overlap
+    - material_product_or_architecture_decision_required
+    - destructive_or_production_action_required
+    - paid_resource_or_production_secret_required_without_local_alternative
+    - correction_cycles_exhausted
+  notes: "Internal execution gate only; orchestrator may send START on the owner's behalf."
+
+context_management:
+  status: active
+  policy:
+    auto_compaction: authorized_and_enabled
+    explicit_compact_invocation_allowed_only_when_runtime_supports: true
+    forbid_compact_via_shell: true
+    persistence_source_of_truth:
+      - TASK-REGISTRY.yaml
+      - accepted repository decisions
+      - PRD and architecture documents
+      - backend-owned OpenAPI contracts
+      - git task branches
+      - ao/backend-integration
+      - verification evidence in the repository
+      - latest remote commit history
+  pre_compaction_checkpoint:
+    inspect_all_active_workers: true
+    update_registry_with_active_completed_blocked: true
+    record_per_task_branch_and_latest_pushed_commit: true
+    record_completed_remaining_scope_changed_files: true
+    record_verification_done_and_still_required: true
+    record_next_action: true
+    commit_and_push_meaningful_progress: true
+  post_compaction_rehydration:
+    read_registry_first: true
+    read_only_max_relevant_documents: true
+    inspect_git_status_and_fetch: true
+    inspect_integration_and_active_branches: true
+    reconstruct_state_and_resume: true
+  notes: "Conversation history is not authoritative; the registry and git remote state are. Re-run any check whose success is not persisted before declaring it complete."
+
+active_workers:
+  - session: backend-lembar-9
+    task: B0-05
+    branch: feat/B0-05-auth-session-spike
+    branch_head_local: 2792363c864203565d28f49a3c6b7456ea024f52
+    branch_head_matches_integration: true
+    status: working
+    activity: active
+    started_command: "START B0-05"
+  - session: backend-lembar-10
+    task: B0-06
+    branch: feat/B0-06-queue-idempotency-spike
+    branch_head_local: 60c7342d
+    branch_head_matches_integration: true
+    misbase_reason: docs-only root pre-B0-04
+    remediation: completed; branch reset in owning worktree onto origin/ao/backend-integration after clean status inspection (no force-push)
+    status: idle
+    activity: resumed_after_base_recovery
+    started_command: "START B0-06"
+
+completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-07]
+active_scope: [B0-05, B0-06]
+paused_scope: []
+ready_scope: [B1-04]
+
+branch_policy:
+  status: active
+  long_lived_branches:
+    - name: main
+      purpose: stable release branch
+      mutation: never_auto
+    - name: dev
+      purpose: shared development branch after repository-level integration verification
+      mutation: promote_only_from_ao_backend_integration
+    - name: ao/backend-integration
+      purpose: orchestrator integration branch combining accepted task branches before promotion to dev
+      mutation: merge_accepted_task_branches_only
+  task_branches:
+    naming:
+      feature: feat/<TASK-ID>-<short-slug>
+      fix: fix/<TASK-ID>-<short-slug>
+      chore: chore/<TASK-ID>-<short-slug>
+    mutation: per_task_work
+  main_protection:
+    never_push_to_main_directly: true
+    never_force_push_main_dev_integration_task_branches: true
+    never_rewrite_shared_branch_history: true
+    never_auto_delete_dev_or_ao_backend_integration: true
+    never_auto_merge_dev_into_main: true
+    release_command_required: "RELEASE BACKEND DEV TO MAIN"
+  merge_flow:
+    - worker_implements_on_task_branch
+    - run_task_acceptance_and_verification
+    - review_worker_result
+    - push_task_branch
+    - merge_accepted_work_normally_into_ao_backend_integration
+    - run_affected_integration_contract_migration_security_regression_checks
+    - keep_ao_backend_integration_for_additional_compatible_integrations
+    - after_integration_batch_stable_promote_ao_backend_integration_into_dev
+    - push_dev
+    - continue_with_next_eligible_task
+  integration_gates:
+    working_tree_clean: true
+    included_tasks_satisfy_acceptance: true
+    no_incomplete_checkpoint_work: true
+    verification_evidence_recorded: true
+    migrations_and_rollback_checked_when_applicable: true
+    openapi_artifacts_synchronized_when_applicable: true
+    no_unresolved_merge_conflict: true
+    task_registry_reflects_integrated_state: true
+  notes: "Persist here for restart-safe resume. The orchestrator must respect this policy for every backend task, including B0-05/B0-06 currently in progress and B1-04/B0-09/etc. in the future."
 project: lembar
 repositories:
   frontend: rikoarik/Frontend-Lembar
@@ -403,71 +562,172 @@ tasks:
     repository: Backend-Lembar
     sprint: B0
     title: Bootstrap backend modular monolith
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [X0-01]
     decisions: [D-014, D-016, D-018]
     outcome: Accepted Node stack boots API health and worker heartbeat with tooling/CI.
     evidence: [install, typecheck, lint, format, test, build, API-and-worker-smoke]
+    branch: feat/B0-01-bootstrap-v2
+    latest_pushed_commit: b4fa5d38e758c72e261639e9501baa360c4cf985
+    integration_commit: 6727537
+    completed_scope:
+      - Direct Fastify API bootstrap with GET /health.
+      - Worker heartbeat process.
+      - Strict TypeScript, pnpm, ESLint, Prettier, Vitest baseline.
+      - B0-01 prompt reconciled from stale NestJS wording to direct Fastify.
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm test
+      - pnpm build
+      - API smoke GET /health on local port
+      - Worker heartbeat smoke
+    verification_still_required: []
+    next_action: "No B0-01 action; preserve as accepted foundation."
 
   - id: B0-02
     repository: Backend-Lembar
     sprint: B0
     title: Per-process runtime config
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B0-01]
     decisions: []
     outcome: Typed API/worker schemas, safe local defaults, production strictness, redaction.
     evidence: [dev-test-prod-config-tests, secret-scan]
+    branch: feat/B0-02-runtime-config
+    latest_pushed_commit: c97554514e9898c9143175be827229a06f2dc968
+    integration_commit: a6755ea
+    completed_scope:
+      - src/config base/api/worker env parsers.
+      - Redaction-safe ConfigError.
+      - API and worker bootstrap consume typed config.
+      - README and .env.example updated.
+    verification_executed:
+      - Built branch and exercised API /health with defaults.
+      - Exercised worker heartbeat with defaults.
+      - APP_ENV=production without PUBLIC_APP_URL exits 1 naming key only.
+      - API_PORT=abc exits 1 naming key only.
+      - Integration smoke after merge reproduced behavior.
+    verification_still_required:
+      - Full secret scan in CI/security task.
+    next_action: "No B0-02 action; B0-04 dependency is satisfied."
 
   - id: B0-03
     repository: Backend-Lembar
     sprint: B0
     title: OpenAPI and error artifact pipeline
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B0-01]
     decisions: [D-017]
     outcome: Validated OpenAPI, stable errors/request IDs, published artifact and breaking check.
     evidence: [schema-lint, contract-test, artifact-checksum]
+    branch: feat/B0-03-openapi-pipeline
+    latest_pushed_commit: eec76fa57678487e9cd4d3a193d6c56767f58053
+    integration_commit: bd20dae
+    completed_scope:
+      - contracts/openapi.yaml, previous baseline, checksum.
+      - openapi:validate and openapi:breaking scripts.
+      - ErrorEnvelope/ApiError and request-id middleware.
+      - Fastify 404/internal error envelope handling.
+    verification_executed:
+      - pnpm openapi:validate
+      - pnpm openapi:breaking
+      - API /health with x-request-id echo.
+      - API 404 envelope with supplied and generated request IDs.
+      - Post-merge smoke verified B0-02 config metadata plus B0-03 request IDs/envelopes.
+    verification_still_required:
+      - CI drift check should ensure openapi:validate cannot silently rewrite checksum without failing.
+    next_action: "No B0-03 action; frontend client and contract expansion can build on contracts/openapi.yaml."
 
   - id: B0-04
     repository: Backend-Lembar
     sprint: B0
     title: PostgreSQL ORM and migration spike
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B0-01, B0-02]
     decisions: [D-003]
     outcome: Measured migration/query/deploy PoC and accepted ORM ADR.
     evidence: [migration-roundtrip, constraints, footprint, ADR]
+    branch: feat/B0-04-pg-drizzle-spike
+    latest_pushed_commit: 3a45a9a3d2bb5d03b3b883bf0553959d6ad5f7e1
+    integration_commit: 9b55843
+    correction_cycles_used: 1
+    completed_scope:
+      - Drizzle ORM + node-postgres dependencies and pnpm 11 build-script allowlist.
+      - drizzle.config.ts and generated SQL migrations under src/infrastructure/database/migrations.
+      - Minimal tenant/user/school schema with DB-side tenant FKs, unique constraints, and users.role CHECK constraint.
+      - Redaction-safe database env parser for DATABASE_URL, DATABASE_REQUIRED, DATABASE_POOL_MAX, DATABASE_SSL_MODE.
+      - Database factory, managed pool shutdown, and healthcheck helper.
+      - Runtime db:smoke CLI applying migrations, inserting tenant/user/school, reading back, checking tenant isolation, and printing redacted JSON.
+      - docs/adr/B0-04-spike.md, README, and .env.example updates.
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm build
+      - pnpm test
+      - pnpm openapi:validate && pnpm openapi:breaking
+      - pnpm db:check
+      - DATABASE_URL=postgres://lembar@127.0.0.1:55443/lembar DATABASE_REQUIRED=true pnpm db:smoke against disposable Postgres 16.13
+      - Live DB probe verified users_role_check rejects role='bogus'.
+      - DATABASE_REQUIRED=true without DATABASE_URL exits 1 naming DATABASE_URL only.
+    verification_still_required:
+      - Production Postgres runbook/backup/role/RLS decisions in later tasks.
+    next_action: "No B0-04 action; B0-05/B0-06/B1-04/B1-06 dependencies can now proceed after Web V1 gap analysis."
 
   - id: B0-05
     repository: Backend-Lembar
     sprint: B0
     title: Auth and session spike
-    status: BLOCKED
+    status: READY
     depends_on: [B0-04]
     decisions: [D-002]
     outcome: Session, CSRF, recovery, school activation, revocation, and mobile-path PoC.
     evidence: [security-tests, enumeration, ADR]
+    next_action: "Await owner START to dispatch auth spike worker; resolves D-002."
 
   - id: B0-06
     repository: Backend-Lembar
     sprint: B0
     title: Queue and idempotency spike
-    status: BLOCKED
+    status: READY
     depends_on: [B0-04]
     decisions: [D-004]
     outcome: Crash/retry/duplicate/lease PoC and accepted queue ADR.
     evidence: [failure-injection, VPS-footprint, ADR]
+    next_action: "Await owner START to dispatch queue spike worker; resolves D-004."
 
   - id: B0-07
     repository: Backend-Lembar
     sprint: B0
     title: Private storage and A4 PDF spikes
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B0-04]
     decisions: [D-006, D-020]
     outcome: Private upload/download plus isolated deterministic A4 renderer evidence.
     evidence: [signed-access, egress-block, golden-PDF, ADRs]
+    branch: feat/B0-07-storage-pdf-spike
+    latest_pushed_commit: 45b58659c98e325610f7762823e51665ddd75fd4
+    integration_commit: b3b0716c4d499d523418594a915903cd5c4a28af
+    dependency_note: "Executed early in owner-approved spike mode even though original registry listed B0-04 dependency; D-006 and D-020 remain Open in DECISIONS.md, so this task references decision candidates only. Production storage/PDF acceptance is decided by owner per ADR; downstream tasks remain blocked on actual acceptance."
+    completed_scope:
+      - StorageAdapter with memory/local drivers.
+      - RenderAdapter with deterministic stub and disabled Playwright path.
+      - storage:smoke and pdf:smoke runtime scripts.
+      - docs/adr/B0-07-spike.md boundary and owner questions.
+    verification_executed:
+      - pnpm build
+      - pnpm storage:smoke memory driver
+      - STORAGE_DRIVER=local pnpm storage:smoke
+      - pnpm pdf:smoke deterministic golden hash
+      - PDF_RENDERER=playwright pnpm pdf:smoke exits nonzero with clear non-secret disabled message
+      - Integration smoke after conflict resolution.
+    verification_still_required:
+      - Production provider decision/integration after D-006 and D-020 acceptance.
+    next_action: "No B0-07 spike action; downstream B2/B5 tasks must replace stubs with accepted adapters only after decisions."
 
   - id: B0-08
     repository: Backend-Lembar
@@ -484,9 +744,9 @@ tasks:
     sprint: B1
     title: Account and session integration
     status: BLOCKED
-    depends_on: [B0-03, B0-04, B0-05]
-    decisions: [D-002]
-    outcome: Register/login/logout/recovery with audit and revocation.
+    depends_on: [B0-03, B0-04, B0-05, B0-09]
+    decisions: [D-002, D-007]
+    outcome: Register/login/logout/recovery with audit and revocation; recovery delivery routes through B0-09 notification adapter.
     evidence: [integration, CSRF, rate-limit, no-secret-log]
 
   - id: B1-02
@@ -513,11 +773,12 @@ tasks:
     repository: Backend-Lembar
     sprint: B1
     title: Versioned curriculum catalog
-    status: BLOCKED
+    status: READY
     depends_on: [B0-04]
     decisions: [D-012]
     outcome: Curriculum/grade/phase/subject/outcome/material versioning and readiness APIs.
     evidence: [publish-archive-history, source-rights-gate]
+    next_action: "Await owner START; pilot content seeding stays blocked on D-012 acceptance."
 
   - id: B1-05
     repository: Backend-Lembar
@@ -534,10 +795,11 @@ tasks:
     sprint: B1
     title: Marketing content domain and published read API
     status: BLOCKED
-    depends_on: [B0-03, B0-04, B1-03]
+    depends_on: [B0-03, B0-04]
     decisions: [P-011, P-012, T-005, T-006, D-003, D-017]
     outcome: Versioned PostgreSQL content model serves published-only page/global projections with ETag.
     evidence: [migration, published-only, draft-nondisclosure, schema-validation, etag-304, no-queue]
+    dependency_note: "Public CMS read API is unauthenticated and published-only per MARKETING-CMS-BACKEND.md; superadmin ops permission matrix belongs in B6-06."
 
   - id: B2-01
     repository: Backend-Lembar
@@ -566,8 +828,9 @@ tasks:
     status: BLOCKED
     depends_on: [B1-04, B2-02, B0-03]
     decisions: []
-    outcome: Validated source/catalog config and immutable input snapshot.
+    outcome: Validated source/catalog config and immutable input snapshot; owns FR-GEN-001/002 configuration responsibility.
     evidence: [state-and-contract-tests, incompatible-catalog]
+    traceability_note: "TRACEABILITY-MATRIX.md historically lists B3-01 for FR-GEN-001/002; config belongs here, retrieval/source references stay in B3-01."
 
   - id: B2-04
     repository: Backend-Lembar
@@ -598,6 +861,7 @@ tasks:
     decisions: []
     outcome: Authorized passage retrieval with insufficient-source behavior.
     evidence: [cross-tenant, prompt-injection, citation-resolution]
+    traceability_note: "Retrieval/source references only; generate configuration is owned by B2-03."
 
   - id: B3-02
     repository: Backend-Lembar
@@ -748,6 +1012,7 @@ tasks:
     decisions: [D-009]
     outcome: Versioned plans/grants/limits enforced server-side for personal workspace.
     evidence: [precedence, grace, adjustment-audit]
+    interim_note: "Generation pipeline requires entitlement validation before expensive work; B2-04 ledger uses a free-tier default until B6-01 lands full enforcement."
 
   - id: B6-02
     repository: Backend-Lembar
@@ -794,10 +1059,11 @@ tasks:
     sprint: B6
     title: Superadmin marketing CMS authoring and publication
     status: BLOCKED
-    depends_on: [B1-06, B6-03]
+    depends_on: [B1-06, B1-03]
     decisions: [P-011, P-012]
     outcome: Audited superadmin draft, preview, publish, unpublish, and restore commands with concurrency safety.
     evidence: [permission-matrix, csrf, revision-conflict, unsafe-content, immutable-version, audit-transaction]
+    dependency_note: "CMS authoring reuses auth/permission/audit from B1-03; it does not require B6-03 broad superadmin ops or B3-05 AI eval."
 
   - id: B7-01
     repository: Backend-Lembar
@@ -858,3 +1124,60 @@ tasks:
     decisions: [P-011, P-012, D-017]
     outcome: Published changes propagate safely to all marketing routes and ops workflows pass end to end.
     evidence: [generated-client-drift, publish-under-60s, public-cache, preview-isolation, rollback, screenshots]
+    dependency_note: "Sister cross-repo gates X1-01, X3-01, and X5-01 are added by Web V1 gap analysis to match TRACEABILITY-MATRIX.md."
+
+  # --- Web V1 gap-analysis additions (2026-07-19) -------------------------
+  - id: B0-09
+    repository: Backend-Lembar
+    sprint: B0
+    title: Transactional notification provider spike
+    status: BACKLOG
+    depends_on: [B0-01, B0-04]
+    decisions: [D-007]
+    outcome: Outbox event shape, local capture sink, provider-agnostic adapter, template registry, and accepted email provider ADR.
+    evidence: [outbox-test, token-redaction, sandbox-provider, template-locale-fixtures, ADR]
+    notes: "D-007 is due before recovery/invite per DECISIONS.md and is needed by B1-01 recovery and B7-01 school invite."
+
+  - id: B8-02
+    repository: Backend-Lembar
+    sprint: B8
+    title: Data lifecycle, retention, deletion, and backup tombstone gate
+    status: BACKLOG
+    depends_on: [B5-05, B6-04]
+    decisions: []
+    outcome: Retention policy applied across DB, object storage, indexes, share tokens, audit, and backups; restore drill proves tombstones survive snapshot.
+    evidence: [data-inventory, purge-integration, restore-drill, tombstone-invariants]
+    notes: "Closes FR-X-005 deletion traceability row; DATA-LIFECYCLE.md defines deletion semantics and backup restore invariants."
+
+  - id: X1-01
+    repository: both
+    sprint: X1
+    title: Identity and workspace cross-repository integration gate
+    status: BACKLOG
+    depends_on: [B1-01, B1-02, B1-03, F2-05]
+    decisions: [D-002]
+    outcome: Cross-repo gate for identity, workspace, and tenant context per CROSS-REPO-CONTRACT.md.
+    evidence: [generated-client-drift, staging-smoke, login-recovery-switch-logout-e2e]
+    notes: "Closes FR-ID-001 traceability row."
+
+  - id: X3-01
+    repository: both
+    sprint: X3
+    title: Generate configuration and retrieval cross-repository integration gate
+    status: BACKLOG
+    depends_on: [B2-03, B2-05, B3-01, F3-05]
+    decisions: []
+    outcome: Cross-repo gate covering FR-GEN-001/002 config validation and retrieval inputs end to end.
+    evidence: [generated-client-drift, staging-smoke, dependent-fields-e2e, insufficient-source-state]
+    notes: "Closes FR-GEN-001/002 traceability rows. Config responsibility is B2-03; retrieval responsibility is B3-01."
+
+  - id: X5-01
+    repository: both
+    sprint: X5
+    title: Print/PDF/share cross-repository integration gate
+    status: BACKLOG
+    depends_on: [B5-01, B5-02, B5-03, F5-05]
+    decisions: [D-020]
+    outcome: "Cross-repo gate for the canonical artifact path (print, PDF render, secure share link)."
+    evidence: [generated-client-drift, golden-A4, share-security, revocation-e2e]
+    notes: "Closes FR-OUT-001 traceability row."

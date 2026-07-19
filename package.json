@@ -1,0 +1,53 @@
+{
+  "name": "backend-lembar",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Backend-Lembar modular monolith (API + worker) — B0-01 bootstrap",
+  "type": "module",
+  "engines": {
+    "node": ">=22 <23"
+  },
+  "packageManager": "pnpm@11.14.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm build && vitest run",
+    "test:watch": "vitest",
+    "storage:smoke": "pnpm build && node dist/smoke/storage.js",
+    "pdf:smoke": "pnpm build && node dist/smoke/pdf.js",
+    "start:api": "node dist/bootstrap/api.js",
+    "start:worker": "node dist/bootstrap/worker.js",
+    "openapi:validate": "node --experimental-strip-types --no-warnings scripts/openapi-validate.ts",
+    "openapi:breaking": "node --experimental-strip-types --no-warnings scripts/openapi-breaking.ts",
+    "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
+    "db:push": "drizzle-kit push --config=drizzle.config.ts",
+    "db:check": "drizzle-kit check --config=drizzle.config.ts",
+    "db:smoke": "pnpm build && node dist/smoke/database.js",
+    "auth:smoke": "pnpm build && node dist/smoke/auth.js",
+    "queue:smoke": "pnpm build && node dist/smoke/queue.js"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "fastify": "5.10.0",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.1",
+    "@types/pg": "^8.20.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "10.7.0",
+    "eslint-config-prettier": "10.1.8",
+    "prettier": "3.9.5",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.64.0",
+    "vitest": "4.1.10"
+  }
+}
