@@ -49,6 +49,8 @@ pnpm openapi:validate
 pnpm openapi:breaking
 pnpm storage:smoke
 pnpm pdf:smoke
+pnpm db:check                       # drizzle-kit: validate generated SQL
+pnpm db:smoke                       # real Postgres roundtrip smoke (DATABASE_URL required)
 node dist/bootstrap/api.js          # API on :4000
 node dist/bootstrap/worker.js       # one heartbeat, exit 0
 ```
@@ -87,14 +89,35 @@ Unknown/internal details stay redacted.
 - `api.env.ts` — `API_PORT`, `API_HOST`, `CORS_ALLOWED_ORIGINS`, `PUBLIC_APP_URL`,
   reuses `LOG_LEVEL` from base.
 - `worker.env.ts` — `WORKER_NAME`, `WORKER_CONCURRENCY`, reuses `LOG_LEVEL` from base.
+- `database.env.ts` — `DATABASE_URL`, `DATABASE_POOL_MAX`, `DATABASE_SSL_MODE`,
+  `DATABASE_REQUIRED`.
 
 Strict production mode is opt-in via `APP_ENV=production`. Secrets (DB URLs, auth
 signing keys, AI/storage/payment keys, webhook secrets) are not configured here —
 they are added per process by later tasks and must never be committed.
 
+## Database spike (B0-04)
+
+- ORM baseline: Drizzle ORM (D-003) over node-postgres with migrations under
+  `src/infrastructure/database/migrations/`.
+- Typed env: `src/config/database.env.ts` validates `DATABASE_URL`, `DATABASE_POOL_MAX`,
+  `DATABASE_SSL_MODE`, `DATABASE_REQUIRED`. Errors list key names only — values are
+  never logged.
+- Drizzle schema: `tenants`, `users`, `schools` (`src/infrastructure/database/schema.ts`)
+  — minimal spike tables only, with DB-side tenant FKs and a `users.role` CHECK constraint.
+- CLI surface:
+  - `pnpm db:generate` / `pnpm db:migrate` / `pnpm db:push` / `pnpm db:check` — Drizzle Kit.
+  - `pnpm db:smoke` — build then run the real-DB roundtrip smoke (`src/smoke/database.ts`).
+- Local disposable Postgres only. Production secrets are never committed.
+- See `docs/adr/B0-04-spike.md` for deferred items and owner-open questions.
+
 ## Spike configuration
 
 ```bash
+DATABASE_URL=postgres://...         # required when DATABASE_REQUIRED=true
+DATABASE_POOL_MAX=10                # default: 10
+DATABASE_SSL_MODE=disable|require   # default: disable
+DATABASE_REQUIRED=false             # default: false
 STORAGE_DRIVER=memory|local         # default: memory
 STORAGE_LOCAL_ROOT=/tmp/lembar      # required when STORAGE_DRIVER=local
 PDF_RENDERER=stub|playwright        # default: stub; playwright throws by design
@@ -103,6 +126,7 @@ PDF_RENDERER_DRIVER=stub|playwright # compatibility alias
 
 ## Security notes for the spike
 
+- Database DSNs are treated as secrets and are never logged.
 - Signed URLs are treated as secrets and are never logged.
 - Storage keys are treated as secrets and are never logged.
 - Smoke scripts and tests only log redacted fingerprints and deterministic hashes.
@@ -116,6 +140,7 @@ src/
   common/          # shared utilities (redaction, error envelope, request ids)
   config/          # per-process typed env parsing
   infrastructure/
+    database/      # Drizzle schema, migrations, db factory (B0-04)
     storage/       # StorageAdapter + local/memory drivers
     pdf/           # RenderAdapter + stub/disabled-playwright drivers
   smoke/           # executable smoke entrypoints

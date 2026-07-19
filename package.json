@@ -21,17 +21,26 @@
     "start:api": "node dist/bootstrap/api.js",
     "start:worker": "node dist/bootstrap/worker.js",
     "openapi:validate": "node --experimental-strip-types --no-warnings scripts/openapi-validate.ts",
-    "openapi:breaking": "node --experimental-strip-types --no-warnings scripts/openapi-breaking.ts"
+    "openapi:breaking": "node --experimental-strip-types --no-warnings scripts/openapi-breaking.ts",
+    "db:generate": "drizzle-kit generate --config=drizzle.config.ts",
+    "db:migrate": "drizzle-kit migrate --config=drizzle.config.ts",
+    "db:push": "drizzle-kit push --config=drizzle.config.ts",
+    "db:check": "drizzle-kit check --config=drizzle.config.ts",
+    "db:smoke": "pnpm build && node dist/smoke/database.js"
   },
   "dependencies": {
-    "fastify": "5.10.0"
+    "drizzle-orm": "^0.45.2",
+    "fastify": "5.10.0",
+    "pg": "^8.22.0"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
     "@eslint/js": "10.0.1",
     "@types/node": "22.20.1",
+    "@types/pg": "^8.20.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
+    "drizzle-kit": "^0.31.10",
     "eslint": "10.7.0",
     "eslint-config-prettier": "10.1.8",
     "prettier": "3.9.5",
