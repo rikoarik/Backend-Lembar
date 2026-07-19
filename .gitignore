@@ -9,3 +9,5 @@ coverage/
 .vscode/
 .idea/
 .impeccable/
+.claude/settings.local.json
+agent-orchestrator.yaml
