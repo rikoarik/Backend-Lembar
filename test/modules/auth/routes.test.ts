@@ -61,7 +61,17 @@ describe('auth routes', () => {
     });
 
     expect(me.statusCode).toBe(200);
-    const body = me.json() as { activeWorkspaceId: string; workspaceIds: string[] };
+    const body = me.json() as {
+      data: {
+        activeWorkspaceId: string;
+        workspaces: Array<{ id: string; type: 'personal' | 'school'; name: string; role: string }>;
+      };
+    };
+    const activeWorkspace = body.data.workspaces.find(
+      (workspace) => workspace.id === body.data.activeWorkspaceId,
+    );
+    expect(activeWorkspace?.type).toBe('personal');
+    expect(activeWorkspace?.role).toBe('teacher');
 
     const deniedByCsrf = await app.inject({
       method: 'POST',
@@ -104,12 +114,14 @@ describe('auth routes', () => {
         [sessionCookie!.name]: sessionCookie!.value,
         lembar_csrf: csrfCookie!.value,
       },
-      payload: { workspaceId: body.activeWorkspaceId },
+      payload: { workspaceId: body.data.activeWorkspaceId },
     });
 
     expect(allowed.statusCode).toBe(200);
-    expect(allowed.json()).toMatchObject({ activeWorkspaceId: body.activeWorkspaceId });
-    expect(body.workspaceIds).toContain(body.activeWorkspaceId);
+    expect(allowed.json()).toMatchObject({ activeWorkspaceId: body.data.activeWorkspaceId });
+    expect(body.data.workspaces.map((workspace) => workspace.id)).toContain(
+      body.data.activeWorkspaceId,
+    );
   });
 
   test('recovery and invitation endpoints stay enumeration-safe', async () => {
