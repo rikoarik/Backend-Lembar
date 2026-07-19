@@ -14,9 +14,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import { ApiError } from '../../../../common/errors/envelope.js';
-import {
-  type AuthenticatedActor,
-} from './routes.js';
+import { type AuthenticatedActor } from './routes.js';
 
 const SOURCE_UPLOAD_PREFIX = '/v1/uploads/sources';
 

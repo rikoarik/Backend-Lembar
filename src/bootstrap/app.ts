@@ -151,7 +151,7 @@ export async function buildApp(
   }
   await app.register(registerNotificationRoutes, notificationDb ? { db: notificationDb } : {});
   await registerUploadsAuthHook(app);
-  await registerUploadRoutes(app, options.uploadsDb ? { db: options.uploadsDb } : { factory: 'memory' });
+  await registerUploadRoutes(app, options.uploadsDb ? { db: options.uploadsDb } : {});
 
   return app;
 }

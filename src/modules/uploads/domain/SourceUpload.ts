@@ -100,14 +100,8 @@ export interface SignedAccessIntent {
 
 export interface SourceUploadsStore {
   insertUpload(row: UpsertUploadInput): Promise<SourceUpload>;
-  getUploadByIdForWorkspace(
-    workspaceId: string,
-    uploadId: string,
-  ): Promise<SourceUpload | null>;
-  listUploadsForWorkspace(
-    workspaceId: string,
-    options: { limit: number },
-  ): Promise<SourceUpload[]>;
+  getUploadByIdForWorkspace(workspaceId: string, uploadId: string): Promise<SourceUpload | null>;
+  listUploadsForWorkspace(workspaceId: string, options: { limit: number }): Promise<SourceUpload[]>;
   updateUploadStatus(input: {
     id: string;
     workspaceId: string;

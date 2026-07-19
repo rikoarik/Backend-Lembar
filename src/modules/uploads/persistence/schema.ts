@@ -29,12 +29,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-export const SOURCE_UPLOAD_STATUSES = [
-  'received',
-  'verified',
-  'rejected',
-  'deleted',
-] as const;
+export const SOURCE_UPLOAD_STATUSES = ['received', 'verified', 'rejected', 'deleted'] as const;
 export type SourceUploadStatusDb = (typeof SOURCE_UPLOAD_STATUSES)[number];
 
 export const REDACTION_CLASSIFICATIONS = [
@@ -78,10 +73,7 @@ export const sourceUploads = pgTable(
   },
   (t) => ({
     workspaceIdx: index('source_uploads_workspace_idx').on(t.workspaceId),
-    workspaceStatusIdx: index('source_uploads_workspace_status_idx').on(
-      t.workspaceId,
-      t.status,
-    ),
+    workspaceStatusIdx: index('source_uploads_workspace_status_idx').on(t.workspaceId, t.status),
     statusCheck: check(
       'source_uploads_status_check',
       sql`${t.status} in ('received','verified','rejected','deleted')`,
@@ -148,10 +140,7 @@ export const sourceUploadAudit = pgTable(
       'source_upload_audit_action_check',
       sql`${t.action} in ('intake','magic_check','size_check','access_grant','access_revoke','delete_request','delete_complete')`,
     ),
-    successCheck: check(
-      'source_upload_audit_success_check',
-      sql`${t.success} in ('true','false')`,
-    ),
+    successCheck: check('source_upload_audit_success_check', sql`${t.success} in ('true','false')`),
   }),
 );
 

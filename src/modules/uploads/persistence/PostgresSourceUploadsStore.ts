@@ -48,11 +48,14 @@ export class PostgresSourceUploadsStore implements SourceUploadsStore {
       })
       .returning();
     if (!inserted) throw new Error('insertUpload returned no row');
-    return this.fromRow({
-      ...inserted,
-      // Default current_version pointer on the row is implicit; we keep the
-      // int 1 default in DB. Read back via separate query is unnecessary here.
-    }, row.currentVersion ?? 1);
+    return this.fromRow(
+      {
+        ...inserted,
+        // Default current_version pointer on the row is implicit; we keep the
+        // int 1 default in DB. Read back via separate query is unnecessary here.
+      },
+      row.currentVersion ?? 1,
+    );
   }
 
   async getUploadByIdForWorkspace(
@@ -115,10 +118,7 @@ export class PostgresSourceUploadsStore implements SourceUploadsStore {
   }
 
   async insertVersion(row: InsertVersionInput): Promise<SourceUploadVersion> {
-    const [inserted] = await this.db
-      .insert(sourceUploadVersions)
-      .values(row)
-      .returning();
+    const [inserted] = await this.db.insert(sourceUploadVersions).values(row).returning();
     if (!inserted) throw new Error('insertVersion returned no row');
     return this.versionFromRow(inserted);
   }

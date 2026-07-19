@@ -17,22 +17,19 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { ApiError } from '../../../../common/errors/envelope.js';
 import type { Database } from '../../../../infrastructure/database/db.js';
-import { createStorageAdapter, resolveStorageDriver } from '../../../../infrastructure/storage/createStorageAdapter.js';
+import {
+  createStorageAdapter,
+  resolveStorageDriver,
+} from '../../../../infrastructure/storage/createStorageAdapter.js';
 import type { StorageAdapter } from '../../../../infrastructure/storage/StorageAdapter.js';
 import { hasPermission } from '../../../auth/policy/Permissions.js';
-import {
-  createPostgresSourceUploadsService,
-  createInMemorySourceUploadsService,
-  type SourceUploadsService,
-} from '../../domain/SourceUploadsService.js';
+import { createUploadsService } from '../../application/createUploadsService.js';
 
 export interface RegisterUploadRoutesOptions {
   db?: Database;
   storage?: StorageAdapter;
   /** Hard ceiling for upload size; defaults to env SOURCE_UPLOAD_MAX_BYTES or 50 MiB. */
   maxBytes?: number;
-  /** Test seam to inject synthetic factory (e.g. in-memory). */
-  factory?: 'memory' | 'postgres';
 }
 
 const MAX_FILENAME_BYTES = 200;
@@ -44,24 +41,12 @@ export async function registerUploadRoutes(
 ): Promise<void> {
   const storage = options.storage ?? createStorageAdapter();
   const driverName = resolveStorageDriver();
-  const service = options.factory === 'memory'
-    ? createInMemorySourceUploadsService({
-        storage,
-        storageDriverName: driverName,
-        ...(options.maxBytes !== undefined ? { maxBytes: options.maxBytes } : {}),
-      })
-    : options.db
-      ? createPostgresSourceUploadsService({
-          db: options.db,
-          storage,
-          storageDriverName: driverName,
-          ...(options.maxBytes !== undefined ? { maxBytes: options.maxBytes } : {}),
-        })
-      : createInMemorySourceUploadsService({
-          storage,
-          storageDriverName: driverName,
-          ...(options.maxBytes !== undefined ? { maxBytes: options.maxBytes } : {}),
-        });
+  const service = createUploadsService({
+    storage,
+    storageDriverName: driverName,
+    ...(options.db !== undefined ? { db: options.db } : {}),
+    ...(options.maxBytes !== undefined ? { maxBytes: options.maxBytes } : {}),
+  });
 
   app.post('/v1/uploads/sources/intake', async (request, reply) => {
     const actor = requireAuthenticated(request);
@@ -107,11 +92,7 @@ export async function registerUploadRoutes(
     requireSourceManage(actor, request);
     const { id } = request.params as { id: string };
     const workspaceId = workspaceIdOf(request);
-    const upload = await service.getRedacted(
-      workspaceId,
-      id,
-      request.requestId ?? 'req_unknown',
-    );
+    const upload = await service.getRedacted(workspaceId, id, request.requestId ?? 'req_unknown');
     return { data: upload };
   });
 
@@ -240,8 +221,7 @@ async function readBodyWithCap(
   reply: FastifyReply,
   maxBytes: number | undefined,
 ): Promise<Buffer> {
-  const declared =
-    Number(headerString(request, 'content-length') ?? Number.NaN) || Number.NaN;
+  const declared = Number(headerString(request, 'content-length') ?? Number.NaN) || Number.NaN;
   if (maxBytes !== undefined && Number.isFinite(declared) && declared > maxBytes + 1024) {
     throw new ApiError({
       code: 'VALIDATION_FAILED',

@@ -19,7 +19,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fingerprint } from '../common/redact.js';
 import { buildApp } from '../bootstrap/app.js';
 import { createStorageAdapter } from '../infrastructure/storage/createStorageAdapter.js';
-import { PDF_TRAILER_MARKER } from '../modules/uploads/domain/UploadPolicies.js';
+import { PDF_TRAILER_MARKER } from '../modules/uploads/policy/UploadPolicies.js';
 
 interface SmokeStep {
   label: string;
@@ -33,7 +33,11 @@ const TENANT_A = '00000000-0000-0000-0000-0000000000a1';
 const TENANT_B = '00000000-0000-0000-0000-0000000000b1';
 const USER_A = '00000000-0000-0000-0000-0000000000c1';
 
-function actorHeaders(workspaceId: string, tenantId: string, userId = USER_A): Record<string, string> {
+function actorHeaders(
+  workspaceId: string,
+  tenantId: string,
+  userId = USER_A,
+): Record<string, string> {
   return {
     'x-source-user-id': userId,
     'x-source-role': 'school_admin',
@@ -57,7 +61,6 @@ async function main(): Promise<void> {
     logger: false,
     serviceName: 'upload-smoke',
     serviceVersion: 'b2-01-smoke',
-    uploadsDb: undefined,
   });
   await app.ready();
   try {
@@ -70,7 +73,9 @@ async function main(): Promise<void> {
       headers: { ...actorHeaders(WS_A, TENANT_A), 'x-source-filename': 'demo.pdf' },
       payload: body,
     });
-    const intakeBody = intake.json() as { data: { uploadId: string; status: string; byteSize: number } };
+    const intakeBody = intake.json() as {
+      data: { uploadId: string; status: string; byteSize: number };
+    };
     assert.equal(intake.statusCode, 201, 'intake should be 201');
     const uploadId = intakeBody.data.uploadId;
     steps.push({
@@ -100,7 +105,9 @@ async function main(): Promise<void> {
       url: `/v1/uploads/sources/${uploadId}/access`,
       headers: actorHeaders(WS_A, TENANT_A),
     });
-    const accessBody = access.json() as { data: { signedUrlFingerprint: string; expiresAtEpochMs: number } };
+    const accessBody = access.json() as {
+      data: { signedUrlFingerprint: string; expiresAtEpochMs: number };
+    };
     assert.equal(access.statusCode, 200, 'access should be 200');
     steps.push({
       label: 'access',
@@ -148,8 +155,16 @@ async function main(): Promise<void> {
       ok: steps.every((step) => step.ok),
       steps,
     });
-    assert.equal(/mem:\/\/signed|key=.+&sig=/.test(serialized), false, 'serialized log must not include signed URLs');
-    assert.equal(/private\/uploads/.test(serialized), false, 'serialized log must not include storage keys');
+    assert.equal(
+      /mem:\/\/signed|key=.+&sig=/.test(serialized),
+      false,
+      'serialized log must not include signed URLs',
+    );
+    assert.equal(
+      /private\/uploads/.test(serialized),
+      false,
+      'serialized log must not include storage keys',
+    );
     steps.push({ label: 'redaction', ok: true, detail: 'no signed URL or storage key in log' });
 
     process.stdout.write(`${serialized}\n`);
@@ -157,7 +172,10 @@ async function main(): Promise<void> {
   } catch (err) {
     const serialized = JSON.stringify({
       ok: false,
-      error: { name: err instanceof Error ? err.name : 'Error', message: err instanceof Error ? err.message : 'unknown' },
+      error: {
+        name: err instanceof Error ? err.name : 'Error',
+        message: err instanceof Error ? err.message : 'unknown',
+      },
       steps,
     });
     process.stdout.write(`${serialized}\n`);

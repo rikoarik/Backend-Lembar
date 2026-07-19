@@ -12,8 +12,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { ApiError } from '../../../common/errors/envelope.js';
 import type { Database } from '../../../infrastructure/database/db.js';
 import type { StorageAdapter } from '../../../infrastructure/storage/StorageAdapter.js';
-import { InMemoryAdapter, assertShortExpiry } from '../../../infrastructure/storage/InMemoryAdapter.js';
-import { LocalFilesystemAdapter } from '../../../infrastructure/storage/LocalFilesystemAdapter.js';
+import { assertShortExpiry } from '../../../infrastructure/storage/InMemoryAdapter.js';
 import {
   DEFAULT_SOURCE_UPLOAD_MAX_BYTES,
   FILENAME_REDACTION_PLACEHOLDER,
@@ -23,7 +22,7 @@ import {
   SOURCE_SIGNED_URL_TTL_SECONDS,
   SOURCE_UPLOAD_CONTENT_TYPE,
   redactionClassificationForStatus,
-} from './UploadPolicies.js';
+} from '../policy/UploadPolicies.js';
 import { PostgresSourceUploadsStore } from '../persistence/PostgresSourceUploadsStore.js';
 import { InMemorySourceUploadsStore } from '../persistence/InMemorySourceUploadsStore.js';
 import {
@@ -252,10 +251,7 @@ export class SourceUploadsService {
         status: 409,
       });
     }
-    const version = await this.store.currentVersionForUpload(
-      input.workspaceId,
-      input.uploadId,
-    );
+    const version = await this.store.currentVersionForUpload(input.workspaceId, input.uploadId);
     if (!version) {
       throw new ApiError({
         code: 'STATE_CONFLICT',
@@ -276,7 +272,7 @@ export class SourceUploadsService {
         success: false,
         failureCode: 'content_hash_mismatch',
       });
-      const updated = await this.store.updateUploadStatus({
+      await this.store.updateUploadStatus({
         id: input.uploadId,
         workspaceId: input.workspaceId,
         status: 'rejected',
@@ -380,7 +376,7 @@ export class SourceUploadsService {
       requestId: input.requestId,
       success: true,
     });
-    let bytesRemoved = false;
+    let bytesRemoved: boolean;
     try {
       await this.storage.deleteObject(storageKeyFor(input.uploadId));
       bytesRemoved = true;
@@ -458,7 +454,6 @@ export class SourceUploadsService {
   async listAudit(uploadId: string): Promise<SourceUploadAuditEntry[]> {
     return this.store.listAuditByUpload(uploadId);
   }
-
 
   private async audit(row: AuditWriteInput): Promise<void> {
     await this.store.appendAudit(row);
