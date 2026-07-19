@@ -1,4 +1,4 @@
-version: "1.3"
+version: "1.4"
 updated_at: "2026-07-19"
 execution_target: COMPLETE_LEMBAR_WEB_V1
 checkpoint:
@@ -88,28 +88,10 @@ context_management:
     reconstruct_state_and_resume: true
   notes: "Conversation history is not authoritative; the registry and git remote state are. Re-run any check whose success is not persisted before declaring it complete."
 
-active_workers:
-  - session: backend-lembar-9
-    task: B0-05
-    branch: feat/B0-05-auth-session-spike
-    branch_head_local: 2792363c864203565d28f49a3c6b7456ea024f52
-    branch_head_matches_integration: true
-    status: working
-    activity: active
-    started_command: "START B0-05"
-  - session: backend-lembar-10
-    task: B0-06
-    branch: feat/B0-06-queue-idempotency-spike
-    branch_head_local: 60c7342d
-    branch_head_matches_integration: true
-    misbase_reason: docs-only root pre-B0-04
-    remediation: completed; branch reset in owning worktree onto origin/ao/backend-integration after clean status inspection (no force-push)
-    status: idle
-    activity: resumed_after_base_recovery
-    started_command: "START B0-06"
+active_workers: []
 
-completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-07]
-active_scope: [B0-05, B0-06]
+completed_scope: [B0-01, B0-02, B0-03, B0-04, B0-05, B0-06, B0-07]
+active_scope: []
 paused_scope: []
 ready_scope: [B1-04]
 
@@ -682,23 +664,73 @@ tasks:
     repository: Backend-Lembar
     sprint: B0
     title: Auth and session spike
-    status: READY
+    status: ACCEPTED
     depends_on: [B0-04]
     decisions: [D-002]
     outcome: Session, CSRF, recovery, school activation, revocation, and mobile-path PoC.
     evidence: [security-tests, enumeration, ADR]
-    next_action: "Await owner START to dispatch auth spike worker; resolves D-002."
+    branch: feat/B0-05-auth-session-spike
+    latest_pushed_commit: fb324bd
+    integration_commit: cc226e5
+    dev_commit: 1b92191
+    dependency_note: "Library-light spike; recommendation D-002 = adopt Better Auth for B1-01 (see docs/adr/B0-05-spike.md). Worker session: backend-lembar-9."
+    completed_scope:
+      - /v1/auth/{register,login,logout,recovery/*,invitations/consume} + /v1/auth/workspace/switch + /v1/me HTTP routes.
+      - Drizzle schema additions: auth_sessions, auth_recovery_tokens, auth_school_invitations, auth_audit_events (additive; B0-04 untouched).
+      - Origin allowlist + double-submit CSRF, __Host-lembar_session + lembar_csrf cookies, hashed single-use recovery/invite tokens.
+      - pnpm auth:smoke redacted CLI run.
+      - docs/adr/B0-05-spike.md (library-light spike, recommends Better Auth for B1-01).
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm build
+      - pnpm test (66 passed / 1 skipped after B0-06 integration fix)
+      - pnpm openapi:validate && pnpm openapi:breaking
+      - pnpm db:check
+      - pnpm auth:smoke (redacted)
+      - Integration fix 443ff5a (setErrorHandler/setNotFoundHandler installed before route plugins) verified by full suite.
+    verification_still_required:
+      - Production auth provider/secret handling (HSM, KMS, rotation) in B1-01.
+      - Email/SMS delivery contract for recovery/invitation tokens (depends on B0-09).
+    next_action: "B0-05 ACCEPTED; B1-01 unblocked once B0-09 (notification adapter) is accepted."
 
   - id: B0-06
     repository: Backend-Lembar
     sprint: B0
     title: Queue and idempotency spike
-    status: READY
+    status: ACCEPTED
     depends_on: [B0-04]
     decisions: [D-004]
     outcome: Crash/retry/duplicate/lease PoC and accepted queue ADR.
     evidence: [failure-injection, VPS-footprint, ADR]
-    next_action: "Await owner START to dispatch queue spike worker; resolves D-004."
+    branch: feat/B0-06-queue-idempotency-spike
+    latest_pushed_commit: a9beb21
+    integration_commit: e5e0243
+    dev_commit: 1b92191
+    dependency_note: "D-004 = custom Postgres-only queue, 0 new packages; BullMQ/Redis seam kept as documented stub. Worker session: backend-lembar-10. Integration cleanup: migration renamed to 0003_queue_spike.sql and journal deduped."
+    completed_scope:
+      - src/infrastructure/queue/persistence/schema.ts isolated queue tables (idempotency_keys, queue_jobs, queue_leases, queue_attempts).
+      - /v1/jobs/* HTTP routes via Fastify plugin (registerJobRoutes).
+      - QUEUE_* typed env (driver, worker/workspace concurrency, lease TTL, max attempts, backoff, depth alert).
+      - pnpm queue:smoke + test/infrastructure/queue/queue-spike.test.ts (14 acceptance items).
+      - docs/adr/B0-06-spike.md with footprint and rollback notes.
+    verification_executed:
+      - pnpm install --frozen-lockfile
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm format:check
+      - pnpm build
+      - pnpm test (66 passed / 1 skipped)
+      - pnpm openapi:validate && pnpm openapi:breaking
+      - pnpm db:check
+      - pnpm queue:smoke
+      - pnpm format:check after .prettierignore update excluding drizzle meta JSON.
+    verification_still_required:
+      - VPS queue depth/runbook/observability in B1-04/B6-04.
+      - Worker ops surface (queue:run, queue:requeue) added by B6-04.
+    next_action: "B0-06 ACCEPTED; B6-04, B8-02, B0-08 unblocked."
 
   - id: B0-07
     repository: Backend-Lembar
