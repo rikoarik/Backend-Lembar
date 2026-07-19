@@ -36,7 +36,26 @@ owner_directive:
     - genuine owner decision required (changes product behavior or architecture)
     - irreconcilable cross-repo contract conflict after 2 correction cycles
     - destructive or production action requiring explicit owner authorization
-  notes: "Persist here so resume after restart finds the directive without re-reading the conversation."
+  notes: "Persist here so resume after restart finds the directive without re-reading the conversation. Owner also authorizes the orchestrator to satisfy internal worker start gates by sending exact START <TASK-ID> commands for eligible tasks without another owner message."
+
+start_authorization:
+  status: active
+  command: START <TASK-ID>
+  rules:
+    auto_send_for_eligible_tasks: true
+    require_task_exists: true
+    require_dependencies_satisfied: true
+    require_not_active_completed_or_duplicated: true
+    require_no_branch_or_module_conflict: true
+    require_complete_web_v1_eligibility: true
+  do_not_auto_start_when:
+    - dependencies_not_satisfied
+    - active_file_or_module_overlap
+    - material_product_or_architecture_decision_required
+    - destructive_or_production_action_required
+    - paid_resource_or_production_secret_required_without_local_alternative
+    - correction_cycles_exhausted
+  notes: "Internal execution gate only; orchestrator may send START on the owner's behalf."
 project: lembar
 repositories:
   frontend: rikoarik/Frontend-Lembar
