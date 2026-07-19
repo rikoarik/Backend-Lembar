@@ -7,6 +7,7 @@ import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 
 import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/errors/envelope.js';
 import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
+import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRoutes.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
 import type { AuthService } from '../modules/auth/application/AuthService.js';
 
@@ -84,6 +85,7 @@ export async function buildApp(
   });
 
   await registerAuthRoutes(app, options.auth === undefined ? {} : { auth: options.auth });
+  await app.register(registerJobRoutes);
 
   app.setNotFoundHandler((req, reply) => {
     const id = req.requestId ?? 'req_unknown';

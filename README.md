@@ -127,6 +127,20 @@ they are added per process by later tasks and must never be committed.
 - See `docs/adr/B0-05-spike.md` for the D-002 decision, owner-open questions, and
   rollback notes.
 
+## Queue spike (B0-06)
+
+- D-004 spike chooses the Postgres-only queue path for this repo shape: no extra runtime store,
+  reuse Drizzle/Postgres transaction boundaries, and keep local/test operation possible without
+  Redis.
+- Local proof surface: `test/infrastructure/queue/queue-spike.test.ts` (14 acceptance items)
+  and `pnpm queue:smoke` (`src/smoke/queue.ts`).
+- Queue persistence schema is isolated in `src/infrastructure/queue/persistence/schema.ts`; it
+  does not modify auth-owned columns in `src/infrastructure/database/schema.ts`.
+- BullMQ/Redis remains a documented stub seam only (`src/infrastructure/queue/adapters/bullmq/`).
+- See `docs/adr/B0-06-spike.md` for the decision, footprint, and rollback notes.
+
+## Spike configuration
+
 ```bash
 DATABASE_URL=postgres://...         # required when DATABASE_REQUIRED=true
 DATABASE_POOL_MAX=10                # default: 10
