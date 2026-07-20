@@ -54,6 +54,7 @@ export const quotaReservations = pgTable(
       t.idempotencyKey,
     ),
     jobIdIdx: index('quota_reservations_job_id_idx').on(t.jobId),
+    tenantIdIdx: index('quota_reservations_tenant_id_idx').on(t.tenantId),
     tenantWorkspaceIdx: index('quota_reservations_tenant_workspace_idx').on(
       t.tenantId,
       t.workspaceId,

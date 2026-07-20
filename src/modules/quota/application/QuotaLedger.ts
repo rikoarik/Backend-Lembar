@@ -13,6 +13,7 @@ import {
   ReservationAlreadyReleasedError,
   DuplicateIdempotencyKeyError,
   TenantMismatchError,
+  InsufficientQuotaError,
 } from '../domain/errors.js';
 
 export class QuotaLedger {
@@ -43,6 +44,12 @@ export class QuotaLedger {
         state: existing.state,
         duplicate: true,
       };
+    }
+
+    // Check balance before reserving
+    const balance = await this.repository.getBalance(input.tenantId, input.workspaceId);
+    if (balance.available < input.units) {
+      throw new InsufficientQuotaError(input.workspaceId, input.units, balance.available);
     }
 
     const reservation = await this.repository.insert({

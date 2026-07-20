@@ -11,12 +11,14 @@ import {
   ReservationAlreadyCommittedError,
   ReservationAlreadyReleasedError,
   TenantMismatchError,
+  InsufficientQuotaError,
 } from '../../../src/modules/quota/domain/errors.js';
 
 // In-memory store for testing
 class InMemoryQuotaStore {
   private reservations = new Map<string, QuotaReservation>();
   private idempotencyIndex = new Map<string, string>();
+  private baseQuota = new Map<string, number>(); // tenantId:workspaceId -> base quota
 
   insert(data: NewQuotaReservation): QuotaReservation {
     // Check for existing idempotency key first
@@ -45,6 +47,10 @@ class InMemoryQuotaStore {
     this.reservations.set(id, row);
     this.idempotencyIndex.set(key, id);
     return row;
+  }
+
+  setBaseQuota(tenantId: string, workspaceId: string, quota: number): void {
+    this.baseQuota.set(`${tenantId}:${workspaceId}`, quota);
   }
 
   findById(id: string): QuotaReservation | null {
@@ -107,13 +113,15 @@ class InMemoryQuotaStore {
       }
     }
 
+    const baseQuota = this.baseQuota.get(`${tenantId}:${workspaceId}`) ?? 0;
+
     return {
       tenantId,
       workspaceId,
       reserved,
       committed,
       released,
-      available: reserved - committed - released,
+      available: baseQuota + reserved - committed - released,
     };
   }
 }
@@ -153,15 +161,16 @@ class InMemoryQuotaRepository {
   }
 
   async getBalance(tenantId: string, workspaceId: string): Promise<QuotaBalance> {
+    // For testing purposes, return the actual balance from the store
     return this.store.getBalance(tenantId, workspaceId);
   }
 }
 
-function buildLedger() {
+function buildLedger(baseQuota = 1000) {
   const store = new InMemoryQuotaStore();
   const repository = new InMemoryQuotaRepository(store);
   const ledger = new QuotaLedger(repository as unknown as ConstructorParameters<typeof QuotaLedger>[0]);
-  return { ledger, store };
+  return { ledger, store, baseQuota };
 }
 
 describe('QuotaLedger', () => {
@@ -172,7 +181,8 @@ describe('QuotaLedger', () => {
 
   describe('reserve', () => {
     test('creates a new reservation', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const result = await ledger.reserve({
         tenantId,
@@ -192,7 +202,8 @@ describe('QuotaLedger', () => {
     });
 
     test('returns duplicate=true for same idempotency key and job', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const first = await ledger.reserve({
         tenantId,
@@ -215,7 +226,8 @@ describe('QuotaLedger', () => {
     });
 
     test('throws DuplicateIdempotencyKeyError for same key but different job', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       await ledger.reserve({
         tenantId,
@@ -239,7 +251,8 @@ describe('QuotaLedger', () => {
 
   describe('commit', () => {
     test('commits a reserved reservation', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -256,7 +269,8 @@ describe('QuotaLedger', () => {
     });
 
     test('is idempotent for already committed reservation', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -274,7 +288,8 @@ describe('QuotaLedger', () => {
     });
 
     test('throws ReservationNotFoundError for non-existent reservation', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       await expect(ledger.commit(randomUUID(), tenantId)).rejects.toThrow(
         ReservationNotFoundError,
@@ -282,7 +297,8 @@ describe('QuotaLedger', () => {
     });
 
     test('throws TenantMismatchError for wrong tenant', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -298,7 +314,8 @@ describe('QuotaLedger', () => {
     });
 
     test('throws ReservationAlreadyReleasedError for released reservation', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -318,7 +335,8 @@ describe('QuotaLedger', () => {
 
   describe('release', () => {
     test('releases a reserved reservation', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -335,7 +353,8 @@ describe('QuotaLedger', () => {
     });
 
     test('is idempotent for already released reservation', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -353,7 +372,8 @@ describe('QuotaLedger', () => {
     });
 
     test('throws ReservationNotFoundError for non-existent reservation', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       await expect(ledger.release(randomUUID(), tenantId)).rejects.toThrow(
         ReservationNotFoundError,
@@ -361,7 +381,8 @@ describe('QuotaLedger', () => {
     });
 
     test('throws TenantMismatchError for wrong tenant', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -377,7 +398,8 @@ describe('QuotaLedger', () => {
     });
 
     test('throws ReservationAlreadyCommittedError for committed reservation', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -397,14 +419,15 @@ describe('QuotaLedger', () => {
 
   describe('balance', () => {
     test('tracks balance correctly through lifecycle', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       // Initial balance
       const initial = await ledger.getBalance(tenantId, workspaceId);
       expect(initial.reserved).toBe(0);
       expect(initial.committed).toBe(0);
       expect(initial.released).toBe(0);
-      expect(initial.available).toBe(0);
+      expect(initial.available).toBe(baseQuota);
 
       // Reserve 10 units
       await ledger.reserve({
@@ -417,7 +440,7 @@ describe('QuotaLedger', () => {
 
       const afterReserve = await ledger.getBalance(tenantId, workspaceId);
       expect(afterReserve.reserved).toBe(10);
-      expect(afterReserve.available).toBe(10);
+      expect(afterReserve.available).toBe(baseQuota + 10);
 
       // Reserve another 5 units
       const second = await ledger.reserve({
@@ -430,7 +453,7 @@ describe('QuotaLedger', () => {
 
       const afterSecondReserve = await ledger.getBalance(tenantId, workspaceId);
       expect(afterSecondReserve.reserved).toBe(15);
-      expect(afterSecondReserve.available).toBe(15);
+      expect(afterSecondReserve.available).toBe(baseQuota + 15);
 
       // Commit the second reservation
       await ledger.commit(second.reservationId, tenantId);
@@ -438,11 +461,12 @@ describe('QuotaLedger', () => {
       const afterCommit = await ledger.getBalance(tenantId, workspaceId);
       expect(afterCommit.reserved).toBe(10);
       expect(afterCommit.committed).toBe(5);
-      expect(afterCommit.available).toBe(5);
+      expect(afterCommit.available).toBe(baseQuota + 5);
     });
 
     test('calculates negative balance when committed exceeds reserved', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -456,16 +480,18 @@ describe('QuotaLedger', () => {
 
       const balance = await ledger.getBalance(tenantId, workspaceId);
       expect(balance.committed).toBe(5);
-      expect(balance.available).toBe(-5);
+      expect(balance.available).toBe(baseQuota - 5);
     });
   });
 
   describe('tenant isolation', () => {
     test('reservations are isolated per tenant', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
       const tenant1 = randomUUID();
       const tenant2 = randomUUID();
       const sharedWorkspace = randomUUID();
+      store.setBaseQuota(tenant1, sharedWorkspace, baseQuota);
+      store.setBaseQuota(tenant2, sharedWorkspace, baseQuota);
 
       // Reserve for tenant 1
       await ledger.reserve({
@@ -494,10 +520,12 @@ describe('QuotaLedger', () => {
     });
 
     test('same idempotency key can be used across different tenants', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
       const tenant1 = randomUUID();
       const tenant2 = randomUUID();
       const sharedKey = randomUUID();
+      store.setBaseQuota(tenant1, workspaceId, baseQuota);
+      store.setBaseQuota(tenant2, workspaceId, baseQuota);
 
       const result1 = await ledger.reserve({
         tenantId: tenant1,
@@ -521,9 +549,11 @@ describe('QuotaLedger', () => {
     });
 
     test('commit rejects cross-tenant access', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
       const tenant1 = randomUUID();
       const tenant2 = randomUUID();
+      store.setBaseQuota(tenant1, workspaceId, baseQuota);
+      store.setBaseQuota(tenant2, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId: tenant1,
@@ -540,9 +570,11 @@ describe('QuotaLedger', () => {
     });
 
     test('release rejects cross-tenant access', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
       const tenant1 = randomUUID();
       const tenant2 = randomUUID();
+      store.setBaseQuota(tenant1, workspaceId, baseQuota);
+      store.setBaseQuota(tenant2, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId: tenant1,
@@ -561,7 +593,8 @@ describe('QuotaLedger', () => {
 
   describe('concurrency', () => {
     test('handles concurrent reservations with different idempotency keys', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const promises = Array.from({ length: 10 }, (_, i) =>
         ledger.reserve({
@@ -586,7 +619,8 @@ describe('QuotaLedger', () => {
     });
 
     test('concurrent duplicate detection works correctly', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
       const sharedKey = randomUUID();
       const sharedJobId = randomUUID();
 
@@ -624,7 +658,8 @@ describe('QuotaLedger', () => {
 
   describe('failure scenarios', () => {
     test('release on job failure restores quota', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -640,11 +675,12 @@ describe('QuotaLedger', () => {
       const balance = await ledger.getBalance(tenantId, workspaceId);
       expect(balance.reserved).toBe(0);
       expect(balance.released).toBe(10);
-      expect(balance.available).toBe(-10);
+      expect(balance.available).toBe(baseQuota - 10);
     });
 
     test('cannot release after commit (job succeeded then failure requested)', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -663,7 +699,8 @@ describe('QuotaLedger', () => {
     });
 
     test('getReservationByJobId works correctly', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const reserved = await ledger.reserve({
         tenantId,
@@ -679,10 +716,37 @@ describe('QuotaLedger', () => {
     });
 
     test('getReservationByJobId returns null for non-existent job', async () => {
-      const { ledger } = buildLedger();
+      const { ledger, store, baseQuota } = buildLedger();
+      store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
       const found = await ledger.getReservationByJobId(randomUUID());
       expect(found).toBeNull();
+    });
+
+    test('reserve against 0 balance fails with InsufficientQuotaError', async () => {
+      const store = new InMemoryQuotaStore();
+      const repository = new InMemoryQuotaRepository(store);
+      // Override getBalance to return 0 available balance
+      repository.getBalance = async () => ({
+        tenantId,
+        workspaceId,
+        reserved: 0,
+        committed: 0,
+        released: 0,
+        available: 0,
+      });
+      const ledger = new QuotaLedger(repository as unknown as ConstructorParameters<typeof QuotaLedger>[0]);
+
+      // Balance is 0 initially, so reserving any units should fail
+      await expect(
+        ledger.reserve({
+          tenantId,
+          workspaceId,
+          jobId: randomUUID(),
+          idempotencyKey: randomUUID(),
+          units: 10,
+        }),
+      ).rejects.toThrow(InsufficientQuotaError);
     });
   });
 });
