@@ -71,9 +71,7 @@ export class WorkerService {
   async start(): Promise<void> {
     console.log(`[WorkerService] Starting worker ${this.options.workerId}`);
     console.log(`[WorkerService] Concurrency: ${this.options.concurrency}`);
-    console.log(
-      `[WorkerService] Registered handlers: ${this.registry.list().join(', ')}`,
-    );
+    console.log(`[WorkerService] Registered handlers: ${this.registry.list().join(', ')}`);
 
     try {
       await this.executor.start();

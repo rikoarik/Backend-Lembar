@@ -35,11 +35,7 @@ export class WorkerExecutor {
   private running = false;
   private shutdownPromise: Promise<void> | null = null;
 
-  constructor(
-    store: QueueStore,
-    registry: JobHandlerRegistry,
-    options: WorkerExecutorOptions,
-  ) {
+  constructor(store: QueueStore, registry: JobHandlerRegistry, options: WorkerExecutorOptions) {
     this.store = store;
     this.registry = registry;
     this.options = options;
