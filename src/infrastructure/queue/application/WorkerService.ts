@@ -13,6 +13,10 @@ import {
   QuestionRegenerationHandler,
   ExportPdfHandler,
 } from '../handlers/index.js';
+import { InMemorySourceUploadsStore } from '../../../modules/uploads/persistence/InMemorySourceUploadsStore.js';
+import { InMemorySourceExtractionJobsStore, InMemorySourcePassagesStore } from '../../../modules/sources/persistence/InMemorySourceExtractionStores.js';
+import { SourceExtractionService, StubTextExtractorAdapter } from '../../../modules/sources/application/SourceExtractionService.js';
+import { createStorageAdapter } from '../../storage/createStorageAdapter.js';
 
 export interface WorkerServiceOptions {
   workerId: string;
@@ -62,7 +66,24 @@ export class WorkerService {
   }
 
   private setupHandlers(): void {
-    this.registry.register(new SourceIngestionHandler());
+    // SourceIngestionHandler requires storage + extraction service deps.
+    // WorkerService wires stub/in-memory adapters here; production wiring
+    // passes a real Database and storage via WorkerServiceOptions extensions (B2-02).
+    const storage = createStorageAdapter();
+    const jobsStore = new InMemorySourceExtractionJobsStore();
+    const passagesStore = new InMemorySourcePassagesStore();
+    const extractionService = new SourceExtractionService({
+      jobsStore,
+      passagesStore,
+      extractor: new StubTextExtractorAdapter(),
+    });
+    this.registry.register(
+      new SourceIngestionHandler({
+        uploadsStore: new InMemorySourceUploadsStore(),
+        storage,
+        extractionService,
+      }),
+    );
     this.registry.register(new AssessmentGenerationHandler());
     this.registry.register(new QuestionRegenerationHandler());
     this.registry.register(new ExportPdfHandler());
