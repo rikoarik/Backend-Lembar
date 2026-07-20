@@ -72,6 +72,9 @@ export const marketingContent = pgTable(
     currentVersion: integer('current_version').notNull().default(1),
     publishedVersion: integer('published_version'),
     draftPayload: jsonb('draft_payload'),
+    revision: integer('revision').notNull().default(1),
+    state: text('state').$type<'draft' | 'published' | 'unpublished'>().notNull().default('draft'),
+    updatedBy: uuid('updated_by'),
     createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .default(sql`now()`),
@@ -82,6 +85,10 @@ export const marketingContent = pgTable(
   (t) => ({
     slugLocaleUnique: uniqueIndex('marketing_content_slug_locale_unique').on(t.slug, t.locale),
     kindCheck: check('marketing_content_kind_check', sql`${t.kind} in ('global','page')`),
+    stateCheck: check(
+      'marketing_content_state_check',
+      sql`${t.state} in ('draft','published','unpublished')`,
+    ),
   }),
 );
 
@@ -94,6 +101,8 @@ export const marketingContentVersions = pgTable(
       .references(() => marketingContent.id, { onDelete: 'cascade' }),
     version: integer('version').notNull(),
     payload: jsonb('payload').notNull(),
+    revision: integer('revision').notNull().default(1),
+    createdBy: uuid('created_by'),
     publishedAt: timestamp('published_at', { withTimezone: true, mode: 'date' })
       .notNull()
       .default(sql`now()`),

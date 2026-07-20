@@ -11,12 +11,13 @@ import { parseDatabaseEnv } from '../config/database.env.js';
 import { closeDatabase, createDatabase, type Database } from '../infrastructure/database/db.js';
 import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRoutes.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
-import type { AuthService } from '../modules/auth/application/AuthService.js';
 import { registerCurriculumRoutes } from '../modules/curriculum/adapters/http/routes.js';
 import { registerMarketingRoutes } from '../modules/marketing/adapters/http/routes.js';
+import { registerMarketingOpsRoutes } from '../modules/marketing/adapters/http/opsRoutes.js';
 import { registerNotificationRoutes } from '../modules/notifications/adapters/http/routes.js';
 import { registerUploadRoutes } from '../modules/uploads/adapters/http/routes.js';
 import { registerUploadsAuthHook } from '../modules/uploads/adapters/http/preHandler.js';
+import type { AuthService } from '../modules/auth/application/AuthService.js';
 
 export interface HealthResponse {
   status: 'ok';
@@ -148,6 +149,7 @@ export async function buildApp(
   }
   if (marketingDb) {
     await registerMarketingRoutes(app, { db: marketingDb });
+    await registerMarketingOpsRoutes(app, { db: marketingDb });
   }
   await app.register(registerNotificationRoutes, notificationDb ? { db: notificationDb } : {});
   await registerUploadsAuthHook(app);
