@@ -509,6 +509,71 @@ paths:
                       status: { $ref: "#/components/schemas/JobStatus" }
         "409":
           $ref: "#/components/responses/Conflict"
+  /v1/workspaces/{workspaceId}/assessments/{assessmentId}/versions/{versionId}/blueprint:
+    post:
+      summary: Build or retrieve a validated blueprint for an assessment version
+      tags: [Assessments]
+      operationId: buildBlueprint
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/AssessmentId"
+        - in: path
+          name: versionId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuildBlueprintRequest"
+      responses:
+        "201":
+          description: Blueprint built and snapshot created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlueprintPipelineResponse"
+        "200":
+          description: Cached blueprint snapshot returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BlueprintPipelineResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+    get:
+      summary: Retrieve the existing blueprint snapshot for an assessment version
+      tags: [Assessments]
+      operationId: getBlueprint
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/AssessmentId"
+        - in: path
+          name: versionId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Blueprint snapshot
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [snapshot]
+                properties:
+                  snapshot:
+                    $ref: "#/components/schemas/BlueprintSnapshot"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/jobs/{jobId}:
     get:
       summary: Read asynchronous job state
@@ -1896,6 +1961,163 @@ components:
         reviewMode: { type: string, enum: [quick, detail] }
         teacherFocus: { type: string, maxLength: 500 }
         exampleQuestion: { type: string, maxLength: 3000 }
+    BuildBlueprintRequest:
+      type: object
+      properties:
+        blueprintSchemaVersion:
+          type: string
+          default: "1.0.0"
+          description: Schema version to validate against
+        coverageTargets:
+          $ref: "#/components/schemas/CoverageTargets"
+    CoverageTargets:
+      type: object
+      properties:
+        minTotalItems:
+          type: integer
+          minimum: 1
+          default: 1
+        maxTotalItems:
+          type: integer
+          minimum: 1
+          default: 100
+        difficultyDistribution:
+          type: object
+          description: "Target fraction (0..1) per difficulty level"
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 1
+        questionTypeDistribution:
+          type: object
+          description: "Target fraction (0..1) per question type"
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 1
+        minSourceCoverage:
+          type: number
+          minimum: 0
+          maximum: 1
+          default: 0.5
+          description: Minimum fraction of items that must have a sourceUploadId
+    BlueprintSnapshot:
+      type: object
+      required: [id, assessmentVersionId, workspaceId, blueprintSchemaVersion, items, coverageReport, sourceEvidence, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        assessmentVersionId: { type: string, format: uuid }
+        workspaceId: { type: string, format: uuid }
+        blueprintSchemaVersion: { type: string }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/BlueprintSnapshotItem" }
+        coverageReport: { $ref: "#/components/schemas/CoverageReport" }
+        sourceEvidence:
+          type: array
+          items: { $ref: "#/components/schemas/SourceEvidence" }
+        createdAt: { type: string, format: date-time }
+    BlueprintSnapshotItem:
+      type: object
+      required: [sequence, questionType, difficulty, citationIds]
+      properties:
+        sequence: { type: integer, minimum: 0 }
+        questionType: { type: string, enum: [multiple_choice, short_answer, essay, true_false] }
+        difficulty: { type: string, enum: [easy, medium, hard] }
+        cognitiveLevel: { type: [string, "null"] }
+        topicHint: { type: [string, "null"] }
+        outcomeId: { type: [string, "null"] }
+        sourceUploadId: { type: [string, "null"] }
+        citationIds:
+          type: array
+          items: { type: string }
+    CoverageReport:
+      type: object
+      required: [totalItems, difficultyCounts, questionTypeCounts, itemsWithSource, sourceCoverageFraction, meetsTargets, violations]
+      properties:
+        totalItems: { type: integer, minimum: 0 }
+        difficultyCounts:
+          type: object
+          properties:
+            easy: { type: integer, minimum: 0 }
+            medium: { type: integer, minimum: 0 }
+            hard: { type: integer, minimum: 0 }
+        questionTypeCounts:
+          type: object
+          properties:
+            multiple_choice: { type: integer, minimum: 0 }
+            short_answer: { type: integer, minimum: 0 }
+            essay: { type: integer, minimum: 0 }
+            true_false: { type: integer, minimum: 0 }
+        itemsWithSource: { type: integer, minimum: 0 }
+        sourceCoverageFraction: { type: number, minimum: 0, maximum: 1 }
+        meetsTargets: { type: boolean }
+        violations:
+          type: array
+          items: { $ref: "#/components/schemas/CoverageViolation" }
+    CoverageViolation:
+      type: object
+      required: [target, expected, actual, message]
+      properties:
+        target: { type: string }
+        expected: { type: number }
+        actual: { type: number }
+        message: { type: string }
+    SourceEvidence:
+      type: object
+      required: [uploadId, passageCount, totalCharCount]
+      properties:
+        uploadId: { type: string, format: uuid }
+        passageCount: { type: integer, minimum: 0 }
+        totalCharCount: { type: integer, minimum: 0 }
+    BlueprintValidationResult:
+      type: object
+      required: [valid, errors, warnings]
+      properties:
+        valid: { type: boolean }
+        errors:
+          type: array
+          items: { $ref: "#/components/schemas/BlueprintValidationError" }
+        warnings:
+          type: array
+          items: { $ref: "#/components/schemas/BlueprintValidationWarning" }
+    BlueprintValidationError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - schema_version_mismatch
+            - invalid_question_type
+            - invalid_difficulty
+            - invalid_cognitive_level
+            - sequence_out_of_range
+            - duplicate_sequence
+            - missing_source_upload_id
+            - total_items_below_min
+            - total_items_above_max
+            - difficulty_distribution_mismatch
+            - question_type_distribution_mismatch
+            - source_coverage_below_min
+        message: { type: string }
+        field: { type: string }
+        sequence: { type: integer }
+    BlueprintValidationWarning:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        field: { type: string }
+        sequence: { type: integer }
+    BlueprintPipelineResponse:
+      type: object
+      required: [snapshot, validation, cached]
+      properties:
+        snapshot: { $ref: "#/components/schemas/BlueprintSnapshot" }
+        validation: { $ref: "#/components/schemas/BlueprintValidationResult" }
+        cached: { type: boolean }
     AssessmentSummary:
       type: object
       required: [id, title, status, gradeLabel, subjectLabel, updatedAt]

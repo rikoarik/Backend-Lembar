@@ -18,7 +18,9 @@ export interface WorkerExecutorOptions {
   leaseTtlMs: number;
   heartbeatIntervalMs: number;
   shutdownGracePeriodMs: number;
-  onJobComplete?: ((jobId: string, workspaceId: string, outcome: 'success' | 'failure') => void | Promise<void>) | undefined;
+  onJobComplete?:
+    | ((jobId: string, workspaceId: string, outcome: 'success' | 'failure') => void | Promise<void>)
+    | undefined;
 }
 
 interface ActiveJob {

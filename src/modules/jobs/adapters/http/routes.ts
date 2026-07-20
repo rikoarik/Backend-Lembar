@@ -28,7 +28,8 @@ export function registerJobStatusRoutes(
     '/v1/jobs/:jobId',
     async (request, reply) => {
       const { jobId } = request.params;
-      const workspaceId = request.query.workspaceId ?? (request.headers['x-workspace-id'] as string);
+      const workspaceId =
+        request.query.workspaceId ?? (request.headers['x-workspace-id'] as string);
 
       if (!workspaceId) {
         return reply.status(400).send({
@@ -61,7 +62,8 @@ export function registerJobStatusRoutes(
     '/v1/jobs/:jobId/cancel',
     async (request, reply) => {
       const { jobId } = request.params;
-      const workspaceId = request.query.workspaceId ?? (request.headers['x-workspace-id'] as string);
+      const workspaceId =
+        request.query.workspaceId ?? (request.headers['x-workspace-id'] as string);
 
       if (!workspaceId) {
         return reply.status(400).send({
@@ -99,7 +101,8 @@ export function registerJobStatusRoutes(
     '/v1/jobs/:jobId/recover',
     async (request, reply) => {
       const { jobId } = request.params;
-      const workspaceId = request.query.workspaceId ?? (request.headers['x-workspace-id'] as string);
+      const workspaceId =
+        request.query.workspaceId ?? (request.headers['x-workspace-id'] as string);
 
       if (!workspaceId) {
         return reply.status(400).send({

@@ -15,7 +15,10 @@ import { QueueSpike } from '../../../src/infrastructure/queue/application/QueueS
 import { JobStatusService } from '../../../src/modules/jobs/application/JobStatusService.js';
 import { QueueJobStatusAdapter } from '../../../src/modules/jobs/adapters/QueueJobStatusAdapter.js';
 import { QuotaLedger } from '../../../src/modules/quota/application/QuotaLedger.js';
-import type { QuotaReservation, NewQuotaReservation } from '../../../src/modules/quota/persistence/schema.js';
+import type {
+  QuotaReservation,
+  NewQuotaReservation,
+} from '../../../src/modules/quota/persistence/schema.js';
 import type { QuotaBalance } from '../../../src/modules/quota/domain/types.js';
 import { toNeutralStatus } from '../../../src/modules/jobs/domain/status-mapper.js';
 import {
@@ -176,7 +179,9 @@ function buildTestHarness(baseQuota = 1000) {
   const queueStore = new InMemoryQueueStore();
   const quotaStore = new InMemoryQuotaStore();
   const quotaRepo = new InMemoryQuotaRepository(quotaStore);
-  const quotaLedger = new QuotaLedger(quotaRepo as unknown as ConstructorParameters<typeof QuotaLedger>[0]);
+  const quotaLedger = new QuotaLedger(
+    quotaRepo as unknown as ConstructorParameters<typeof QuotaLedger>[0],
+  );
 
   const adapter = new QueueJobStatusAdapter(queueStore, {
     leaseTtlMs: 100,
@@ -238,9 +243,9 @@ describe('B2-05: End-to-end job status and recovery', () => {
       expect(submitted.status).toBe('queued');
 
       // Simulate crash before provider
-      await expect(
-        spike.workOnce('worker-a', { crashAt: 'beforeProvider' }),
-      ).rejects.toThrow('simulated crash');
+      await expect(spike.workOnce('worker-a', { crashAt: 'beforeProvider' })).rejects.toThrow(
+        'simulated crash',
+      );
 
       // Reap expired lease and retry
       await spike.reapExpiredLeases(121);
@@ -350,7 +355,15 @@ describe('B2-05: End-to-end job status and recovery', () => {
 
       // Simulate success and commit
       const submittedResult = await service.submit(
-        { tenantId, workspaceId, actorId: 'u', kind: 'assessment_generation', idempotencyKey: randomUUID(), fingerprint: {}, quotaUnits: 1 },
+        {
+          tenantId,
+          workspaceId,
+          actorId: 'u',
+          kind: 'assessment_generation',
+          idempotencyKey: randomUUID(),
+          fingerprint: {},
+          quotaUnits: 1,
+        },
         { tenantId, workspaceId },
       );
       const reservation = await quotaLedger.getReservationByJobId(submittedResult.jobId);
@@ -649,11 +662,7 @@ describe('B2-05: End-to-end job status and recovery', () => {
         { tenantId, workspaceId },
       );
 
-      const cancelled = await service.cancel(
-        submitted.jobId,
-        { tenantId, workspaceId },
-        'user-1',
-      );
+      const cancelled = await service.cancel(submitted.jobId, { tenantId, workspaceId }, 'user-1');
 
       expect(cancelled.status).toBe('cancelled');
     });

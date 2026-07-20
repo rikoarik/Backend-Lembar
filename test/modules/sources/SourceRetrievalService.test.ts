@@ -149,9 +149,7 @@ describe('SourceRetrievalService', () => {
 
     it('respects limitPerUpload', async () => {
       await seedUpload(uploadsStore, UPLOAD_ID_1, WORKSPACE_A);
-      await seedPassages(passagesStore, UPLOAD_ID_1, WORKSPACE_A, [
-        'P1', 'P2', 'P3', 'P4', 'P5',
-      ]);
+      await seedPassages(passagesStore, UPLOAD_ID_1, WORKSPACE_A, ['P1', 'P2', 'P3', 'P4', 'P5']);
 
       const result = await service.retrieve({
         workspaceId: WORKSPACE_A,

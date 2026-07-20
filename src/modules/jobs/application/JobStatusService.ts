@@ -47,10 +47,7 @@ export class JobStatusService {
    * Submit a new job. Reserves quota, enqueues, returns neutral status.
    * Tenant isolation: job is scoped to the submitting tenant+workspace.
    */
-  async submit(
-    input: JobSubmitInput,
-    tenantCtx: TenantContext,
-  ): Promise<JobSubmitResult> {
+  async submit(input: JobSubmitInput, tenantCtx: TenantContext): Promise<JobSubmitResult> {
     const { job, reservationId, duplicate } = await this.store.submitJob({
       workspaceId: input.workspaceId,
       actorId: input.actorId,
@@ -82,10 +79,7 @@ export class JobStatusService {
   /**
    * Get job status. Tenant isolation: returns 404 if job belongs to different tenant.
    */
-  async getStatus(
-    jobId: string,
-    tenantCtx: TenantContext,
-  ): Promise<JobStatusView> {
+  async getStatus(jobId: string, tenantCtx: TenantContext): Promise<JobStatusView> {
     const job = await this.store.getJob(jobId);
     if (!job) {
       throw new JobNotFoundError(jobId);
@@ -103,11 +97,7 @@ export class JobStatusService {
    * Cancel a job. Releases quota reservation.
    * Tenant isolation: only the owning workspace can cancel.
    */
-  async cancel(
-    jobId: string,
-    tenantCtx: TenantContext,
-    _actorId: string,
-  ): Promise<JobStatusView> {
+  async cancel(jobId: string, tenantCtx: TenantContext, _actorId: string): Promise<JobStatusView> {
     const job = await this.store.getJob(jobId);
     if (!job) {
       throw new JobNotFoundError(jobId);
@@ -139,10 +129,7 @@ export class JobStatusService {
    * Commit quota on job success. Called by the worker after successful processing.
    * Tenant isolation: verifies tenant ownership before committing.
    */
-  async commitOnSuccess(
-    jobId: string,
-    tenantId: string,
-  ): Promise<void> {
+  async commitOnSuccess(jobId: string, tenantId: string): Promise<void> {
     const reservation = await this.quotaLedger.getReservationByJobId(jobId);
     if (reservation && reservation.state === 'reserved') {
       await this.quotaLedger.commit(reservation.id, tenantId);
@@ -153,10 +140,7 @@ export class JobStatusService {
    * Release quota on job failure. Called by the worker after terminal failure.
    * Tenant isolation: verifies tenant ownership before releasing.
    */
-  async releaseOnFailure(
-    jobId: string,
-    tenantId: string,
-  ): Promise<void> {
+  async releaseOnFailure(jobId: string, tenantId: string): Promise<void> {
     const reservation = await this.quotaLedger.getReservationByJobId(jobId);
     if (reservation && reservation.state === 'reserved') {
       await this.quotaLedger.release(reservation.id, tenantId);
@@ -206,9 +190,7 @@ export class JobStatusService {
       stage: toNeutralStage(job.status, job.kind),
       progressCurrent: null,
       progressTotal: null,
-      failureCode: job.lastError
-        ? (job.lastError as { code?: string }).code ?? null
-        : null,
+      failureCode: job.lastError ? ((job.lastError as { code?: string }).code ?? null) : null,
       createdAt: job.createdAt.toISOString(),
       updatedAt: job.updatedAt.toISOString(),
     };

@@ -7,10 +7,7 @@
  * Tenant isolation: every query filters by workspaceId. Cross-workspace
  * reads return empty, never leak content.
  */
-import type {
-  RetrievedPassage,
-  SourceRetrievalStore,
-} from '../domain/SourceRetrieval.js';
+import type { RetrievedPassage, SourceRetrievalStore } from '../domain/SourceRetrieval.js';
 import type { InMemorySourcePassagesStore } from './InMemorySourceExtractionStores.js';
 import type { InMemorySourceUploadsStore } from '../../uploads/persistence/InMemorySourceUploadsStore.js';
 
@@ -64,20 +61,22 @@ export class InMemorySourceRetrievalStore implements SourceRetrievalStore {
 
   async getPassageById(workspaceId: string, passageId: string): Promise<RetrievedPassage | null> {
     // Linear scan is fine for in-memory tests
-    const allPassages = (this.passagesStore as unknown as { passages: Array<{
-      id: string;
-      workspaceId: string;
-      uploadId: string;
-      pageNumber: number;
-      sequence: number;
-      textNormalized: string;
-      charCount: number;
-      contentHash: string;
-    }> }).passages;
+    const allPassages = (
+      this.passagesStore as unknown as {
+        passages: Array<{
+          id: string;
+          workspaceId: string;
+          uploadId: string;
+          pageNumber: number;
+          sequence: number;
+          textNormalized: string;
+          charCount: number;
+          contentHash: string;
+        }>;
+      }
+    ).passages;
 
-    const found = allPassages.find(
-      (p) => p.id === passageId && p.workspaceId === workspaceId,
-    );
+    const found = allPassages.find((p) => p.id === passageId && p.workspaceId === workspaceId);
 
     if (!found) return null;
 

@@ -121,6 +121,11 @@ export class InMemoryAssessmentsStore implements AssessmentsStore {
     return v ? { ...v } : null;
   }
 
+  async getVersionById(workspaceId: string, versionId: string): Promise<AssessmentVersion | null> {
+    const v = this.versions.find((v) => v.workspaceId === workspaceId && v.id === versionId);
+    return v ? { ...v } : null;
+  }
+
   async createBlueprintItems(inputs: CreateBlueprintItemInput[]): Promise<BlueprintItem[]> {
     const now = new Date().toISOString();
     const results: BlueprintItem[] = [];
