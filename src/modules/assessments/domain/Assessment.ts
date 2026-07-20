@@ -141,6 +141,7 @@ export interface AssessmentsStore {
     assessmentId: string,
     version: number,
   ): Promise<AssessmentVersion | null>;
+  getVersionById(workspaceId: string, versionId: string): Promise<AssessmentVersion | null>;
 
   createBlueprintItems(inputs: CreateBlueprintItemInput[]): Promise<BlueprintItem[]>;
   listBlueprintItems(workspaceId: string, assessmentVersionId: string): Promise<BlueprintItem[]>;

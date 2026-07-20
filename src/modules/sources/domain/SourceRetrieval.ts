@@ -64,10 +64,7 @@ export interface ResolveCitationsResult {
 // ---- Insufficient source ----
 
 export type InsufficientSourceReason =
-  | 'no_uploads_provided'
-  | 'no_passages_extracted'
-  | 'uploads_not_found'
-  | 'uploads_not_ready';
+  'no_uploads_provided' | 'no_passages_extracted' | 'uploads_not_found' | 'uploads_not_ready';
 
 export class InsufficientSourceError extends Error {
   readonly reason: InsufficientSourceReason;

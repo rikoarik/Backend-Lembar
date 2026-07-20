@@ -6,7 +6,11 @@
 import { eq, and, sql } from 'drizzle-orm';
 
 import type { Database } from '../../../infrastructure/database/db.js';
-import { quotaReservations, type QuotaReservation, type NewQuotaReservation } from '../persistence/schema.js';
+import {
+  quotaReservations,
+  type QuotaReservation,
+  type NewQuotaReservation,
+} from '../persistence/schema.js';
 import type { QuotaBalance } from '../domain/types.js';
 
 export class QuotaReservationRepository {

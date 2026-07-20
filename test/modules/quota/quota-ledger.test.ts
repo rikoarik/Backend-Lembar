@@ -3,7 +3,10 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { QuotaLedger } from '../../../src/modules/quota/application/QuotaLedger.js';
-import type { QuotaReservation, NewQuotaReservation } from '../../../src/modules/quota/persistence/schema.js';
+import type {
+  QuotaReservation,
+  NewQuotaReservation,
+} from '../../../src/modules/quota/persistence/schema.js';
 import type { QuotaBalance } from '../../../src/modules/quota/domain/types.js';
 import {
   DuplicateIdempotencyKeyError,
@@ -169,7 +172,9 @@ class InMemoryQuotaRepository {
 function buildLedger(baseQuota = 1000) {
   const store = new InMemoryQuotaStore();
   const repository = new InMemoryQuotaRepository(store);
-  const ledger = new QuotaLedger(repository as unknown as ConstructorParameters<typeof QuotaLedger>[0]);
+  const ledger = new QuotaLedger(
+    repository as unknown as ConstructorParameters<typeof QuotaLedger>[0],
+  );
   return { ledger, store, baseQuota };
 }
 
@@ -291,9 +296,7 @@ describe('QuotaLedger', () => {
       const { ledger, store, baseQuota } = buildLedger();
       store.setBaseQuota(tenantId, workspaceId, baseQuota);
 
-      await expect(ledger.commit(randomUUID(), tenantId)).rejects.toThrow(
-        ReservationNotFoundError,
-      );
+      await expect(ledger.commit(randomUUID(), tenantId)).rejects.toThrow(ReservationNotFoundError);
     });
 
     test('throws TenantMismatchError for wrong tenant', async () => {
@@ -735,7 +738,9 @@ describe('QuotaLedger', () => {
         released: 0,
         available: 0,
       });
-      const ledger = new QuotaLedger(repository as unknown as ConstructorParameters<typeof QuotaLedger>[0]);
+      const ledger = new QuotaLedger(
+        repository as unknown as ConstructorParameters<typeof QuotaLedger>[0],
+      );
 
       // Balance is 0 initially, so reserving any units should fail
       await expect(

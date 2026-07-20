@@ -17,6 +17,24 @@ export type {
   AssessmentsStore,
 } from './domain/Assessment.js';
 
+export type {
+  BlueprintSchemaVersion,
+  BlueprintItemSchema,
+  CoverageTargets,
+  BlueprintSnapshot,
+  BlueprintSnapshotItem,
+  SourceEvidence,
+  BlueprintValidationResult,
+  BlueprintValidationError,
+  BlueprintValidationErrorCode,
+  BlueprintValidationWarning,
+  CoverageReport,
+  CoverageViolation,
+  BuildBlueprintInput,
+  BuildBlueprintResult,
+  BlueprintPipelineStore,
+} from './domain/BlueprintPipeline.js';
+
 export { AssessmentService, createAssessmentService } from './application/AssessmentService.js';
 
 export type {
@@ -25,6 +43,15 @@ export type {
   BlueprintItemRequest,
 } from './application/AssessmentService.js';
 
+export {
+  BlueprintPipelineService,
+  createBlueprintPipelineService,
+  BLUEPRINT_SCHEMA_V1,
+  DEFAULT_COVERAGE_TARGETS,
+} from './application/BlueprintPipelineService.js';
+
 export { InMemoryAssessmentsStore } from './persistence/InMemoryAssessmentsStore.js';
+export { InMemoryBlueprintPipelineStore } from './persistence/InMemoryBlueprintPipelineStore.js';
 
 export { registerAssessmentRoutes } from './adapters/http/routes.js';
+export { registerBlueprintPipelineRoutes } from './adapters/http/blueprintRoutes.js';

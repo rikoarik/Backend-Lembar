@@ -4,7 +4,10 @@
  * Wraps the queue infrastructure to provide job submission, cancellation,
  * and recovery with proper idempotency and lease management.
  */
-import type { QueueStore, QueueStoreJob } from '../../../infrastructure/queue/adapters/queue-store.js';
+import type {
+  QueueStore,
+  QueueStoreJob,
+} from '../../../infrastructure/queue/adapters/queue-store.js';
 import type { JobKind } from '../../../infrastructure/queue/persistence/schema.js';
 import { computeRequestFingerprint } from '../../../infrastructure/queue/policy/backoff.js';
 import { fingerprint } from '../../../common/redact.js';
@@ -91,11 +94,7 @@ export class QueueJobStatusAdapter implements JobStatusStore {
     return this.store.requestCancel(id, now);
   }
 
-  async requestRecover(
-    id: string,
-    actorId: string,
-    reason: string,
-  ): Promise<QueueStoreJob | null> {
+  async requestRecover(id: string, actorId: string, reason: string): Promise<QueueStoreJob | null> {
     return this.store.auditRecover(id, new Date(), actorId, reason);
   }
 }

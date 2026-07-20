@@ -76,10 +76,7 @@ export class QuotaLedger {
    * Commit a reservation (mark quota as consumed).
    * Idempotent: no-op if already committed.
    */
-  async commit(
-    reservationId: string,
-    tenantId: string,
-  ): Promise<QuotaReservation> {
+  async commit(reservationId: string, tenantId: string): Promise<QuotaReservation> {
     const reservation = await this.repository.findById(reservationId);
     if (!reservation) {
       throw new ReservationNotFoundError(reservationId);
@@ -109,10 +106,7 @@ export class QuotaLedger {
    * Release a reservation (return quota to available pool).
    * Idempotent: no-op if already released.
    */
-  async release(
-    reservationId: string,
-    tenantId: string,
-  ): Promise<QuotaReservation> {
+  async release(reservationId: string, tenantId: string): Promise<QuotaReservation> {
     const reservation = await this.repository.findById(reservationId);
     if (!reservation) {
       throw new ReservationNotFoundError(reservationId);
