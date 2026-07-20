@@ -15,8 +15,9 @@ import { registerCurriculumRoutes } from '../modules/curriculum/adapters/http/ro
 import { registerMarketingRoutes } from '../modules/marketing/adapters/http/routes.js';
 import { registerMarketingOpsRoutes } from '../modules/marketing/adapters/http/opsRoutes.js';
 import { registerNotificationRoutes } from '../modules/notifications/adapters/http/routes.js';
-import { registerUploadRoutes } from '../modules/uploads/adapters/http/routes.js';
-import { registerUploadsAuthHook } from '../modules/uploads/adapters/http/preHandler.js';
+// TODO: Uncomment when uploads module is implemented
+// import { registerUploadRoutes } from '../modules/uploads/adapters/http/routes.js';
+// import { registerUploadsAuthHook } from '../modules/uploads/adapters/http/preHandler.js';
 import type { AuthService } from '../modules/auth/application/AuthService.js';
 
 export interface HealthResponse {
@@ -152,11 +153,12 @@ export async function buildApp(
     await registerMarketingOpsRoutes(app, { db: marketingDb });
   }
   await app.register(registerNotificationRoutes, notificationDb ? { db: notificationDb } : {});
-  await registerUploadsAuthHook(app);
-  await registerUploadRoutes(
-    app,
-    options.uploadsDb ? { db: options.uploadsDb } : { factory: 'memory' },
-  );
+  // TODO: Uncomment when uploads module is implemented
+  // await registerUploadsAuthHook(app);
+  // await registerUploadRoutes(
+  //   app,
+  //   options.uploadsDb ? { db: options.uploadsDb } : { factory: 'memory' },
+  // );
 
   return app;
 }
