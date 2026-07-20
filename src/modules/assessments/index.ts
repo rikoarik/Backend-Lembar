@@ -50,8 +50,25 @@ export {
   DEFAULT_COVERAGE_TARGETS,
 } from './application/BlueprintPipelineService.js';
 
+export {
+  QuestionGenerationService,
+  createQuestionGenerationService,
+  QUESTION_OUTPUT_SCHEMA,
+} from './application/QuestionGenerationService.js';
+
+export type {
+  GeneratedQuestion,
+  QuestionOption,
+  QuestionVersionMetadata,
+  GenerateQuestionsInput,
+  GenerateQuestionsResult,
+  QuestionGenerationFailure,
+  QuestionGenerationStore,
+} from './domain/QuestionGeneration.js';
+
 export { InMemoryAssessmentsStore } from './persistence/InMemoryAssessmentsStore.js';
 export { InMemoryBlueprintPipelineStore } from './persistence/InMemoryBlueprintPipelineStore.js';
+export { InMemoryQuestionGenerationStore } from './persistence/InMemoryQuestionGenerationStore.js';
 
 export { registerAssessmentRoutes } from './adapters/http/routes.js';
 export { registerBlueprintPipelineRoutes } from './adapters/http/blueprintRoutes.js';
