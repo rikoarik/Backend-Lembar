@@ -14,8 +14,14 @@ import {
   ExportPdfHandler,
 } from '../handlers/index.js';
 import { InMemorySourceUploadsStore } from '../../../modules/uploads/persistence/InMemorySourceUploadsStore.js';
-import { InMemorySourceExtractionJobsStore, InMemorySourcePassagesStore } from '../../../modules/sources/persistence/InMemorySourceExtractionStores.js';
-import { SourceExtractionService, StubTextExtractorAdapter } from '../../../modules/sources/application/SourceExtractionService.js';
+import {
+  InMemorySourceExtractionJobsStore,
+  InMemorySourcePassagesStore,
+} from '../../../modules/sources/persistence/InMemorySourceExtractionStores.js';
+import {
+  SourceExtractionService,
+  StubTextExtractorAdapter,
+} from '../../../modules/sources/application/SourceExtractionService.js';
 import { createStorageAdapter } from '../../storage/createStorageAdapter.js';
 
 export interface WorkerServiceOptions {
@@ -25,6 +31,7 @@ export interface WorkerServiceOptions {
   leaseTtlMs: number;
   heartbeatIntervalMs: number;
   shutdownGracePeriodMs: number;
+  onJobComplete?: ((jobId: string, workspaceId: string, outcome: 'success' | 'failure') => void | Promise<void>) | undefined;
 }
 
 export interface WorkerServiceHealth {
@@ -60,6 +67,7 @@ export class WorkerService {
       leaseTtlMs: options.leaseTtlMs,
       heartbeatIntervalMs: options.heartbeatIntervalMs,
       shutdownGracePeriodMs: options.shutdownGracePeriodMs,
+      onJobComplete: options.onJobComplete,
     };
 
     this.executor = new WorkerExecutor(store, this.registry, executorOptions);

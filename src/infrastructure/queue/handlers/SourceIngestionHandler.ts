@@ -42,12 +42,16 @@ export class SourceIngestionHandler implements JobHandler {
   async handle(context: JobContext): Promise<JobResult> {
     const { jobId, workspaceId, payload, signal } = context;
 
-    const uploadId = payload['sourceId'] as string | undefined ?? payload['uploadId'] as string | undefined;
+    const uploadId =
+      (payload['sourceId'] as string | undefined) ?? (payload['uploadId'] as string | undefined);
 
     if (!uploadId) {
       return {
         status: 'failure',
-        error: { code: 'MISSING_UPLOAD_ID', message: 'payload.sourceId or payload.uploadId is required' },
+        error: {
+          code: 'MISSING_UPLOAD_ID',
+          message: 'payload.sourceId or payload.uploadId is required',
+        },
       };
     }
 
@@ -174,5 +178,10 @@ export class SourceIngestionHandler implements JobHandler {
 
 /** Codes that warrant a retry vs. terminal failure. */
 function isRetryableCode(code: string): boolean {
-  return !['IMAGE_ONLY_OR_ENCRYPTED', 'UPLOAD_DELETED', 'UPLOAD_REJECTED', 'MISSING_UPLOAD_ID'].includes(code);
+  return ![
+    'IMAGE_ONLY_OR_ENCRYPTED',
+    'UPLOAD_DELETED',
+    'UPLOAD_REJECTED',
+    'MISSING_UPLOAD_ID',
+  ].includes(code);
 }

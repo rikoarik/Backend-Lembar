@@ -24,7 +24,10 @@ import {
 } from '../../../src/modules/sources/persistence/InMemorySourceExtractionStores.js';
 import { SourceIngestionHandler } from '../../../src/infrastructure/queue/handlers/SourceIngestionHandler.js';
 import { InMemorySourceUploadsStore } from '../../../src/modules/uploads/persistence/InMemorySourceUploadsStore.js';
-import type { TextExtractorAdapter, PageText } from '../../../src/modules/sources/application/SourceExtractionService.js';
+import type {
+  TextExtractorAdapter,
+  PageText,
+} from '../../../src/modules/sources/application/SourceExtractionService.js';
 import type { StorageAdapter } from '../../../src/infrastructure/storage/StorageAdapter.js';
 
 // ---- helpers ----
@@ -49,9 +52,7 @@ function makeStores() {
   };
 }
 
-function makeService(
-  overrides: { extractor?: TextExtractorAdapter } = {},
-) {
+function makeService(overrides: { extractor?: TextExtractorAdapter } = {}) {
   const { jobsStore, passagesStore } = makeStores();
   const service = new SourceExtractionService({
     jobsStore,
@@ -65,13 +66,6 @@ function makeService(
 class BlankPageExtractor implements TextExtractorAdapter {
   async extractPages(_bytes: Buffer, _contentType: string): Promise<PageText[]> {
     return [{ pageNumber: 1, text: '   ' }];
-  }
-}
-
-/** Extractor that returns no pages at all. */
-class EmptyPageExtractor implements TextExtractorAdapter {
-  async extractPages(_bytes: Buffer, _contentType: string): Promise<PageText[]> {
-    return [];
   }
 }
 

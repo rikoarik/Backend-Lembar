@@ -1,1 +1,1 @@
-a44029d7c3fd2cb652a66d191bf2c624bbec78957b67d650eae6a36b8da1cc1f  openapi.yaml
+bdafdfa98698adb813c15c417b37ceb13fab236863fbfbda2f61857966e52526  openapi.yaml

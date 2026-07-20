@@ -178,7 +178,7 @@ export class MarketingOpsService {
     const newRevision = page.revision + 1;
     const now = this.now();
     await this.db.transaction(async () => {
-      const injectedDraft = await this.db
+      await this.db
         .insert(marketingContentVersions)
         .values({
           contentId: page.id,

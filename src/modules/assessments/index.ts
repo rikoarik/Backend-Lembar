@@ -17,10 +17,7 @@ export type {
   AssessmentsStore,
 } from './domain/Assessment.js';
 
-export {
-  AssessmentService,
-  createAssessmentService,
-} from './application/AssessmentService.js';
+export { AssessmentService, createAssessmentService } from './application/AssessmentService.js';
 
 export type {
   CreateAssessmentConfigInput,

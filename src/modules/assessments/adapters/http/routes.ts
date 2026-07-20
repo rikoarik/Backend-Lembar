@@ -67,28 +67,46 @@ export async function registerAssessmentRoutes(
       const { workspaceId } = request.params as { workspaceId: string };
       const body = request.body as CreateAssessmentBody;
       const requestId = getRequestId(request);
-      const idempotencyKey =
-        (request.headers['idempotency-key'] as string | undefined) ?? null;
+      const idempotencyKey = (request.headers['idempotency-key'] as string | undefined) ?? null;
 
       // Validate required fields
       if (!body || typeof body !== 'object') {
         return reply.status(400).send(
-          buildErrorEnvelope({ code: 'VALIDATION_FAILED', message: 'Request body is required', requestId }),
+          buildErrorEnvelope({
+            code: 'VALIDATION_FAILED',
+            message: 'Request body is required',
+            requestId,
+          }),
         );
       }
       if (!body.title?.trim()) {
         return reply.status(400).send(
-          buildErrorEnvelope({ code: 'VALIDATION_FAILED', message: 'title is required', requestId, fieldErrors: { title: ['required'] } }),
+          buildErrorEnvelope({
+            code: 'VALIDATION_FAILED',
+            message: 'title is required',
+            requestId,
+            fieldErrors: { title: ['required'] },
+          }),
         );
       }
       if (!body.curriculumVersionId?.trim()) {
         return reply.status(400).send(
-          buildErrorEnvelope({ code: 'VALIDATION_FAILED', message: 'curriculumVersionId is required', requestId, fieldErrors: { curriculumVersionId: ['required'] } }),
+          buildErrorEnvelope({
+            code: 'VALIDATION_FAILED',
+            message: 'curriculumVersionId is required',
+            requestId,
+            fieldErrors: { curriculumVersionId: ['required'] },
+          }),
         );
       }
       if (!Array.isArray(body.blueprintItems) || body.blueprintItems.length === 0) {
         return reply.status(400).send(
-          buildErrorEnvelope({ code: 'VALIDATION_FAILED', message: 'blueprintItems must be a non-empty array', requestId, fieldErrors: { blueprintItems: ['min_items_1'] } }),
+          buildErrorEnvelope({
+            code: 'VALIDATION_FAILED',
+            message: 'blueprintItems must be a non-empty array',
+            requestId,
+            fieldErrors: { blueprintItems: ['min_items_1'] },
+          }),
         );
       }
 
@@ -96,12 +114,22 @@ export async function registerAssessmentRoutes(
       for (const item of body.blueprintItems) {
         if (!VALID_QUESTION_TYPES.includes(item.questionType as QuestionType)) {
           return reply.status(400).send(
-            buildErrorEnvelope({ code: 'VALIDATION_FAILED', message: `Invalid questionType: ${item.questionType}`, requestId, fieldErrors: { blueprintItems: [`invalid_question_type:${item.questionType}`] } }),
+            buildErrorEnvelope({
+              code: 'VALIDATION_FAILED',
+              message: `Invalid questionType: ${item.questionType}`,
+              requestId,
+              fieldErrors: { blueprintItems: [`invalid_question_type:${item.questionType}`] },
+            }),
           );
         }
         if (!VALID_DIFFICULTIES.includes(item.difficulty as Difficulty)) {
           return reply.status(400).send(
-            buildErrorEnvelope({ code: 'VALIDATION_FAILED', message: `Invalid difficulty: ${item.difficulty}`, requestId, fieldErrors: { blueprintItems: [`invalid_difficulty:${item.difficulty}`] } }),
+            buildErrorEnvelope({
+              code: 'VALIDATION_FAILED',
+              message: `Invalid difficulty: ${item.difficulty}`,
+              requestId,
+              fieldErrors: { blueprintItems: [`invalid_difficulty:${item.difficulty}`] },
+            }),
           );
         }
       }

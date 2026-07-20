@@ -4,6 +4,15 @@ import { type WorkerEnv, parseWorkerEnv } from '../config/worker.env.js';
 import { createWorkerService } from '../infrastructure/queue/index.js';
 import { InMemoryQueueStore } from '../infrastructure/queue/adapters/memory-store.js';
 
+// B2-05: Quota lifecycle hooks
+import { QueueJobStatusAdapter } from '../modules/jobs/adapters/QueueJobStatusAdapter.js';
+import { JobStatusService } from '../modules/jobs/application/JobStatusService.js';
+import { QuotaLedger } from '../modules/quota/application/QuotaLedger.js';
+import { QuotaReservationRepository } from '../modules/quota/persistence/repository.js';
+import { parseDatabaseEnv } from '../config/database.env.js';
+import { createDatabase } from '../infrastructure/database/db.js';
+import { parseQueueEnv } from '../config/queue.env.js';
+
 export interface Heartbeat {
   event: 'worker.heartbeat';
   service: string;
@@ -61,6 +70,33 @@ if (isDirectRun) {
   // Start worker service
   // TODO: Replace InMemoryQueueStore with PostgresQueueStore in production
   const store = new InMemoryQueueStore();
+
+  // B2-05: Set up quota lifecycle hooks
+  let quotaLedger: QuotaLedger | null = null;
+  try {
+    const dbEnv = parseDatabaseEnv(process.env);
+    if (dbEnv.url) {
+      const db = createDatabase({
+        connectionString: dbEnv.url,
+        poolMax: dbEnv.poolMax,
+        ssl: dbEnv.sslMode === 'require',
+      });
+      const quotaRepo = new QuotaReservationRepository(db);
+      quotaLedger = new QuotaLedger(quotaRepo);
+    }
+  } catch {
+    // No database configured; quota lifecycle hooks disabled
+  }
+
+  const queueEnv = parseQueueEnv(process.env);
+  const jobStatusAdapter = new QueueJobStatusAdapter(store, {
+    leaseTtlMs: queueEnv.leaseTtlMs,
+    maxAttempts: queueEnv.maxAttempts,
+  });
+  const jobStatusService = quotaLedger
+    ? new JobStatusService(jobStatusAdapter, quotaLedger)
+    : null;
+
   const worker = createWorkerService(store, {
     workerId: heartbeat.id,
     concurrency: options.concurrency,
@@ -68,6 +104,19 @@ if (isDirectRun) {
     leaseTtlMs: 30_000,
     heartbeatIntervalMs: 10_000,
     shutdownGracePeriodMs: 30_000,
+    onJobComplete: jobStatusService
+      ? async (jobId, workspaceId, outcome) => {
+          try {
+            if (outcome === 'success') {
+              await jobStatusService.commitOnSuccess(jobId, workspaceId);
+            } else {
+              await jobStatusService.releaseOnFailure(jobId, workspaceId);
+            }
+          } catch (err) {
+            console.error(`[Worker] Quota lifecycle hook failed for job ${jobId}:`, err);
+          }
+        }
+      : undefined,
   });
 
   // Graceful shutdown handlers
