@@ -93,9 +93,7 @@ if (isDirectRun) {
     leaseTtlMs: queueEnv.leaseTtlMs,
     maxAttempts: queueEnv.maxAttempts,
   });
-  const jobStatusService = quotaLedger
-    ? new JobStatusService(jobStatusAdapter, quotaLedger)
-    : null;
+  const jobStatusService = quotaLedger ? new JobStatusService(jobStatusAdapter, quotaLedger) : null;
 
   const worker = createWorkerService(store, {
     workerId: heartbeat.id,

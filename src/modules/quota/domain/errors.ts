@@ -40,9 +40,7 @@ export class InsufficientQuotaError extends Error {
 
 export class TenantMismatchError extends Error {
   constructor(reservationId: string, expected: string, actual: string) {
-    super(
-      `Tenant mismatch for reservation ${reservationId}: expected ${expected}, got ${actual}`,
-    );
+    super(`Tenant mismatch for reservation ${reservationId}: expected ${expected}, got ${actual}`);
     this.name = 'TenantMismatchError';
   }
 }
