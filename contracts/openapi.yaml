@@ -526,6 +526,41 @@ paths:
                 $ref: "#/components/schemas/JobResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+    post:
+      summary: Cancel a job
+      tags: [Jobs]
+      operationId: cancelJob
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /v1/jobs/{jobId}/recover:
+    post:
+      summary: Recover a dead-lettered job
+      tags: [Jobs]
+      operationId: recoverJob
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job recovered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/public/marketing/global:
     get:
       summary: Read published global marketing content

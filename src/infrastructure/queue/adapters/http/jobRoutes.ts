@@ -85,29 +85,6 @@ export const registerJobRoutes: FastifyPluginAsync = async (app: FastifyInstance
     }
   });
 
-  app.get('/v1/jobs/:jobId', async (req, reply) => {
-    const requestId = req.requestId ?? 'req_unknown';
-    const params = req.params as { jobId?: string };
-    const headerWorkspace = (req.headers['x-workspace-id'] as string | undefined) ?? '';
-    if (!params.jobId || !headerWorkspace) {
-      const envelope = badRequest(requestId, 'VALIDATION_FAILED', 'Permintaan tidak valid.', {
-        jobId: params.jobId ? [] : ['required'],
-        workspaceId: headerWorkspace ? [] : ['required'],
-      });
-      void reply.header(REQUEST_ID_HEADER, requestId).status(400).send(envelope);
-      return;
-    }
-    const lookup = spike.getJobForWorkspace(params.jobId, headerWorkspace);
-    if (lookup.status === 404) {
-      const envelope = new ApiError({
-        code: 'RESOURCE_NOT_FOUND',
-        message: 'Job tidak ditemukan.',
-        requestId,
-        status: 404,
-      }).toEnvelope();
-      void reply.header(REQUEST_ID_HEADER, requestId).status(404).send(envelope);
-      return;
-    }
-    void reply.header(REQUEST_ID_HEADER, requestId).status(200).send(lookup.job);
-  });
+  // GET /v1/jobs/:jobId moved to B2-05 module (src/modules/jobs/adapters/http/routes.ts)
+  // which provides neutral status mapping, tenant isolation, and cancel/recover endpoints.
 };

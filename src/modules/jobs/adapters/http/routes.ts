@@ -20,7 +20,7 @@ interface JobQuery {
   workspaceId?: string;
 }
 
-export function registerJobRoutes(
+export function registerJobStatusRoutes(
   app: FastifyInstance,
   jobStatusService: JobStatusService,
 ): void {

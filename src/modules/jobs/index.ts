@@ -12,7 +12,7 @@ export { JobStatusService } from './application/JobStatusService.js';
 export type { JobStatusStore } from './application/JobStatusService.js';
 export { QueueJobStatusAdapter } from './adapters/QueueJobStatusAdapter.js';
 export type { QueueJobStatusAdapterOptions } from './adapters/QueueJobStatusAdapter.js';
-export { registerJobRoutes } from './adapters/http/routes.js';
+export { registerJobStatusRoutes } from './adapters/http/routes.js';
 export { toNeutralStatus, toNeutralStage } from './domain/status-mapper.js';
 export type {
   NeutralJobStatus,

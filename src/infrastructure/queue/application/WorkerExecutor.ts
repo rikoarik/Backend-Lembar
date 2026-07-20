@@ -18,6 +18,7 @@ export interface WorkerExecutorOptions {
   leaseTtlMs: number;
   heartbeatIntervalMs: number;
   shutdownGracePeriodMs: number;
+  onJobComplete?: ((jobId: string, workspaceId: string, outcome: 'success' | 'failure') => void | Promise<void>) | undefined;
 }
 
 interface ActiveJob {
@@ -188,12 +189,14 @@ export class WorkerExecutor {
 
     if (result.status === 'success') {
       await this.store.finalizeSuccess(job.id, this.options.workerId, now);
+      await this.options.onJobComplete?.(job.id, job.workspaceId, 'success');
     } else if (result.status === 'partial') {
       // Partial success - decide based on error code if present
       if (result.error?.code) {
         await this.handleRetry(job, result.error);
       } else {
         await this.store.finalizeSuccess(job.id, this.options.workerId, now);
+        await this.options.onJobComplete?.(job.id, job.workspaceId, 'success');
       }
     } else {
       // Failure
@@ -229,6 +232,7 @@ export class WorkerExecutor {
       );
     } else {
       await this.store.markDeadLetter(job.id, this.options.workerId, now, error);
+      await this.options.onJobComplete?.(job.id, job.workspaceId, 'failure');
     }
   }
 

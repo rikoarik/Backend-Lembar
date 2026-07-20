@@ -31,6 +31,7 @@ export interface WorkerServiceOptions {
   leaseTtlMs: number;
   heartbeatIntervalMs: number;
   shutdownGracePeriodMs: number;
+  onJobComplete?: ((jobId: string, workspaceId: string, outcome: 'success' | 'failure') => void | Promise<void>) | undefined;
 }
 
 export interface WorkerServiceHealth {
@@ -66,6 +67,7 @@ export class WorkerService {
       leaseTtlMs: options.leaseTtlMs,
       heartbeatIntervalMs: options.heartbeatIntervalMs,
       shutdownGracePeriodMs: options.shutdownGracePeriodMs,
+      onJobComplete: options.onJobComplete,
     };
 
     this.executor = new WorkerExecutor(store, this.registry, executorOptions);

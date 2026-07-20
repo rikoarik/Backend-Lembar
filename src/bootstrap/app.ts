@@ -8,6 +8,7 @@ import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/errors/envelope.js';
 import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
 import { parseDatabaseEnv } from '../config/database.env.js';
+import { parseQueueEnv } from '../config/queue.env.js';
 import { closeDatabase, createDatabase, type Database } from '../infrastructure/database/db.js';
 import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRoutes.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
@@ -18,6 +19,14 @@ import { registerNotificationRoutes } from '../modules/notifications/adapters/ht
 import { registerUploadRoutes } from '../modules/uploads/adapters/http/routes.js';
 import { registerUploadsAuthHook } from '../modules/uploads/adapters/http/preHandler.js';
 import type { AuthService } from '../modules/auth/application/AuthService.js';
+
+// B2-05: Job status and recovery routes
+import { InMemoryQueueStore } from '../infrastructure/queue/adapters/memory-store.js';
+import { QueueJobStatusAdapter } from '../modules/jobs/adapters/QueueJobStatusAdapter.js';
+import { JobStatusService } from '../modules/jobs/application/JobStatusService.js';
+import { registerJobStatusRoutes } from '../modules/jobs/adapters/http/routes.js';
+import { QuotaLedger } from '../modules/quota/application/QuotaLedger.js';
+import { QuotaReservationRepository } from '../modules/quota/persistence/repository.js';
 
 export interface HealthResponse {
   status: 'ok';
@@ -37,6 +46,7 @@ export interface BuildAppOptions {
   marketingDb?: Database;
   notificationDb?: Database;
   uploadsDb?: Database;
+  quotaDb?: Database;
 }
 
 const DEFAULT_SERVICE_NAME = 'lembar-api';
@@ -144,6 +154,22 @@ export async function buildApp(
   if (authDb) authRouteOptions.db = authDb;
   await registerAuthRoutes(app, authRouteOptions);
   await app.register(registerJobRoutes);
+
+  // B2-05: Wire job status and recovery routes
+  const quotaDb = options.quotaDb ?? managedDb;
+  if (quotaDb) {
+    const queueEnv = parseQueueEnv(process.env);
+    const jobStore = new InMemoryQueueStore();
+    const quotaRepo = new QuotaReservationRepository(quotaDb);
+    const quotaLedger = new QuotaLedger(quotaRepo);
+    const jobStatusAdapter = new QueueJobStatusAdapter(jobStore, {
+      leaseTtlMs: queueEnv.leaseTtlMs,
+      maxAttempts: queueEnv.maxAttempts,
+    });
+    const jobStatusService = new JobStatusService(jobStatusAdapter, quotaLedger);
+    registerJobStatusRoutes(app, jobStatusService);
+  }
+
   if (curriculumDb) {
     await registerCurriculumRoutes(app, { db: curriculumDb });
   }
