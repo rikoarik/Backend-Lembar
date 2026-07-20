@@ -5,7 +5,6 @@
  * to the appropriate handler based on the job's kind.
  */
 import type { JobKind } from '../persistence/schema.js';
-import type { QueueStoreJob } from '../adapters/queue-store.js';
 
 export interface JobContext {
   jobId: string;

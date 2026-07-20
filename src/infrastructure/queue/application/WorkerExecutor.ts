@@ -10,7 +10,6 @@
  */
 import type { QueueStore, QueueStoreJob } from '../adapters/queue-store.js';
 import type { JobHandlerRegistry, JobContext, JobResult } from '../domain/JobHandler.js';
-import type { JobKind } from '../persistence/schema.js';
 
 export interface WorkerExecutorOptions {
   workerId: string;
@@ -85,7 +84,7 @@ export class WorkerExecutor {
 
     // Force release remaining leases
     const now = new Date();
-    for (const [jobId, active] of this.activeJobs) {
+    for (const [jobId] of this.activeJobs) {
       try {
         await this.store.releaseClaim(jobId, this.options.workerId, now);
       } catch (err) {
