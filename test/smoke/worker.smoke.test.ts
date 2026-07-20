@@ -8,7 +8,12 @@ import { afterAll, describe, expect, it } from 'vitest';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(here, '..', '..');
 
-function runWorkerBinary(): Promise<{ stdout: string; stderr: string; code: number | null; signal: NodeJS.Signals | null }> {
+function runWorkerBinary(): Promise<{
+  stdout: string;
+  stderr: string;
+  code: number | null;
+  signal: NodeJS.Signals | null;
+}> {
   return new Promise((resolve, reject) => {
     const entry = path.join(projectRoot, 'dist', 'bootstrap', 'worker.js');
     if (!existsSync(entry)) {

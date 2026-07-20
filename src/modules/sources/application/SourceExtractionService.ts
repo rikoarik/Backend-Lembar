@@ -112,7 +112,11 @@ export class SourceExtractionService {
     let job = await this.jobsStore.getJobByUploadId(workspaceId, uploadId);
 
     if (!job) {
-      job = await this.jobsStore.createJob({ uploadId, workspaceId, parserVersion: PARSER_VERSION });
+      job = await this.jobsStore.createJob({
+        uploadId,
+        workspaceId,
+        parserVersion: PARSER_VERSION,
+      });
     }
 
     // If a previous run already succeeded, return the existing passages.

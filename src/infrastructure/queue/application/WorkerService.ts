@@ -14,8 +14,14 @@ import {
   ExportPdfHandler,
 } from '../handlers/index.js';
 import { InMemorySourceUploadsStore } from '../../../modules/uploads/persistence/InMemorySourceUploadsStore.js';
-import { InMemorySourceExtractionJobsStore, InMemorySourcePassagesStore } from '../../../modules/sources/persistence/InMemorySourceExtractionStores.js';
-import { SourceExtractionService, StubTextExtractorAdapter } from '../../../modules/sources/application/SourceExtractionService.js';
+import {
+  InMemorySourceExtractionJobsStore,
+  InMemorySourcePassagesStore,
+} from '../../../modules/sources/persistence/InMemorySourceExtractionStores.js';
+import {
+  SourceExtractionService,
+  StubTextExtractorAdapter,
+} from '../../../modules/sources/application/SourceExtractionService.js';
 import { createStorageAdapter } from '../../storage/createStorageAdapter.js';
 
 export interface WorkerServiceOptions {

@@ -8,7 +8,7 @@
  * - validation: missing title, missing blueprint items, duplicate sequences
  * - list and get APIs
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 import { AssessmentService } from '../../../src/modules/assessments/application/AssessmentService.js';
 import { InMemoryAssessmentsStore } from '../../../src/modules/assessments/persistence/InMemoryAssessmentsStore.js';
@@ -112,11 +112,7 @@ describe('AssessmentService', () => {
       const { service, store } = makeService();
       const result = await service.createConfig(BASE_INPUT);
 
-      const stored = await store.getVersionByNumber(
-        WORKSPACE_ID,
-        result.assessment.id,
-        1,
-      );
+      const stored = await store.getVersionByNumber(WORKSPACE_ID, result.assessment.id, 1);
       expect(stored).not.toBeNull();
       expect(stored!.configSnapshot.title).toBe('Math Assessment Q1');
       expect(stored!.configSnapshot.curriculumVersionId).toBe(CURRICULUM_VERSION_ID);
@@ -138,12 +134,10 @@ describe('AssessmentService', () => {
   describe('createConfig — validation', () => {
     it('rejects empty title', async () => {
       const { service } = makeService();
-      await expect(
-        service.createConfig({ ...BASE_INPUT, title: '   ' }),
-      ).rejects.toThrow(ApiError);
-      await expect(
-        service.createConfig({ ...BASE_INPUT, title: '   ' }),
-      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+      await expect(service.createConfig({ ...BASE_INPUT, title: '   ' })).rejects.toThrow(ApiError);
+      await expect(service.createConfig({ ...BASE_INPUT, title: '   ' })).rejects.toMatchObject({
+        code: 'VALIDATION_FAILED',
+      });
     });
 
     it('rejects empty curriculumVersionId', async () => {
@@ -252,7 +246,10 @@ describe('AssessmentService', () => {
         byteSize: 1024,
         status: 'verified',
       });
-      const job = await extractionJobsStore.createJob({ uploadId: UPLOAD_ID, workspaceId: WORKSPACE_ID });
+      const job = await extractionJobsStore.createJob({
+        uploadId: UPLOAD_ID,
+        workspaceId: WORKSPACE_ID,
+      });
       await extractionJobsStore.updateJob({ id: job.id, status: 'failed' });
 
       await expect(

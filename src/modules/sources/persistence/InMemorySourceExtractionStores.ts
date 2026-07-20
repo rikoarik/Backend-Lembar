@@ -129,9 +129,8 @@ export class InMemorySourcePassagesStore implements SourcePassagesStore {
   }
 
   async countPassagesByUpload(workspaceId: string, uploadId: string): Promise<number> {
-    return this.passages.filter(
-      (p) => p.workspaceId === workspaceId && p.uploadId === uploadId,
-    ).length;
+    return this.passages.filter((p) => p.workspaceId === workspaceId && p.uploadId === uploadId)
+      .length;
   }
 
   async deletePassagesByJob(extractionJobId: string): Promise<void> {

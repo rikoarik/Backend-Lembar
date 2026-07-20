@@ -1,6 +1,3 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { buildApp } from '../../../src/bootstrap/app.js';
@@ -16,9 +13,6 @@ import {
 
 const DATABASE_URL = process.env['DATABASE_URL'] ?? '';
 const hasDb = DATABASE_URL.length > 0;
-const here = path.dirname(fileURLToPath(import.meta.url));
-const projectRoot = path.resolve(here, '..', '..', '..');
-const migrationsFolder = path.join(projectRoot, 'src', 'infrastructure', 'database', 'migrations');
 
 const SUPERADMIN_COOKIE = '__Host-lembar_session=authenticated';
 

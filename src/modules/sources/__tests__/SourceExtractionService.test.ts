@@ -49,9 +49,7 @@ function makeStores() {
   };
 }
 
-function makeService(
-  overrides: { extractor?: TextExtractorAdapter } = {},
-) {
+function makeService(overrides: { extractor?: TextExtractorAdapter } = {}) {
   const { jobsStore, passagesStore } = makeStores();
   const service = new SourceExtractionService({
     jobsStore,
@@ -65,13 +63,6 @@ function makeService(
 class BlankPageExtractor implements TextExtractorAdapter {
   async extractPages(_bytes: Buffer, _contentType: string): Promise<PageText[]> {
     return [{ pageNumber: 1, text: '   ' }];
-  }
-}
-
-/** Extractor that returns no pages at all. */
-class EmptyPageExtractor implements TextExtractorAdapter {
-  async extractPages(_bytes: Buffer, _contentType: string): Promise<PageText[]> {
-    return [];
   }
 }
 

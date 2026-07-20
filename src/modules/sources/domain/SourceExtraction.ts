@@ -12,11 +12,7 @@
 export type ExtractionJobStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
 
 export type ExtractionStage =
-  | 'verifying_upload'
-  | 'scanning'
-  | 'extracting'
-  | 'chunking'
-  | 'indexing';
+  'verifying_upload' | 'scanning' | 'extracting' | 'chunking' | 'indexing';
 
 export interface SourceExtractionJob {
   id: string;

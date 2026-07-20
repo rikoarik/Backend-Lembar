@@ -9,7 +9,7 @@
  *
  * Tenant isolation: every public method requires workspaceId; no cross-workspace reads.
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 
 import { ApiError } from '../../../common/errors/envelope.js';
 import type {
@@ -173,10 +173,7 @@ export class AssessmentService {
       }
       // Guard: source must have been extracted (extraction job succeeded) before it
       // can be used in an assessment. If not yet extracted, return actionable state.
-      const extractionJob = await this.extractionJobsStore.getJobByUploadId(
-        workspaceId,
-        uploadId,
-      );
+      const extractionJob = await this.extractionJobsStore.getJobByUploadId(workspaceId, uploadId);
       if (!extractionJob || extractionJob.status !== 'succeeded') {
         throw new ApiError({
           code: 'STATE_CONFLICT',
@@ -199,7 +196,9 @@ export class AssessmentService {
         const version = await this.store.getLatestVersion(workspaceId, existing.id);
         if (version) {
           // Compare fingerprint stored in config snapshot.
-          const existingFingerprint = (version.configSnapshot as unknown as Record<string, unknown>)['_fingerprint'] as string | undefined;
+          const existingFingerprint = (
+            version.configSnapshot as unknown as Record<string, unknown>
+          )['_fingerprint'] as string | undefined;
           if (existingFingerprint === fingerprint) {
             // Identical request — return original result.
             const items = await this.store.listBlueprintItems(workspaceId, version.id);
@@ -286,7 +285,11 @@ export class AssessmentService {
     workspaceId: string,
     assessmentId: string,
     requestId: string,
-  ): Promise<{ assessment: Assessment; version: AssessmentVersion | null; blueprintItems: BlueprintItem[] }> {
+  ): Promise<{
+    assessment: Assessment;
+    version: AssessmentVersion | null;
+    blueprintItems: BlueprintItem[];
+  }> {
     const assessment = await this.store.getAssessmentById(workspaceId, assessmentId);
     if (!assessment) {
       throw new ApiError({

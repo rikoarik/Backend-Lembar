@@ -127,10 +127,7 @@ export interface CreateBlueprintItemInput {
 export interface AssessmentsStore {
   createAssessment(input: CreateAssessmentInput): Promise<Assessment>;
   getAssessmentById(workspaceId: string, id: string): Promise<Assessment | null>;
-  getAssessmentByIdempotencyKey(
-    workspaceId: string,
-    key: string,
-  ): Promise<Assessment | null>;
+  getAssessmentByIdempotencyKey(workspaceId: string, key: string): Promise<Assessment | null>;
   listAssessments(
     workspaceId: string,
     options: { limit: number; cursor?: string },
@@ -138,10 +135,7 @@ export interface AssessmentsStore {
   updateAssessment(input: UpdateAssessmentInput): Promise<Assessment>;
 
   createAssessmentVersion(input: CreateAssessmentVersionInput): Promise<AssessmentVersion>;
-  getLatestVersion(
-    workspaceId: string,
-    assessmentId: string,
-  ): Promise<AssessmentVersion | null>;
+  getLatestVersion(workspaceId: string, assessmentId: string): Promise<AssessmentVersion | null>;
   getVersionByNumber(
     workspaceId: string,
     assessmentId: string,
@@ -149,8 +143,5 @@ export interface AssessmentsStore {
   ): Promise<AssessmentVersion | null>;
 
   createBlueprintItems(inputs: CreateBlueprintItemInput[]): Promise<BlueprintItem[]>;
-  listBlueprintItems(
-    workspaceId: string,
-    assessmentVersionId: string,
-  ): Promise<BlueprintItem[]>;
+  listBlueprintItems(workspaceId: string, assessmentVersionId: string): Promise<BlueprintItem[]>;
 }

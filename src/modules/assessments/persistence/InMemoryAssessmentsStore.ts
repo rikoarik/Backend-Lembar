@@ -63,9 +63,7 @@ export class InMemoryAssessmentsStore implements AssessmentsStore {
       .filter((a) => a.workspaceId === workspaceId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-    const startIdx = cursor
-      ? all.findIndex((a) => a.id === cursor) + 1
-      : 0;
+    const startIdx = cursor ? all.findIndex((a) => a.id === cursor) + 1 : 0;
 
     return all.slice(startIdx, startIdx + limit).map((a) => ({ ...a }));
   }
@@ -86,9 +84,7 @@ export class InMemoryAssessmentsStore implements AssessmentsStore {
     return { ...updated };
   }
 
-  async createAssessmentVersion(
-    input: CreateAssessmentVersionInput,
-  ): Promise<AssessmentVersion> {
+  async createAssessmentVersion(input: CreateAssessmentVersionInput): Promise<AssessmentVersion> {
     const version: AssessmentVersion = {
       id: randomUUID(),
       assessmentId: input.assessmentId,
@@ -120,9 +116,7 @@ export class InMemoryAssessmentsStore implements AssessmentsStore {
   ): Promise<AssessmentVersion | null> {
     const v = this.versions.find(
       (v) =>
-        v.workspaceId === workspaceId &&
-        v.assessmentId === assessmentId &&
-        v.version === version,
+        v.workspaceId === workspaceId && v.assessmentId === assessmentId && v.version === version,
     );
     return v ? { ...v } : null;
   }
@@ -158,9 +152,7 @@ export class InMemoryAssessmentsStore implements AssessmentsStore {
     assessmentVersionId: string,
   ): Promise<BlueprintItem[]> {
     return this.items
-      .filter(
-        (i) => i.workspaceId === workspaceId && i.assessmentVersionId === assessmentVersionId,
-      )
+      .filter((i) => i.workspaceId === workspaceId && i.assessmentVersionId === assessmentVersionId)
       .sort((a, b) => a.sequence - b.sequence)
       .map((i) => ({ ...i }));
   }
