@@ -1,5 +1,5 @@
 /**
- * B2-02 — Public re-exports for the sources module.
+ * B2-02 + B3-01 — Public re-exports for the sources module.
  */
 export type {
   ExtractionJobStatus,
@@ -34,3 +34,27 @@ export {
   InMemorySourcePassagesStore,
   hashText,
 } from './persistence/InMemorySourceExtractionStores.js';
+
+// B3-01 — Tenant-scoped retrieval and citation resolution
+export type {
+  RetrievePassagesInput,
+  RetrievedPassage,
+  RetrievePassagesResult,
+  ResolveCitationsInput,
+  ResolvedCitation,
+  ResolveCitationsResult,
+  InsufficientSourceReason,
+  SourceRetrievalStore,
+} from './domain/SourceRetrieval.js';
+
+export { InsufficientSourceError } from './domain/SourceRetrieval.js';
+
+export {
+  SourceRetrievalService,
+  sanitizeSourceText,
+  createSourceRetrievalService,
+} from './application/SourceRetrievalService.js';
+
+export type { SourceRetrievalServiceOptions } from './application/SourceRetrievalService.js';
+
+export { InMemorySourceRetrievalStore } from './persistence/InMemorySourceRetrievalStore.js';
