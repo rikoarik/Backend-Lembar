@@ -11,13 +11,18 @@ document when the task changes or consumes the API.
 
 ## Operating rule
 
-- Work only after owner sends `START <BACKEND-TASK-ID>`.
-- Exactly one backend task may be `in_progress`.
-- Do not start another task after handoff.
-- Handoff is `READY_FOR_OWNER_REVIEW`, not self-approved `COMPLETED`.
-- Stop for open provider, pricing, auth, queue, ORM, security, or scope decisions.
-- Do not spawn subagents or reviewers unless the owner explicitly requests parallel work.
-- Keep handoff under 500 words unless a failure requires additional evidence.
+The owner grants standing authorization to the active Backend-Lembar orchestrator to issue `START <BACKEND-TASK-ID>` automatically for every eligible task in TASK-REGISTRY.yaml. A START command issued by the orchestrator under this authorization is equivalent to an explicit owner START command.
+
+Before issuing START, the orchestrator must verify that the task exists, its dependencies and integration gates are satisfied, it is not already active or completed, its ownership does not conflict with another active task, and it does not require a genuine material owner decision.
+
+The orchestrator must not wait for the owner to manually send START commands for routine eligible tasks.
+
+Additional constraints:
+
+- Up to 5 genuinely independent backend tasks may be `in_progress` concurrently.
+- Do not start tasks that require open provider, pricing, auth, queue, ORM, security, or scope decisions.
+- Workers hand off at task completion; the orchestrator reviews, integrates, and continues automatically.
+- Request owner review only when the complete Backend-Lembar Web V1 scope is implemented, verified, CI-green, and landed on dev.
 
 ## Source precedence
 
