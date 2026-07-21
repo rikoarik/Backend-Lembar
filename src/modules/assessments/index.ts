@@ -70,5 +70,32 @@ export { InMemoryAssessmentsStore } from './persistence/InMemoryAssessmentsStore
 export { InMemoryBlueprintPipelineStore } from './persistence/InMemoryBlueprintPipelineStore.js';
 export { InMemoryQuestionGenerationStore } from './persistence/InMemoryQuestionGenerationStore.js';
 
+export {
+  QualityService,
+  runDeterministicChecks,
+  buildCriticPrompt,
+  containsPromptInjection,
+} from './quality/QualityService.js';
+export { InMemoryQualityStore } from './quality/InMemoryQualityStore.js';
+export {
+  DEFAULT_QUALITY_RULES,
+  QUALITY_RULESET_VERSION,
+  mergeQualityRules,
+} from './quality/Quality.js';
+export type {
+  QualityIssueCode,
+  QualityRuleSet,
+  QualityIssue,
+  StoredCriticResult,
+  QualitySummary,
+  QualityResult,
+  QualityCheckInput,
+  QualityStore,
+  CriticQuestion,
+  QualityCriticInput,
+  QualityCriticEvaluation,
+  QualityCriticEvaluator,
+} from './quality/Quality.js';
+
 export { registerAssessmentRoutes } from './adapters/http/routes.js';
 export { registerBlueprintPipelineRoutes } from './adapters/http/blueprintRoutes.js';
