@@ -39,6 +39,15 @@ export async function registerUploadRoutes(
   app: FastifyInstance,
   options: RegisterUploadRoutesOptions = {},
 ): Promise<void> {
+  // Register an octet-stream / pdf parser that returns the raw body buffer so
+  // the intake handler can enforce its own size cap rather than relying on
+  // Fastify's JSON parser rejecting unknown media types with 415.
+  app.addContentTypeParser(
+    ['application/pdf', 'application/octet-stream'],
+    { parseAs: 'buffer' },
+    (_request, body, done) => done(null, body),
+  );
+
   const storage = options.storage ?? createStorageAdapter();
   const driverName = resolveStorageDriver();
   const service = createUploadsService({
@@ -238,8 +247,21 @@ async function readBodyWithCap(
       status: 413,
     });
   }
-  // Fastify has already consumed the body into request.rawBody when JSON is
-  // not used; for binary octet-stream payloads we collect chunks.
+  // The upload module registers a content-type parser that hands us the raw
+  // body buffer directly; fall back to chunk collection for raw stream bodies.
+  const body = request.body as unknown;
+  if (Buffer.isBuffer(body)) {
+    if (maxBytes !== undefined && body.byteLength > maxBytes) {
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: 'Ukuran berkas melebihi batas.',
+        requestId: request.requestId ?? 'req_unknown',
+        status: 413,
+      });
+    }
+    void reply;
+    return body;
+  }
   const chunks: Buffer[] = [];
   let total = 0;
   for await (const chunk of request.raw) {
