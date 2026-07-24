@@ -12,6 +12,7 @@ import { parseQueueEnv } from '../config/queue.env.js';
 import { closeDatabase, createDatabase, type Database } from '../infrastructure/database/db.js';
 import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRoutes.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
+import { registerJwtMultiRoleRoutes } from '../modules/auth/adapters/http/jwtMultiRoleRoutes.js';
 import { registerCurriculumRoutes } from '../modules/curriculum/adapters/http/routes.js';
 import { registerMarketingRoutes } from '../modules/marketing/adapters/http/routes.js';
 import { registerMarketingOpsRoutes } from '../modules/marketing/adapters/http/opsRoutes.js';
@@ -153,6 +154,16 @@ export async function buildApp(
   if (options.auth) authRouteOptions.auth = options.auth;
   if (authDb) authRouteOptions.db = authDb;
   await registerAuthRoutes(app, authRouteOptions);
+  
+  // JWT Multi-Role Auth Routes
+  if (authDb) {
+    await registerJwtMultiRoleRoutes(app, { 
+      db: authDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+      jwtExpiryDays: parseInt(process.env.JWT_EXPIRY_DAYS || '7', 10),
+    });
+  }
+  
   await app.register(registerJobRoutes);
 
   // B2-05: Wire job status and recovery routes
