@@ -50,6 +50,13 @@
       "when": 1784539343645,
       "tag": "0009_superb_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784877469613,
+      "tag": "0010_red_psylocke",
+      "breakpoints": true
     }
   ]
 }

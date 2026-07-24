@@ -11,6 +11,7 @@ export default defineConfig({
     './src/modules/curriculum/persistence/schema.ts',
     './src/modules/notifications/persistence/schema.ts',
     './src/modules/auth/persistence/schema.ts',
+    './src/modules/auth/persistence/jwtUsersSchema.ts',
     './src/modules/uploads/persistence/schema.ts',
     './src/modules/quota/persistence/schema.ts',
     './src/modules/plans/persistence/schema.ts',
