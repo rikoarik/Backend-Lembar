@@ -66,9 +66,29 @@ export class PostgresAdminDataStore implements AdminDataStore {
     }
   }
 
-  async listQualityReports(_limit = 100): Promise<AdminQualityReport[]> {
-    // Quality reports table not yet wired — return empty for now.
-    return [];
+  async listQualityReports(limit = 100): Promise<AdminQualityReport[]> {
+    const pool = getPool(this.db);
+    if (!pool) return [];
+
+    try {
+      const result = await pool.query(
+        `SELECT id, workspace_id, assessment_version_id, reporter, reason, status, notes, created_at
+         FROM admin_quality_reports
+         ORDER BY created_at DESC
+         LIMIT $1`,
+        [limit],
+      );
+      return result.rows.map((r: any) => ({
+        id: r.id,
+        workspaceId: r.workspace_id,
+        assessmentVersionId: r.assessment_version_id ?? '',
+        valid: r.status !== 'open',
+        issueCount: 1,
+        createdAt: new Date(r.created_at).toISOString(),
+      }));
+    } catch {
+      return [];
+    }
   }
 
   async setEntitlement(

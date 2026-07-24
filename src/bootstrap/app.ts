@@ -316,13 +316,16 @@ export async function buildApp(
   // Catalog routes (fallback to static data if DB empty)
   await registerCatalogRoutes(app, curriculumDb ? { db: curriculumDb } : {});
 
-  // Admin routes (requires superadmin token)
+  // Admin routes (JWT superadmin auth)
   if (managedDb) {
     const adminStore = new PostgresAdminDataStore(managedDb);
     const auditStore = new NoOpAdminAuditStore();
     const adminService = new AdminService(adminStore, auditStore);
-    const superadminToken = process.env.SUPERADMIN_TOKEN ?? 'dev-superadmin-token-change-in-production';
-    registerAdminRoutes(app, { service: adminService, superadminToken });
+    registerAdminRoutes(app, {
+      service: adminService,
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
   }
 
   // School routes (InMemory stores for now, seed demo data)
