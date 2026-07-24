@@ -85,6 +85,85 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/auth/google/url:
+    get:
+      summary: Get Google OAuth consent URL
+      tags: [Auth]
+      operationId: getGoogleOAuthUrl
+      responses:
+        "200":
+          description: Google OAuth URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, state]
+                properties:
+                  url:
+                    type: string
+                    format: uri
+                    description: Google OAuth consent screen URL
+                  state:
+                    type: string
+                    description: CSRF state token
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /v1/auth/google/callback:
+    post:
+      summary: Google OAuth callback - exchange code for JWT
+      tags: [Auth]
+      operationId: googleOAuthCallback
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  description: Authorization code from Google
+                state:
+                  type: string
+                  description: CSRF state token
+      responses:
+        "200":
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, user]
+                properties:
+                  token:
+                    type: string
+                    description: JWT token for subsequent requests
+                  user:
+                    type: object
+                    required: [id, email, roles]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      email:
+                        type: string
+                        format: email
+                      name:
+                        type: string
+                      roles:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/UserRole"
+                      workspaceId:
+                        type: string
+                        format: uuid
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
   /v1/auth/login:
     post:
       summary: Login and receive JWT token
