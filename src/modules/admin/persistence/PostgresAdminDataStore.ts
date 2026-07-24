@@ -1,11 +1,13 @@
 /**
- * AdminDataStore backed by jwt_users + spike_jobs (when present).
+ * AdminDataStore — queries for all admin ops.
+ * Returns data shapes matching FE expectations.
  */
 import { desc, eq } from 'drizzle-orm';
 
 import type { Database } from '../../../infrastructure/database/db.js';
 import { getPool } from '../../../infrastructure/database/db.js';
 import { jwtUsers } from '../../auth/persistence/jwtUsersSchema.js';
+import { tenants } from '../../../infrastructure/database/schema.js';
 import type { AdminDataStore } from '../application/AdminService.js';
 import type {
   AdminAccountSummary,
@@ -17,73 +19,103 @@ import type {
 export class PostgresAdminDataStore implements AdminDataStore {
   constructor(private readonly db: Database) {}
 
+  // ── Accounts ────────────────────────────────────────
   async listAccounts(): Promise<AdminAccountSummary[]> {
-    const rows = await this.db
-      .select({
-        id: jwtUsers.id,
-        email: jwtUsers.email,
-        roles: jwtUsers.roles,
-        workspaceId: jwtUsers.workspaceId,
-        createdAt: jwtUsers.createdAt,
-      })
-      .from(jwtUsers)
-      .orderBy(desc(jwtUsers.createdAt));
+    const pool = getPool(this.db);
+    if (!pool) return [];
 
-    return rows.map((r) => ({
+    const result = await pool.query(`
+      SELECT
+        jw.id, jw.email, jw.name, jw.username,
+        jw.roles,
+        jw.workspace_id,
+        t.name as school_name,
+        jw.created_at,
+        CASE
+          WHEN ab.state = 'blocked' THEN 'ditangguhkan'
+          WHEN jw.created_at > now() - interval '7 days' THEN 'baru'
+          ELSE 'aktif'
+        END as status
+      FROM jwt_users jw
+      LEFT JOIN tenants t ON t.id = jw.workspace_id
+      LEFT JOIN admin_billing ab ON ab.tenant_id = jw.workspace_id::text
+      ORDER BY jw.created_at DESC
+    `);
+
+    return result.rows.map((r: any) => ({
       id: r.id,
       email: r.email,
-      role: (r.roles[0] ?? 'subscriber') as AdminAccountSummary['role'],
-      workspaceId: r.workspaceId ?? '',
-      membershipState: 'active',
-      createdAt: r.createdAt.toISOString(),
+      name: r.name,
+      displayName: r.name || r.username || r.email,
+      role: (r.roles?.[0] ?? 'subscriber') as AdminAccountSummary['role'],
+      status: r.status as AdminAccountSummary['status'],
+      school: r.school_name ?? '—',
+      workspaceId: r.workspace_id ?? '',
+      createdAt: new Date(r.created_at).toISOString(),
     }));
   }
 
+  // ── Jobs ────────────────────────────────────────────
   async listJobs(limit = 100): Promise<AdminJobSummary[]> {
     const pool = getPool(this.db);
     if (!pool) return [];
 
     try {
       const result = await pool.query(
-        `SELECT id, workspace_id, actor_id, kind, status, attempt, created_at
-         FROM spike_jobs
-         ORDER BY created_at DESC
-         LIMIT $1`,
+        `SELECT
+          sj.id,
+          sj.kind as type,
+          COALESCE(t.name, sj.workspace_id, 'Platform') as tenant,
+          sj.status,
+          CASE
+            WHEN sj.status = 'succeeded' THEN '100%'
+            WHEN sj.status = 'running' THEN 'running'
+            WHEN sj.status = 'failed' THEN 'failed'
+            WHEN sj.status = 'queued' THEN '0%'
+            ELSE 'pending'
+          END as progress,
+          sj.updated_at,
+          sj.created_at
+        FROM spike_jobs sj
+        LEFT JOIN tenants t ON t.id = sj.workspace_id
+        ORDER BY sj.updated_at DESC NULLS LAST, sj.created_at DESC
+        LIMIT $1`,
         [limit],
       );
 
-      return result.rows.map((row: Record<string, unknown>) => ({
-        id: String(row['id']),
-        workspaceId: String(row['workspace_id'] ?? ''),
-        actorId: String(row['actor_id'] ?? ''),
-        kind: String(row['kind'] ?? ''),
-        status: String(row['status'] ?? ''),
-        attempt: Number(row['attempt'] ?? 0),
-        createdAt: new Date(String(row['created_at'])).toISOString(),
+      return result.rows.map((r: any) => ({
+        id: String(r.id),
+        type: String(r.type ?? ''),
+        tenant: String(r.tenant ?? 'Platform'),
+        status: String(r.status ?? '') as AdminJobSummary['status'],
+        progress: String(r.progress ?? ''),
+        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : (r.created_at ? new Date(r.created_at).toISOString() : ''),
       }));
     } catch {
       return [];
     }
   }
 
+  // ── Quality Reports ────────────────────────────────
   async listQualityReports(limit = 100): Promise<AdminQualityReport[]> {
     const pool = getPool(this.db);
     if (!pool) return [];
 
     try {
       const result = await pool.query(
-        `SELECT id, workspace_id, assessment_version_id, reporter, reason, status, notes, created_at
+        `SELECT id, reason, status, reporter, notes, created_at
          FROM admin_quality_reports
          ORDER BY created_at DESC
          LIMIT $1`,
         [limit],
       );
+
       return result.rows.map((r: any) => ({
         id: r.id,
-        workspaceId: r.workspace_id,
-        assessmentVersionId: r.assessment_version_id ?? '',
-        valid: r.status !== 'open',
-        issueCount: 1,
+        reason: r.reason,
+        status: r.status,
+        reporter: r.reporter,
+        notes: r.notes ?? '',
         createdAt: new Date(r.created_at).toISOString(),
       }));
     } catch {
@@ -91,6 +123,7 @@ export class PostgresAdminDataStore implements AdminDataStore {
     }
   }
 
+  // ── Entitlements ────────────────────────────────────
   async setEntitlement(
     input: AdminEntitlementInput,
   ): Promise<{ workspaceId: string; plan: string }> {
@@ -99,7 +132,6 @@ export class PostgresAdminDataStore implements AdminDataStore {
       return { workspaceId: input.workspaceId, plan: input.plan };
     }
 
-    // Prefer workspace_plans if present; use tenant_id from jwt_users if available.
     try {
       const user = await this.db
         .select({ workspaceId: jwtUsers.workspaceId })

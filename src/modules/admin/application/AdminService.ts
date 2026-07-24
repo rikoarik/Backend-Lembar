@@ -30,7 +30,7 @@ export class AdminService {
     await this.auditStore.append({
       action: 'admin.accounts.list',
       actorId,
-      targetId: null,
+      targetId: '',
       metadata: {},
     });
     return this.dataStore.listAccounts();
@@ -40,7 +40,7 @@ export class AdminService {
     await this.auditStore.append({
       action: 'admin.jobs.list',
       actorId,
-      targetId: null,
+      targetId: '',
       metadata: { limit: limit ?? 100 },
     });
     return this.dataStore.listJobs(limit);
@@ -50,7 +50,7 @@ export class AdminService {
     await this.auditStore.append({
       action: 'admin.quality_reports.list',
       actorId,
-      targetId: null,
+      targetId: '',
       metadata: { limit: limit ?? 100 },
     });
     return this.dataStore.listQualityReports(limit);
@@ -76,7 +76,7 @@ export class AdminService {
     await this.auditStore.append({
       action: 'admin.audit.read',
       actorId,
-      targetId: null,
+      targetId: '',
       metadata: { limit: limit ?? 100 },
     });
     return entries;

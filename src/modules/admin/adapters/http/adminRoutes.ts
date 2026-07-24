@@ -17,6 +17,7 @@ import {
   adminBilling,
 } from '../../persistence/adminOpsSchema.js';
 import type { AdminService } from '../../application/AdminService.js';
+import { tenants } from "../../../../infrastructure/database/schema.js";
 
 function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? req.requestId ?? 'req_unknown';
@@ -136,7 +137,7 @@ export async function registerAdminRoutes(
     const result = await pool.query(
       `SELECT id, name, slug, description, version, status, created_by, created_at, updated_at FROM admin_prompts ORDER BY created_at DESC`,
     );
-    return reply.status(200).send({ data: result.rows });
+    return reply.status(200).send({ data: result.rows.map((r: any) => ({ id: r.id, name: r.name, owner: r.created_by, status: r.status })) });
   });
 
   app.post('/v1/admin/prompts', { preHandler: [auth, superadmin] }, async (request, reply) => {
@@ -184,7 +185,13 @@ export async function registerAdminRoutes(
        FROM admin_audit ORDER BY created_at DESC LIMIT $1`,
       [limit],
     );
-    return reply.status(200).send({ data: result.rows });
+    return reply.status(200).send({ data: result.rows.map((r: any) => ({
+        id: r.id,
+        at: new Date(r.created_at).toLocaleString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-'),
+        actor: r.actor_email || r.actor_id,
+        action: r.action,
+        target: r.target_id,
+      })) });
   });
 
   // ── Billing ──────────────────────────────────────────
@@ -195,7 +202,14 @@ export async function registerAdminRoutes(
       `SELECT id, tenant_id, school_name, state, seats::text, plan, renews_at, created_at, updated_at
        FROM admin_billing ORDER BY created_at DESC`,
     );
-    return reply.status(200).send({ data: result.rows });
+    return reply.status(200).send({ data: result.rows.map((r: any) => ({
+      id: r.id,
+      school: r.school_name,
+      state: r.state,
+      seats: r.seats,
+      plan: r.plan,
+      renewsAt: r.renews_at ? new Date(r.renews_at).toISOString().slice(0, 10) : '',
+    })) });
   });
 
   app.patch('/v1/admin/billing/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
@@ -212,6 +226,116 @@ export async function registerAdminRoutes(
     const user = request.jwtUser!;
     await auditLog(user.userId, 'billing.update', 'billing', id, body ?? {});
     return reply.status(200).send({ data: { id, ...body } });
+  });
+
+  // ── Schools / Tenants ──────────────────────────────
+  app.get('/v1/admin/schools', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const pool = getPool(db);
+    if (!pool) return reply.status(200).send({ data: [] });
+
+    const result = await pool.query(`
+      SELECT
+        t.id, t.name, t.slug,
+        COUNT(DISTINCT jw.id)::int as teachers,
+        COALESCE(ab.plan, 'free') as plan,
+        COALESCE(ab.state, 'active') as state,
+        COALESCE(ab.seats, 0)::int as seats,
+        COALESCE(ab.renews_at::text, '') as renews_at,
+        (SELECT jw2.email FROM jwt_users jw2 WHERE jw2.workspace_id = t.id AND jw2.roles @> ARRAY['school_admin'] LIMIT 1) as owner_email
+      FROM tenants t
+      LEFT JOIN jwt_users jw ON jw.workspace_id = t.id AND jw.roles @> ARRAY['teacher']
+      LEFT JOIN admin_billing ab ON ab.tenant_id = t.id::text
+      GROUP BY t.id, t.name, t.slug, ab.plan, ab.state, ab.seats, ab.renews_at
+      ORDER BY t.name
+    `);
+
+    return reply.status(200).send({
+      data: result.rows.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        slug: r.slug,
+        plan: r.plan,
+        state: r.state,
+        teachers: r.teachers,
+        seats: r.seats,
+        renewsAt: r.renews_at,
+        owner: r.owner_email ?? '—',
+      })),
+    });
+  });
+
+  app.get('/v1/admin/schools/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
+
+    const schoolRes = await pool.query(
+      `SELECT t.id, t.name, t.slug, ab.plan, ab.state, ab.seats, ab.renews_at::text
+       FROM tenants t
+       LEFT JOIN admin_billing ab ON ab.tenant_id = t.id::text
+       WHERE t.id = $1`,
+      [id],
+    );
+    if (!schoolRes.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
+
+    const membersRes = await pool.query(
+      `SELECT jw.id, jw.email, jw.name, jw.username, jw.roles, jw.created_at::text
+       FROM jwt_users jw WHERE jw.workspace_id = $1 ORDER BY jw.created_at`,
+      [id],
+    );
+
+    return reply.status(200).send({
+      data: {
+        school: {
+          id: schoolRes.rows[0].id,
+          name: schoolRes.rows[0].name,
+          slug: schoolRes.rows[0].slug,
+          plan: schoolRes.rows[0].plan,
+          state: schoolRes.rows[0].state,
+          seats: schoolRes.rows[0].seats,
+          renewsAt: schoolRes.rows[0].renews_at,
+        },
+        members: membersRes.rows.map((r: any) => ({
+          id: r.id,
+          email: r.email,
+          name: r.name,
+          username: r.username,
+          roles: r.roles,
+          createdAt: r.created_at,
+        })),
+        memberCount: membersRes.rows.length,
+      },
+    });
+  });
+
+  app.post('/v1/admin/schools', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const body = request.body as { name?: string; slug?: string } | null;
+    if (!body?.name) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'name required' } });
+
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const slug = body.slug || body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const [created] = await db.insert(tenants).values({ slug, name: body.name }).returning();
+
+    if (!created) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Gagal membuat sekolah' } });
+
+    const user = request.jwtUser!;
+    await auditLog(user.userId, 'school.create', 'tenant', created.id, { name: body.name, slug });
+    return reply.status(201).send({ data: { id: created.id, name: created.name, slug: created.slug } });
+  });
+
+  app.patch('/v1/admin/schools/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { name?: string } | null;
+    if (!body?.name) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'name required' } });
+
+    const [updated] = await db.update(tenants).set({ name: body.name }).where(eq(tenants.id, id)).returning();
+    if (!updated) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
+
+    const user = request.jwtUser!;
+    await auditLog(user.userId, 'school.update', 'tenant', id, { name: body.name });
+    return reply.status(200).send({ data: { id: updated.id, name: updated.name } });
   });
 
   // ── Entitlements ─────────────────────────────────────

@@ -1,291 +1,311 @@
-# Superadmin Ops — Task BE per Fitur
+# Superadmin Ops — Task BE Detail (7 Items)
 
-Status: updated
 Updated: 2026-07-25
 
 ---
 
-## Ringkasan Status per Menu
+## TASK 1: Schools CRUD (Belum ada BE)
 
-| Menu | FE Data | BE Endpoint | Status |
-|---|---|---|---|
-| `/ops` Ringkasan | KPI hardcoded | `GET /v1/admin/dashboard` ✅ | ✅ Done |
-| `/ops/accounts` | MOCK 5 rows | `GET /v1/admin/accounts` ✅ | ✅ Done |
-| `/ops/schools` | MOCK 4 rows | TIDAK ADA | ❌ Need BE |
-| `/ops/catalog` | MOCK 3 rows | `GET /v1/catalog/*` ✅ | ✅ Done |
-| `/ops/prompts` | MOCK 3 rows | `GET /v1/admin/prompts` ✅ | ✅ Done |
-| `/ops/jobs` | MOCK 4 rows | `GET /v1/admin/jobs` ✅ | ✅ Done |
-| `/ops/quality` | MOCK 3 rows | `GET /v1/admin/quality-reports` ✅ | ✅ Done |
-| `/ops/audit` | MOCK 3 rows | `GET /v1/admin/audit` ✅ | ✅ Done |
-| `/ops/billing` | MOCK 4 rows | `GET /v1/admin/billing` ✅ | ✅ Done |
-| `/ops/flags` | MOCK 4 rows | `GET /v1/admin/flags` ✅ | ✅ Done |
-| `/ops/content` | MOCK 3 rows | `GET /v1/ops/marketing/pages` ✅ | ✅ Done |
-
----
-
-## TASK 1: /ops/schools — School/Tenant Management
-
-**Status:** ❌ BELUM — ini satu-satunya menu yang belum ada BE-nya
+**Status:** ❌ BELUM
 **Estimasi:** 2-3 hari
-**Prioritas:** Tinggi (core entity)
 
-### FE yang perlu dilayani
+### Yang perlu dibuat
 
-```typescript
-type SchoolRow = {
-  id: string;
-  name: string;
-  plan: 'pilot' | 'active' | 'grace' | 'blocked';
-  teachers: number;
-  usage: string;  // "312/500"
-  owner: string;
-};
+#### 1.1 GET /v1/admin/schools
+List semua tenant/sekolah dengan data lengkap.
+
+**Query:**
+```sql
+SELECT
+  t.id, t.name, t.slug,
+  COUNT(DISTINCT jw.id) as teachers,
+  COALESCE(ab.plan, 'free') as plan,
+  COALESCE(ab.state, 'active') as state,
+  COALESCE(ab.seats, 0) as seats,
+  COALESCE(ab.renews_at, now()) as renews_at,
+  (SELECT jw2.email FROM jwt_users jw2 WHERE jw2.workspace_id = t.id AND jw2.roles @> ARRAY['school_admin'] LIMIT 1) as owner_email
+FROM tenants t
+LEFT JOIN jwt_users jw ON jw.workspace_id = t.id AND jw.roles @> ARRAY['teacher']
+LEFT JOIN admin_billing ab ON ab.tenant_id = t.id
+GROUP BY t.id, t.name, t.slug, ab.plan, ab.state, ab.seats, ab.renews_at
+ORDER BY t.name
 ```
 
-### BE endpoints yang perlu dibuat
+**Response shape:**
+```json
+{
+  "data": [
+    {
+      "id": "uuid",
+      "name": "SDN Contoh 01",
+      "slug": "sdn-contoh-01",
+      "plan": "pilot",
+      "state": "active",
+      "teachers": 3,
+      "seats": 30,
+      "renewsAt": "2026-08-24",
+      "owner": "admin@sdncontoh.sch.id"
+    }
+  ]
+}
+```
 
-1. **`GET /v1/admin/schools`** — List semua tenant/sekolah
-   - Response: `SchoolRow[]` dengan plan, teacher count, usage, owner
-   - Query tenant dari `tenants` table
-   - JOIN `jwt_users` untuk dapat teacher count per tenant
-   - JOIN `admin_billing` untuk plan/state
-   - Filter: search, plan, state
-   - Sort: name, teachers, plan
+#### 1.2 GET /v1/admin/schools/:id
+Detail sekolah + members.
 
-2. **`GET /v1/admin/schools/:id`** — Detail sekolah
-   - Response: School detail + members list + billing info
-   - Query: tenant info, jwt_users where workspace_id matches, admin_billing
+**Query:**
+```sql
+-- School info
+SELECT t.id, t.name, t.slug, ab.plan, ab.state, ab.seats, ab.renews_at
+FROM tenants t
+LEFT JOIN admin_billing ab ON ab.tenant_id = t.id
+WHERE t.id = $1
 
-3. **`POST /v1/admin/schools`** — Create tenant manual
-   - Body: `{ name: string, slug?: string, ownerEmail?: string }`
-   - Create tenant in `tenants` table
-   - Optionally create admin membership
+-- Members
+SELECT jw.id, jw.email, jw.name, jw.username, jw.roles, jw.created_at
+FROM jwt_users jw
+WHERE jw.workspace_id = $1
+ORDER BY jw.created_at
+```
 
-4. **`PATCH /v1/admin/schools/:id`** — Update sekolah
-   - Body: `{ name?: string, plan?: string }`
-   - Update tenant name
-   - Update billing plan
+**Response shape:**
+```json
+{
+  "data": {
+    "school": { "id": "...", "name": "...", "plan": "...", ... },
+    "members": [
+      { "id": "...", "email": "...", "name": "...", "roles": ["teacher"], ... }
+    ],
+    "memberCount": 5
+  }
+}
+```
 
-5. **`DELETE /v1/admin/schools/:id`** — Soft delete/archive
-   - Set tenant status to archived (new column)
-   - Atau hard delete dengan cascading
+#### 1.3 POST /v1/admin/schools
+Create tenant baru.
 
-### DB seed
-- 5-6 sekolah dari tenants yang sudah ada
-- Billing data sudah ada dari seed sebelumnya
-- Teacher count dari jwt_users
+**Body:** `{ name: string, slug?: string }`
+**Create:** tenants table + admin_billing entry (free plan)
 
-### Test
-- [ ] List sekolah menampilkan plan, teacher count, usage
-- [ ] Detail sekolah menampilkan members
-- [ ] Create sekolah baru
-- [ ] Update plan sekolah
+#### 1.4 PATCH /v1/admin/schools/:id
+Update nama atau plan.
 
----
+**Body:** `{ name?: string, plan?: string }`
 
-## TASK 2: /ops/schools Detail & Bulk Actions
-
-**Status:** ❌ BELUM (extension dari TASK 1)
-**Estimasi:** 1-2 hari
-**Prioritas:** Medium
-
-### FE yang perlu dilayani
-- Row actions: "Buka" → detail page
-- Row actions: "Ubah plan" → modal/form
-- Bulk actions: suspend/activate multiple schools
-
-### BE endpoints
-
-1. **`GET /v1/admin/schools/:id/members`** — List members sekolah
-   - Query jwt_users WHERE workspace_id = tenant.id
-
-2. **`PATCH /v1/admin/schools/:id/members/:userId/suspend`** — Suspend member
-   - Update membership state
-
-3. **`POST /v1/admin/schools/:id/invite`** — Invite member
-   - Create school_invitation
-
-### Test
-- [ ] List members dengan role dan status
-- [ ] Suspend member
+#### 1.5 DELETE /v1/admin/schools/:id
+Soft delete (mark archived) atau hard delete dengan check.
 
 ---
 
-## TASK 3: /ops/accounts — Account Enhancement
+## TASK 2: Accounts — tambah name, resolve school, format status
 
-**Status:** ⚠️ Partial — list sudah jalan, perlu detail + actions
+**Status:** ⚠️ Partial
 **Estimasi:** 1 hari
-**Prioritas:** Medium
 
-### FE yang perlu dilayani
-- Row actions: "Detail" → detail modal
-- Row actions: "Impersonate" → login as other user
-- Bulk actions: suspend, reset password
+### Yang perlu diubah
 
-### BE endpoints
+#### 2.1 Update PostgresAdminDataStore.listAccounts()
+```typescript
+// Sekarang return:
+{ id, email, role, workspaceId, membershipState, createdAt }
 
-1. **`GET /v1/admin/accounts/:id`** — Detail akun
-   - Full user info + membership + last login
+// Harus return:
+{ id, email, name, displayName, role, status, school, workspaceId, createdAt }
+```
 
-2. **`PATCH /v1/admin/accounts/:id/roles`** — Update role
-   - Body: `{ roles: string[] }`
-   - Audit logged
+**Query perubahan:**
+```sql
+SELECT
+  jw.id, jw.email, jw.name, jw.username,
+  jw.roles,
+  jw.workspace_id,
+  t.name as school_name,
+  jw.created_at,
+  -- status logic: if workspace archived → ditangguhkan, else aktif
+  CASE
+    WHEN ab.state = 'blocked' THEN 'ditangguhkan'
+    WHEN jw.created_at > now() - interval '7 days' THEN 'baru'
+    ELSE 'aktif'
+  END as status
+FROM jwt_users jw
+LEFT JOIN tenants t ON t.id = jw.workspace_id
+LEFT JOIN admin_billing ab ON ab.tenant_id = jw.workspace_id
+ORDER BY jw.created_at DESC
+```
 
-3. **`POST /v1/admin/accounts/:id/suspend`** — Suspend user
-   - Update membership state
+#### 2.2 Update AdminAccountSummary type
+```typescript
+export interface AdminAccountSummary {
+  id: string;
+  email: string;
+  name: string;
+  displayName: string;
+  role: 'teacher' | 'school_admin' | 'superadmin' | 'subscriber';
+  status: 'aktif' | 'baru' | 'ditangguhkan';
+  school: string;
+  workspaceId: string;
+  createdAt: string;
+}
+```
 
-4. **`POST /v1/admin/accounts/:id/reset-password`** — Send password reset
-   - Create recovery token
-
-5. **`POST /v1/admin/accounts/:id/impersonate`** — Login as user (ops only)
-   - Generate JWT for target user
-
-### Test
-- [ ] Detail akun menampilkan info lengkap
-- [ ] Update role
-- [ ] Suspend akun
-- [ ] Reset password trigger
+#### 2.3 GET /v1/admin/accounts/:id (baru)
+Detail akun lengkap + memberships.
 
 ---
 
-## TASK 4: /ops/quality — Quality Report Enhancement
+## TASK 3: Jobs — resolve tenant name, tambah progress
 
-**Status:** ⚠️ Partial — list + triage sudah jalan
+**Status:** ⚠️ Partial
 **Estimasi:** 0.5 hari
-**Prioritas:** Low
 
-### FE yang perlu dilayani
-- Row actions: "Triage" → update status
-- Row actions: "Tutup" → close report
+### Yang perlu diubah
 
-### BE endpoints
-- Sudah ada: `GET /v1/admin/quality-reports`, `PATCH /v1/admin/quality-reports/:id`
-- Perlu tambah: `POST /v1/admin/quality-reports/:id/resolve`
+#### 3.1 Update PostgresAdminDataStore.listJobs()
+```typescript
+// Sekarang return:
+{ id, workspaceId, actorId, kind, status, attempt, createdAt }
 
-### Test
-- [ ] Triage report, status open → triaged
-- [ ] Resolve report, status → closed
-- [ ] Audit log tercatat
+// Harus return:
+{ id, type, tenant, status, progress, updatedAt, attempt }
+```
+
+**Query perubahan:**
+```sql
+SELECT
+  sj.id,
+  sj.kind as type,
+  COALESCE(t.name, sj.workspace_id) as tenant,
+  sj.status,
+  CASE
+    WHEN sj.status = 'succeeded' THEN '100%'
+    WHEN sj.status = 'running' THEN 'running'
+    WHEN sj.status = 'failed' THEN 'failed'
+    WHEN sj.status = 'queued' THEN 'queued'
+    ELSE 'pending'
+  END as progress,
+  sj.updated_at,
+  sj.attempt
+FROM spike_jobs sj
+LEFT JOIN tenants t ON t.id = sj.workspace_id
+ORDER BY sj.updated_at DESC
+LIMIT $1
+```
 
 ---
 
-## TASK 5: /ops/jobs — Job Monitor Enhancement
+## TASK 4: Quality Reports — tambah reason + reporter
 
-**Status:** ⚠️ Partial — list sudah jalan
+**Status:** ⚠️ Partial
 **Estimasi:** 0.5 hari
-**Prioritas:** Low
 
-### FE yang perlu dilayani
-- Row actions: "Detail" → detail modal
-- Row actions: "Retry" → retry failed job
+### Yang perlu diubah
 
-### BE endpoints
-- Sudah ada: `GET /v1/admin/jobs`
-- Perlu tambah: `POST /v1/admin/jobs/:id/retry`
+#### 4.1 Update PostgresAdminDataStore.listQualityReports()
+```typescript
+// Sekarang return:
+{ id, workspaceId, assessmentVersionId, valid, issueCount, createdAt }
 
-### Test
-- [ ] List jobs dengan status dan progress
-- [ ] Retry failed job
+// Harus return:
+{ id, reason, status, reporter, createdAt }
+```
+
+**Query sudah ada di routes** — cukup update response mapping.
+
+#### 4.2 Update AdminQualityReport type
+```typescript
+export interface AdminQualityReport {
+  id: string;
+  reason: string;
+  status: 'open' | 'triaged' | 'closed';
+  reporter: string;
+  notes: string;
+  createdAt: string;
+}
+```
 
 ---
 
-## TASK 6: /ops/audit — Audit Trail Enhancement
+## TASK 5: Audit — format actor + target
 
-**Status:** ⚠️ Partial — list sudah jalan
+**Status:** ⚠️ Partial
 **Estimasi:** 0.5 hari
-**Prioritas:** Low
 
-### FE yang perlu dilayani
-- Row actions: "Detail" → detail modal
-- Filter by action, actor, date
+### Yang perlu diubah
 
-### BE endpoints
-- Sudah ada: `GET /v1/admin/audit`
-- Perlu tambah: `GET /v1/admin/audit/:id` (detail)
-- Perlu tambah: filter params `?action=...&actor=...&from=...&to=...`
+#### 5.1 GET /v1/admin/audit — update response mapping
+```typescript
+// Sekarang return:
+{ id, actor_id, actor_email, action, target_type, target_id, metadata, created_at }
 
-### Test
-- [ ] Filter by action type
-- [ ] Filter by actor
-- [ ] Filter by date range
+// Harus return:
+{ id, at, actor, action, target }
+```
 
----
+**Mapping:**
+- `at` = format `created_at` → "2026-07-24 10:12"
+- `actor` = `actor_email`
+- `target` = `target_id` (bisa resolve ke nama tergantung target_type)
 
-## TASK 7: /ops/content — Marketing CMS Enhancement
-
-**Status:** ⚠️ Partial — list + publish/unpublish sudah jalan
-**Estimasi:** 0.5 hari
-**Prioritas:** Low
-
-### FE yang perlu dilayani
-- Row actions: "Edit" → edit page
-- Row actions: "Publish"/"Unpublish" → toggle
-
-### BE endpoints
-- Sudah ada: `GET /v1/ops/marketing/pages`, `PUT .../draft`, `POST .../publish`, `POST .../unpublish`
-- Perlu tambah: nothing — sudah lengkap
+#### 5.2 Tambah filter params
+```
+GET /v1/admin/audit?action=flag.toggle&actor=ops@lembar.id&from=2026-07-01&to=2026-07-31&limit=50
+```
 
 ---
 
-## TASK 8: /ops/prompts — Prompt Management Enhancement
+## TASK 6: Prompts — rename field
 
-**Status:** ⚠️ Partial — list + create + status toggle sudah jalan
-**Estimasi:** 0.5 hari
-**Prioritas:** Low
+**Status:** ⚠️ Partial
+**Estimasi:** 0.2 hari
 
-### FE yang perlu dilayani
-- Row actions: "Buka" → detail/edit modal
+### Yang perlu diubah
 
-### BE endpoints
-- Sudah ada: `GET /v1/admin/prompts`, `POST /v1/admin/prompts`, `PATCH /v1/admin/prompts/:slug/status`
-- Perlu tambah: `GET /v1/admin/prompts/:slug` (detail), `PATCH /v1/admin/prompts/:slug` (update text)
+#### 6.1 GET /v1/admin/prompts — update response mapping
+```typescript
+// Sekarang return:
+{ id, name, slug, description, version, status, created_by, created_at, updated_at }
 
----
+// Harus return:
+{ id, name, owner, status }
+```
 
-## TASK 9: /ops/billing — Billing Enhancement
-
-**Status:** ⚠️ Partial — list sudah jalan
-**Estimasi:** 0.5 hari
-**Prioritas:** Low
-
-### FE yang perlu dilayani
-- Row actions: "Kelola" → billing detail modal
-
-### BE endpoints
-- Sudah ada: `GET /v1/admin/billing`, `PATCH /v1/admin/billing/:id`
-- Perlu tambah: `GET /v1/admin/billing/:id` (detail)
+**Mapping:**
+- `owner` = `created_by`
 
 ---
 
-## TASK 10: /ops/flags — Feature Flag Enhancement
+## TASK 7: Billing — minor field mapping
 
-**Status:** ⚠️ Partial — list + toggle sudah jalan
-**Estimasi:** 0.5 hari
-**Prioritas:** Low
+**Status:** ⚠️ Partial
+**Estimasi:** 0.2 hari
 
-### FE yang perlu dilayani
-- Toggle button langsung
-- Scope filter
+### Yang perlu diubah
 
-### BE endpoints
-- Sudah ada: `GET /v1/admin/flags`, `PATCH /v1/admin/flags/:key/toggle`
-- Perlu tambah: `POST /v1/admin/flags` (create), `PATCH /v1/admin/flags/:key` (update description/scope)
+#### 7.1 GET /v1/admin/billing — update response mapping
+```typescript
+// Sekarang return:
+{ id, tenant_id, school_name, state, seats, plan, renews_at, ... }
+
+// Harus return:
+{ id, school, state, seats, renotesAt }
+```
+
+**Mapping:**
+- `school` = `school_name`
+- `renewsAt` = format `renews_at` → "2026-08-24"
 
 ---
 
-## Execution Order (Revised)
+## Execution Order
 
 | # | Task | Estimasi | Status |
 |---|---|---|---|
 | 1 | TASK 1: Schools CRUD | 2-3 hari | ❌ BELUM |
-| 2 | TASK 3: Accounts detail + actions | 1 hari | ⚠️ Partial |
-| 3 | TASK 2: Schools detail + bulk | 1-2 hari | ❌ BELUM |
-| 4 | TASK 4: Quality triage | 0.5 hari | ⚠️ Partial |
-| 5 | TASK 5: Jobs retry | 0.5 hari | ⚠️ Partial |
-| 6 | TASK 6: Audit filter | 0.5 hari | ⚠️ Partial |
-| 7 | TASK 7: Content (done) | 0 | ✅ Done |
-| 8 | TASK 8: Prompts detail | 0.5 hari | ⚠️ Partial |
-| 9 | TASK 9: Billing detail | 0.5 hari | ⚠️ Partial |
-| 10 | TASK 10: Flags create | 0.5 hari | ⚠️ Partial |
+| 2 | TASK 2: Accounts field fix | 1 hari | ⚠️ |
+| 3 | TASK 3: Jobs field fix | 0.5 hari | ⚠️ |
+| 4 | TASK 4: Quality field fix | 0.5 hari | ⚠️ |
+| 5 | TASK 5: Audit field fix | 0.5 hari | ⚠️ |
+| 6 | TASK 6: Prompts field fix | 0.2 hari | ⚠️ |
+| 7 | TASK 7: Billing field fix | 0.2 hari | ⚠️ |
 
-**Total estimasi: 6-8 hari untuk full coverage**
+**Total: 5-6 hari**

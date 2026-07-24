@@ -1,35 +1,33 @@
 /**
- * B6-03 — Superadmin ops & audit.
- *
- * Domain types for admin operations.
+ * Superadmin ops & audit domain types.
  */
-import type { UserRole } from '../../../infrastructure/database/schema.js';
-
 export interface AdminAccountSummary {
   id: string;
   email: string;
-  role: UserRole;
+  name: string;
+  displayName: string;
+  role: 'teacher' | 'school_admin' | 'superadmin' | 'subscriber';
+  status: 'aktif' | 'baru' | 'ditangguhkan';
+  school: string;
   workspaceId: string;
-  membershipState: string;
   createdAt: string;
 }
 
 export interface AdminJobSummary {
   id: string;
-  workspaceId: string;
-  actorId: string;
-  kind: string;
-  status: string;
-  attempt: number;
-  createdAt: string;
+  type: string;
+  tenant: string;
+  status: 'queued' | 'running' | 'failed' | 'succeeded';
+  progress: string;
+  updatedAt: string;
 }
 
 export interface AdminQualityReport {
   id: string;
-  workspaceId: string;
-  assessmentVersionId: string;
-  valid: boolean;
-  issueCount: number;
+  reason: string;
+  status: 'open' | 'triaged' | 'closed';
+  reporter: string;
+  notes: string;
   createdAt: string;
 }
 
@@ -39,11 +37,13 @@ export interface AdminEntitlementInput {
   actorId: string;
 }
 
+/** Audit entry — stored in admin_audit table. */
 export interface AdminAuditEntry {
   id: string;
-  action: string;
   actorId: string;
-  targetId: string | null;
+  action: string;
+  targetType?: string;
+  targetId: string;
   metadata: Record<string, unknown>;
   createdAt: string;
 }
