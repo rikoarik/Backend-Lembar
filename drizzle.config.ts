@@ -13,6 +13,7 @@ export default defineConfig({
     './src/modules/auth/persistence/schema.ts',
     './src/modules/uploads/persistence/schema.ts',
     './src/modules/quota/persistence/schema.ts',
+    './src/modules/plans/persistence/schema.ts',
   ],
   out: './src/infrastructure/database/migrations',
   dbCredentials: { url },
