@@ -277,3 +277,4 @@ src/
 contracts/         # OpenAPI artifacts — populated by later tasks
 test/              # unit + smoke
 ```
+# Test CI/CD
