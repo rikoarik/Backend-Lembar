@@ -1,11 +1,13 @@
 /**
- * School module exports (B7-01).
+ * School module exports (B7-01, B7-02).
  */
 export { SchoolService, InvalidInvitationError } from './application/SchoolService.js';
 export type {
   SchoolWorkspaceStore,
   SchoolInvitationStore,
 } from './application/SchoolService.js';
+export { SchoolDashboardService } from './application/SchoolDashboardService.js';
+export type { DashboardData } from './application/SchoolDashboardService.js';
 export type {
   SchoolWorkspace,
   SchoolMember,
@@ -19,3 +21,5 @@ export type {
 } from './domain/types.js';
 export { registerSchoolRoutes } from './adapters/http/schoolRoutes.js';
 export type { RegisterSchoolRoutesOptions } from './adapters/http/schoolRoutes.js';
+export { registerDashboardRoutes } from './adapters/http/dashboardRoutes.js';
+export type { RegisterDashboardRoutesOptions } from './adapters/http/dashboardRoutes.js';
