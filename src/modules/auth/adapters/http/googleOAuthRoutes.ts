@@ -16,11 +16,13 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import { ApiError } from '../../../../common/errors/envelope.js';
-import { generateJwt, type JwtPayload } from '../../infrastructure/jwtMultiRole.js';
-import { getPool, type Database } from '../../../../infrastructure/database/db.js';
-import { randomUUID } from 'node:crypto';
+import { generateJwt } from '../../infrastructure/jwtMultiRole.js';
+import type { Database } from '../../../../infrastructure/database/db.js';
+import { tenants } from '../../../../infrastructure/database/schema.js';
+import { hashPassword } from '../../infrastructure/password.js';
 import { jwtUsers, type UserRole } from '../../persistence/jwtUsersSchema.js';
 import { eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
@@ -96,11 +98,12 @@ async function fetchGoogleUserInfo(accessToken: string): Promise<GoogleUserInfo>
 
 /**
  * Find or create user in jwt_users table.
+ * New Google users are auto-registered as subscriber with a personal tenant.
  */
 async function findOrCreateUser(
   db: Database,
   googleUser: GoogleUserInfo,
-): Promise<{ id: string; email: string; roles: UserRole[]; workspaceId: string | null }> {
+): Promise<{ id: string; email: string; name: string; roles: UserRole[]; workspaceId: string | null }> {
   // Check if user exists
   const existing = await db
     .select()
@@ -112,38 +115,56 @@ async function findOrCreateUser(
     return {
       id: existing[0].id,
       email: existing[0].email,
+      name: existing[0].name,
       roles: existing[0].roles,
       workspaceId: existing[0].workspaceId,
     };
   }
 
-  // Create new user
-  const workspaceId = randomUUID();
-  const userName = googleUser.name ?? googleUser.email.split('@')[0] ?? 'User';
-  const [newUser] = await db.insert(jwtUsers).values({
-    email: googleUser.email,
-    passwordHash: '', // No password for OAuth users
-    name: userName,
-    roles: ['subscriber'] as UserRole[],
-    workspaceId,
-  }).returning();
+  // Create tenant first — jwt_users.workspace_id FK references tenants.id
+  const userName = (googleUser.name ?? googleUser.email.split('@')[0] ?? 'User').trim() || 'User';
+  const slugBase = googleUser.email
+    .split('@')[0]
+    ?.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 24) || 'user';
+  const workspaceSlug = `${slugBase}-${randomUUID().slice(0, 8)}`;
 
-  if (!newUser) throw new Error('Failed to create user');
+  const [workspace] = await db
+    .insert(tenants)
+    .values({
+      slug: workspaceSlug,
+      name: `${userName}'s Workspace`,
+    })
+    .returning();
 
-  // Create default workspace
-  const pool = getPool(db);
-  if (pool) {
-    await pool.query(
-      `INSERT INTO workspaces (id, slug, name, created_at, updated_at)
-       VALUES ($1, $2, $3, now(), now())
-       ON CONFLICT DO NOTHING`,
-      [workspaceId, `ws-${newUser.id.slice(0, 8)}`, userName],
-    );
+  if (!workspace) {
+    throw new Error('Gagal membuat workspace untuk user Google');
+  }
+
+  // OAuth users have no password login — store a random unusable hash.
+  const passwordHash = await hashPassword(randomUUID());
+
+  const [newUser] = await db
+    .insert(jwtUsers)
+    .values({
+      email: googleUser.email,
+      passwordHash,
+      name: userName,
+      roles: ['subscriber'] as UserRole[],
+      workspaceId: workspace.id,
+    })
+    .returning();
+
+  if (!newUser) {
+    throw new Error('Gagal membuat user Google');
   }
 
   return {
     id: newUser.id,
     email: newUser.email,
+    name: newUser.name,
     roles: newUser.roles,
     workspaceId: newUser.workspaceId,
   };
