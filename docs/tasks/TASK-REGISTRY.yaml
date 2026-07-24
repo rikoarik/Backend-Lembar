@@ -1069,11 +1069,14 @@ tasks:
     repository: Backend-Lembar
     sprint: B2
     title: Assessment configuration and draft
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B1-04, B2-02, B0-03]
     decisions: []
     outcome: Validated source/catalog config and immutable input snapshot; owns FR-GEN-001/002 configuration responsibility.
     evidence: [state-and-contract-tests, incompatible-catalog]
+    branch: feat/B2-03-assessment-config-draft
+    accepted_at: "2026-07-24"
+    next_action: "Completed. 22/22 tests pass. Immutable configSnapshot, idempotency 409-on-fingerprint-mismatch, source readiness validation, FR-GEN-001/002 config ownership."
     traceability_note: "TRACEABILITY-MATRIX.md historically lists B3-01 for FR-GEN-001/002; config belongs here, retrieval/source references stay in B3-01."
 
   - id: B2-04
