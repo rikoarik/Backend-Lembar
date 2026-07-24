@@ -1294,7 +1294,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B5
     title: Output and library security gate
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B5-02, B5-03, B5-04]
     decisions: []
     outcome: Artifact/share/retry/retention/deletion/tenant evidence for release.
@@ -1304,7 +1304,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B6
     title: Effective entitlement and quota enforcement
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B2-04, B5-05]
     decisions: [D-009]
     outcome: Versioned plans/grants/limits enforced server-side for personal workspace.
@@ -1325,7 +1325,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B6
     title: Superadmin safe operations and audit
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B1-03, B3-05]
     decisions: []
     outcome: Least-privilege account/catalog/job/quality/entitlement operations.
@@ -1335,7 +1335,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B6
     title: Operations and lead capture foundation
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B5-05]
     decisions: [D-005, D-007]
     outcome: Observability, alerting, backup/restore/load/incident rehearsal and safe lead intake.
@@ -1345,7 +1345,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B6
     title: Paid teacher pilot gate
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B6-01, B6-02, B6-03, B6-04]
     decisions: [D-001, D-005, D-008, D-009]
     outcome: Security, legal, quality, operations, and billing ready for bounded paid pilot.
@@ -1367,7 +1367,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B7
     title: School workspace, invitation, and membership
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B1-03, B6-01]
     decisions: [D-002, D-007]
     outcome: Admin-controlled email/one-time activation without reusable plaintext credentials.
