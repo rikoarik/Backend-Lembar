@@ -1377,7 +1377,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B7
     title: School seats and pooled quota
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B7-01, B6-01]
     decisions: [D-009]
     outcome: Seat cap and pooled ledger with aggregate admin visibility.
