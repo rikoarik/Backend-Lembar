@@ -1056,11 +1056,14 @@ tasks:
     repository: Backend-Lembar
     sprint: B2
     title: Source scan, extraction, and indexing job
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B2-01, B0-06]
     decisions: [D-004]
     outcome: Versioned page/passages with retryable/terminal source states.
     evidence: [encrypted-scan-image-only-noise-delete]
+    branch: feat/B2-02-source-scan-extraction-indexing
+    accepted_at: "2026-07-24"
+    next_action: "Completed. 62/62 tests pass. Full 5-stage pipeline (verifying_upload→scanning→extracting→chunking→indexing), retryable/terminal failure codes, idempotency on re-run."
 
   - id: B2-03
     repository: Backend-Lembar
