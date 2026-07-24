@@ -1,5 +1,5 @@
-version: "1.11"
-updated_at: "2026-07-19"
+version: "1.12"
+updated_at: "2026-07-24"
 execution_target: COMPLETE_LEMBAR_WEB_V1
 checkpoint:
   mode: resumed
@@ -1083,62 +1083,91 @@ tasks:
     repository: Backend-Lembar
     sprint: B2
     title: Quota reservation ledger
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B2-03, B0-06]
     decisions: []
     outcome: Append-only reserve/commit/release invariant linked to generation job.
     evidence: [concurrency, duplicate, failure, balance]
+    branch: feat/B2-04-quota-reservation-ledger
+    dev_commit: 19b37d3
+    completed_scope:
+      - QuotaReservationRepository with reserve/commit/release lifecycle
+      - QuotaLedgerService enforcing balance invariants and idempotency
+      - Concurrency guards prevent overspend, duplicate detection via idempotency key
+      - 26/26 tests pass covering concurrency, duplicates, failure recovery, balance tracking
+    verification_executed:
+      - pnpm build (TypeScript clean)
+      - npx vitest run test/modules/quota/ (26 passed)
 
   - id: B2-05
     repository: Backend-Lembar
     sprint: B2
     title: End-to-end job status and recovery
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B2-03, B2-04, B0-06]
     decisions: []
     outcome: Reload-safe neutral job state, cancel/retry/partial policy.
     evidence: [crash-and-lease-injection, quota-invariant]
+    branch: feat/B2-05-job-status-recovery
+    dev_commit: 19b37d3
+    completed_scope:
+      - Job state machine (pending → running → completed/failed/cancelled)
+      - Cancel endpoint, retry policy, partial completion handling
+      - Recovery on startup requeues orphaned jobs stuck in running state
+      - Quota invariant: cancelled jobs release quota via integration with B2-04
+      - 16/16 tests pass covering crash simulation, lease injection, quota invariant
+    verification_executed:
+      - pnpm build (TypeScript clean)
+      - npx vitest run test/modules/jobs/ (16 passed)
 
   - id: B3-01
     repository: Backend-Lembar
     sprint: B3
     title: Tenant-scoped retrieval and source references
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B2-02]
     decisions: []
     outcome: Authorized passage retrieval with insufficient-source behavior.
     evidence: [cross-tenant, prompt-injection, citation-resolution]
     traceability_note: "Retrieval/source references only; generate configuration is owned by B2-03."
+    branch: feat/B3-01-tenant-scoped-retrieval
+    dev_commit: 3eaaf1c
 
   - id: B3-02
     repository: Backend-Lembar
     sprint: B3
     title: Blueprint pipeline
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B3-01, B0-08]
     decisions: [D-013, D-019]
     outcome: Versioned schema-constrained blueprint meeting distribution targets.
     evidence: [schema, coverage, insufficient-source]
+    branch: feat/B3-02-blueprint-pipeline
+    dev_commit: 2ebc005
 
   - id: B3-03
     repository: Backend-Lembar
     sprint: B3
     title: Structured question generation
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B3-02]
     decisions: [D-013, D-019]
     outcome: Reviewable questions with stable options, answer, explanation, and sources.
     evidence: [schema-repair-cap, provider-mocks, version-metadata]
+    branch: feat/B3-03-structured-question-generation
+    dev_commit: 2eb8cda
 
   - id: B3-04
     repository: Backend-Lembar
     sprint: B3
     title: Deterministic quality and critic
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B3-03]
     decisions: [D-013]
     outcome: Duplicate/answer/source/distribution checks and bounded evaluated critic.
     evidence: [rule-fixtures, adversarial, no-CoT-storage]
+    branch: feat/B3-04-deterministic-quality-critic
+    dev_commit: 470d13a
 
   - id: B3-05
     repository: Backend-Lembar
