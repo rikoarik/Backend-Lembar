@@ -36,11 +36,14 @@
     "upload:smoke": "pnpm build && node dist/smoke/upload.js"
   },
   "dependencies": {
+    "@fastify/swagger": "^9.8.1",
+    "@fastify/swagger-ui": "^6.1.0",
     "bcryptjs": "^3.0.3",
     "drizzle-orm": "^0.45.2",
     "fastify": "5.10.0",
     "jsonwebtoken": "^9.0.3",
-    "pg": "^8.22.0"
+    "pg": "^8.22.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",

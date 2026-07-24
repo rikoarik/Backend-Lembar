@@ -29,6 +29,13 @@ import { registerJobStatusRoutes } from '../modules/jobs/adapters/http/routes.js
 import { QuotaLedger } from '../modules/quota/application/QuotaLedger.js';
 import { QuotaReservationRepository } from '../modules/quota/persistence/repository.js';
 
+// Swagger
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import yaml from 'yaml';
+
 export interface HealthResponse {
   status: 'ok';
   service: string;
@@ -93,6 +100,28 @@ export async function buildApp(
   });
 
   registerRequestId(app);
+
+  // Register Swagger if enabled
+  const swaggerEnabled = process.env.SWAGGER_ENABLED === 'true';
+  if (swaggerEnabled) {
+    try {
+      const openapiPath = resolve(process.cwd(), 'contracts/openapi.yaml');
+      const openapiContent = readFileSync(openapiPath, 'utf-8');
+      const openapiSpec = yaml.parse(openapiContent);
+      await app.register(swagger, {
+        mode: 'static',
+        specification: {
+          document: openapiSpec,
+        },
+      });
+      await app.register(swaggerUi, {
+        routePrefix: '/docs',
+      });
+      app.log.info('Swagger UI registered at /docs');
+    } catch (err) {
+      app.log.error({ err }, 'Failed to register Swagger');
+    }
+  }
 
   app.setNotFoundHandler((req, reply) => {
     const id = req.requestId ?? 'req_unknown';
