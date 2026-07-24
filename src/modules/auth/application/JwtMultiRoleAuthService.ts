@@ -2,21 +2,25 @@ import { randomUUID } from 'node:crypto';
 import type { Database } from '../../../infrastructure/database/db.js';
 import { throwApiError } from '../../../common/errors/apiError.js';
 import { hashPassword, verifyPassword } from '../infrastructure/password.js';
-import { generateJwt, verifyJwt, type JwtConfig, type JwtPayload } from '../infrastructure/jwtMultiRole.js';
+import { generateJwt, verifyJwt, type JwtConfig } from '../infrastructure/jwtMultiRole.js';
 import { jwtUsers, USER_ROLES, type UserRole } from '../persistence/jwtUsersSchema.js';
 import { tenants } from '../../../infrastructure/database/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, or } from 'drizzle-orm';
 import { ApiError } from '../../../common/errors/envelope.js';
 
 export interface RegisterInput {
   email: string;
   password: string;
   name: string;
+  username?: string;
+  phone?: string;
   roles?: UserRole[];
 }
 
 export interface LoginInput {
-  email: string;
+  /** email / username / phone */
+  email?: string;
+  identifier?: string;
   password: string;
 }
 
@@ -30,6 +34,8 @@ export interface AuthResponse {
     id: string;
     email: string;
     name: string;
+    username?: string | null;
+    phone?: string | null;
     roles: UserRole[];
     workspaceId: string | null;
   };
@@ -39,9 +45,17 @@ export interface UserInfo {
   id: string;
   email: string;
   name: string;
+  username?: string | null;
+  phone?: string | null;
   roles: UserRole[];
   workspaceId: string | null;
 }
+
+const USERNAME_PATTERN = /^[a-zA-Z0-9_.]{3,24}$/;
+const PHONE_DIGITS_PATTERN = /^\d{8,15}$/;
+const PASSWORD_UPPER = /[A-Z]/;
+const PASSWORD_NUMBER = /\d/;
+const PASSWORD_SYMBOL = /[^A-Za-z0-9]/;
 
 export class JwtMultiRoleAuthService {
   constructor(
@@ -50,20 +64,32 @@ export class JwtMultiRoleAuthService {
   ) {}
 
   async register(input: RegisterInput): Promise<AuthResponse> {
-    // Validasi input
-    if (!this.isValidEmail(input.email)) {
+    const email = input.email.trim().toLowerCase();
+    const name = input.name.trim();
+    const username = (input.username ?? name).trim().toLowerCase();
+    const phone = this.normalizePhone(input.phone);
+
+    if (!this.isValidEmail(email)) {
       throwApiError('invalid_email', 'Format email tidak valid');
     }
 
-    if (input.password.length < 8) {
-      throwApiError('password_too_short', 'Password minimal 8 karakter');
+    if (!USERNAME_PATTERN.test(username)) {
+      throwApiError(
+        'invalid_username',
+        'Username 3-24 karakter: huruf, angka, titik, atau underscore',
+      );
     }
 
-    if (!input.name || input.name.trim().length === 0) {
+    this.assertPasswordPolicy(input.password);
+
+    if (!name) {
       throwApiError('invalid_name', 'Name tidak boleh kosong');
     }
 
-    // Validasi roles jika diberikan
+    if (phone && !PHONE_DIGITS_PATTERN.test(phone)) {
+      throwApiError('invalid_phone', 'Nomor telepon tidak valid');
+    }
+
     const roles = input.roles && input.roles.length > 0 ? input.roles : (['subscriber'] as UserRole[]);
     const invalidRoles = roles.filter((role) => !(USER_ROLES as readonly string[]).includes(role));
     if (invalidRoles.length > 0) {
@@ -73,27 +99,38 @@ export class JwtMultiRoleAuthService {
       );
     }
 
-    // Cek apakah email sudah terdaftar
-    const [existing] = await this.db
+    // Uniqueness checks
+    const [existingEmail] = await this.db
       .select()
       .from(jwtUsers)
-      .where(eq(jwtUsers.email, input.email))
+      .where(eq(jwtUsers.email, email))
       .limit(1);
+    if (existingEmail) throwApiError('email_exists', 'Email sudah terdaftar');
 
-    if (existing) {
-      throwApiError('email_exists', 'Email sudah terdaftar');
+    const [existingUsername] = await this.db
+      .select()
+      .from(jwtUsers)
+      .where(eq(jwtUsers.username, username))
+      .limit(1);
+    if (existingUsername) throwApiError('username_exists', 'Username sudah dipakai');
+
+    if (phone) {
+      const [existingPhone] = await this.db
+        .select()
+        .from(jwtUsers)
+        .where(eq(jwtUsers.phone, phone))
+        .limit(1);
+      if (existingPhone) throwApiError('phone_exists', 'Nomor telepon sudah terdaftar');
     }
 
-    // Hash password
     const passwordHash = await hashPassword(input.password);
 
-    // Buat workspace untuk user baru
-    const workspaceSlug = this.generateWorkspaceSlug(input.email);
+    const workspaceSlug = this.generateWorkspaceSlug(email);
     const [workspace] = await this.db
       .insert(tenants)
       .values({
         slug: workspaceSlug,
-        name: `${input.name}'s Workspace`,
+        name: `${name}'s Workspace`,
       })
       .returning();
 
@@ -101,14 +138,15 @@ export class JwtMultiRoleAuthService {
       throwApiError('workspace_creation_failed', 'Gagal membuat workspace');
     }
 
-    // Simpan user
     const [user] = await this.db
       .insert(jwtUsers)
       .values({
-        email: input.email,
+        email,
+        username,
+        phone: phone || null,
         passwordHash,
-        name: input.name,
-        roles: roles,
+        name,
+        roles,
         workspaceId: workspace.id,
       })
       .returning();
@@ -117,79 +155,31 @@ export class JwtMultiRoleAuthService {
       throwApiError('user_creation_failed', 'Gagal membuat user');
     }
 
-    // Generate JWT
-    const token = generateJwt(
-      {
-        userId: user.id,
-        email: user.email,
-        roles: user.roles,
-        workspaceId: user.workspaceId,
-      },
-      this.jwtConfig,
-    );
-
-    return {
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        roles: user.roles,
-        workspaceId: user.workspaceId,
-      },
-    };
+    return this.toAuthResponse(user);
   }
 
   async login(input: LoginInput): Promise<AuthResponse> {
-    if (!input.email || !input.password) {
-      throwApiError('missing_fields', 'Email dan password diperlukan');
+    const identifier = (input.identifier ?? input.email ?? '').trim();
+    if (!identifier || !input.password) {
+      throwApiError('missing_fields', 'Email/username/telepon dan password diperlukan');
     }
 
-    // Cari user berdasarkan email
-    const [user] = await this.db
-      .select()
-      .from(jwtUsers)
-      .where(eq(jwtUsers.email, input.email))
-      .limit(1);
-
+    const user = await this.findUserByIdentifier(identifier);
     if (!user) {
-      throwApiError('invalid_credentials', 'Email atau password salah');
+      throwApiError('invalid_credentials', 'Email/username/telepon atau password salah');
     }
 
-    // Verifikasi password
     const isValid = await verifyPassword(input.password, user.passwordHash);
     if (!isValid) {
-      throwApiError('invalid_credentials', 'Email atau password salah');
+      throwApiError('invalid_credentials', 'Email/username/telepon atau password salah');
     }
 
-    // Generate JWT
-    const token = generateJwt(
-      {
-        userId: user.id,
-        email: user.email,
-        roles: user.roles,
-        workspaceId: user.workspaceId,
-      },
-      this.jwtConfig,
-    );
-
-    return {
-      token,
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        roles: user.roles,
-        workspaceId: user.workspaceId,
-      },
-    };
+    return this.toAuthResponse(user);
   }
 
   async getCurrentUser(token: string): Promise<UserInfo> {
     try {
       const payload = verifyJwt(token, this.jwtConfig.secret);
-
-      // Ambil user dari database untuk pastikan masih exist
       const [user] = await this.db
         .select()
         .from(jwtUsers)
@@ -204,14 +194,13 @@ export class JwtMultiRoleAuthService {
         id: user.id,
         email: user.email,
         name: user.name,
+        username: user.username,
+        phone: user.phone,
         roles: user.roles,
         workspaceId: user.workspaceId,
       };
     } catch (error) {
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      // JWT verification errors
+      if (error instanceof ApiError) throw error;
       throwApiError('invalid_token', 'Token tidak valid atau expired');
     }
   }
@@ -221,7 +210,6 @@ export class JwtMultiRoleAuthService {
       throwApiError('invalid_roles', 'Roles tidak boleh kosong');
     }
 
-    // Validasi roles
     const invalidRoles = input.roles.filter((role) => !(USER_ROLES as readonly string[]).includes(role));
     if (invalidRoles.length > 0) {
       throwApiError(
@@ -230,7 +218,6 @@ export class JwtMultiRoleAuthService {
       );
     }
 
-    // Update roles
     const [user] = await this.db
       .update(jwtUsers)
       .set({
@@ -248,9 +235,91 @@ export class JwtMultiRoleAuthService {
       id: user.id,
       email: user.email,
       name: user.name,
+      username: user.username,
+      phone: user.phone,
       roles: user.roles,
       workspaceId: user.workspaceId,
     };
+  }
+
+  private async findUserByIdentifier(identifier: string) {
+    const value = identifier.trim();
+    const lower = value.toLowerCase();
+    const phone = this.normalizePhone(value);
+
+    if (value.includes('@')) {
+      const [user] = await this.db
+        .select()
+        .from(jwtUsers)
+        .where(eq(jwtUsers.email, lower))
+        .limit(1);
+      return user ?? null;
+    }
+
+    if (phone && PHONE_DIGITS_PATTERN.test(phone)) {
+      const [user] = await this.db
+        .select()
+        .from(jwtUsers)
+        .where(or(eq(jwtUsers.phone, phone), eq(jwtUsers.username, lower)))
+        .limit(1);
+      return user ?? null;
+    }
+
+    const [user] = await this.db
+      .select()
+      .from(jwtUsers)
+      .where(eq(jwtUsers.username, lower))
+      .limit(1);
+    return user ?? null;
+  }
+
+  private toAuthResponse(user: typeof jwtUsers.$inferSelect): AuthResponse {
+    const token = generateJwt(
+      {
+        userId: user.id,
+        email: user.email,
+        roles: user.roles,
+        workspaceId: user.workspaceId,
+      },
+      this.jwtConfig,
+    );
+
+    return {
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        username: user.username,
+        phone: user.phone,
+        roles: user.roles,
+        workspaceId: user.workspaceId,
+      },
+    };
+  }
+
+  private assertPasswordPolicy(password: string) {
+    if (
+      password.length < 12 ||
+      !PASSWORD_UPPER.test(password) ||
+      !PASSWORD_NUMBER.test(password) ||
+      !PASSWORD_SYMBOL.test(password)
+    ) {
+      throwApiError(
+        'password_policy',
+        'Kata sandi minimal 12 karakter, berisi huruf besar, angka, dan simbol',
+      );
+    }
+  }
+
+  private normalizePhone(input?: string | null): string | null {
+    if (!input) return null;
+    const digits = input.replace(/\D/g, '');
+    if (!digits) return null;
+    // Convert 08xxxx / 8xxxx to 62xxxx for consistency
+    if (digits.startsWith('0')) return `62${digits.slice(1)}`;
+    if (digits.startsWith('8')) return `62${digits}`;
+    return digits;
   }
 
   private isValidEmail(email: string): boolean {

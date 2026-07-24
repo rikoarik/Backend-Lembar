@@ -123,12 +123,21 @@ async function findOrCreateUser(
 
   // Create tenant first — jwt_users.workspace_id FK references tenants.id
   const userName = (googleUser.name ?? googleUser.email.split('@')[0] ?? 'User').trim() || 'User';
-  const slugBase = googleUser.email
-    .split('@')[0]
-    ?.toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 24) || 'user';
+  const emailLocal = googleUser.email.split('@')[0] ?? 'user';
+  const baseUsername = emailLocal
+    .toLowerCase()
+    .replace(/[^a-z0-9_.]/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 18) || 'user';
+  let username = baseUsername;
+  // Ensure unique username
+  for (let i = 0; i < 5; i += 1) {
+    const [exists] = await db.select().from(jwtUsers).where(eq(jwtUsers.username, username)).limit(1);
+    if (!exists) break;
+    username = `${baseUsername}_${randomUUID().slice(0, 4)}`;
+  }
+
+  const slugBase = baseUsername.slice(0, 24);
   const workspaceSlug = `${slugBase}-${randomUUID().slice(0, 8)}`;
 
   const [workspace] = await db
@@ -150,6 +159,7 @@ async function findOrCreateUser(
     .insert(jwtUsers)
     .values({
       email: googleUser.email,
+      username,
       passwordHash,
       name: userName,
       roles: ['subscriber'] as UserRole[],

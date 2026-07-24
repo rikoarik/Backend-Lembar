@@ -26,29 +26,38 @@ export async function registerJwtMultiRoleRoutes(
     const body = request.body as {
       email: string;
       password: string;
-      name: string;
+      name?: string;
+      username?: string;
+      phone?: string;
       roles?: string[] | undefined;
     };
 
-    if (!body.email || !body.password || !body.name) {
-      throwApiError('missing_fields', 'Email, password, dan name diperlukan');
+    const name = (body.name ?? body.username ?? '').trim();
+    if (!body.email || !body.password || !name) {
+      throwApiError('missing_fields', 'Email, password, dan username/name diperlukan');
     }
 
     const result = await service.register({
       email: body.email,
       password: body.password,
-      name: body.name,
-      roles: body.roles as any,
+      name,
+      username: body.username ?? name,
+      ...(body.phone ? { phone: body.phone } : {}),
+      ...(body.roles ? { roles: body.roles as any } : {}),
     });
     return reply.status(201).send(result);
   });
 
   // POST /v1/auth/login
   app.post('/v1/auth/login', async (request, reply) => {
-    const body = request.body as { email: string; password: string };
+    const body = request.body as {
+      email?: string;
+      identifier?: string;
+      password: string;
+    };
 
-    if (!body.email || !body.password) {
-      throwApiError('missing_fields', 'Email dan password diperlukan');
+    if ((!body.email && !body.identifier) || !body.password) {
+      throwApiError('missing_fields', 'Email/username/telepon dan password diperlukan');
     }
 
     const result = await service.login(body);
