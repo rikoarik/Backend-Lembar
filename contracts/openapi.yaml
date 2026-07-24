@@ -166,7 +166,7 @@ paths:
 
   /v1/auth/login:
     post:
-      summary: Login and receive JWT token
+      summary: Login with email, username, or phone and receive JWT token
       tags: [Identity]
       operationId: loginUser
       security: []
@@ -176,10 +176,31 @@ paths:
           application/json:
             schema:
               type: object
-              required: [email, password]
+              required: [password]
               properties:
-                email: { type: string, format: email }
+                identifier:
+                  type: string
+                  description: Email, username, or phone number
+                email:
+                  type: string
+                  description: Backward-compatible alias of identifier (email/username/phone)
                 password: { type: string }
+              anyOf:
+                - required: [identifier]
+                - required: [email]
+            examples:
+              email:
+                value:
+                  email: user@example.com
+                  password: "Test1234!@#A"
+              username:
+                value:
+                  identifier: subscriber03
+                  password: "Test1234!@#A"
+              phone:
+                value:
+                  identifier: "081233344455"
+                  password: "Test1234!@#A"
       responses:
         "200":
           description: Login successful

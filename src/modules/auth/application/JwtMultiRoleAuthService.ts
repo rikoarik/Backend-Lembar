@@ -5,7 +5,7 @@ import { hashPassword, verifyPassword } from '../infrastructure/password.js';
 import { generateJwt, verifyJwt, type JwtConfig } from '../infrastructure/jwtMultiRole.js';
 import { jwtUsers, USER_ROLES, type UserRole } from '../persistence/jwtUsersSchema.js';
 import { tenants } from '../../../infrastructure/database/schema.js';
-import { eq, or } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { ApiError } from '../../../common/errors/envelope.js';
 
 export interface RegisterInput {
@@ -244,31 +244,49 @@ export class JwtMultiRoleAuthService {
 
   private async findUserByIdentifier(identifier: string) {
     const value = identifier.trim();
-    const lower = value.toLowerCase();
-    const phone = this.normalizePhone(value);
+    if (!value) return null;
 
+    // Email login
     if (value.includes('@')) {
       const [user] = await this.db
         .select()
         .from(jwtUsers)
-        .where(eq(jwtUsers.email, lower))
+        .where(eq(jwtUsers.email, value.toLowerCase()))
         .limit(1);
       return user ?? null;
     }
 
-    if (phone && PHONE_DIGITS_PATTERN.test(phone)) {
-      const [user] = await this.db
-        .select()
-        .from(jwtUsers)
-        .where(or(eq(jwtUsers.phone, phone), eq(jwtUsers.username, lower)))
-        .limit(1);
-      return user ?? null;
+    // Phone login: accept 08..., 8..., +62..., 62...
+    const digitsOnly = value.replace(/\D/g, '');
+    const looksLikePhone = digitsOnly.length >= 8 && /^\d+$/.test(digitsOnly);
+    if (looksLikePhone) {
+      const normalized = this.normalizePhone(value);
+      const candidates = new Set<string>();
+      if (normalized) candidates.add(normalized);
+      candidates.add(digitsOnly);
+      if (digitsOnly.startsWith('0')) candidates.add(`62${digitsOnly.slice(1)}`);
+      if (digitsOnly.startsWith('62')) candidates.add(`0${digitsOnly.slice(2)}`);
+      if (digitsOnly.startsWith('8')) {
+        candidates.add(`0${digitsOnly}`);
+        candidates.add(`62${digitsOnly}`);
+      }
+
+      for (const phone of candidates) {
+        const [user] = await this.db
+          .select()
+          .from(jwtUsers)
+          .where(eq(jwtUsers.phone, phone))
+          .limit(1);
+        if (user) return user;
+      }
+      // fallthrough to username if no phone match
     }
 
+    // Username login (case-insensitive exact)
     const [user] = await this.db
       .select()
       .from(jwtUsers)
-      .where(eq(jwtUsers.username, lower))
+      .where(eq(jwtUsers.username, value.toLowerCase()))
       .limit(1);
     return user ?? null;
   }
