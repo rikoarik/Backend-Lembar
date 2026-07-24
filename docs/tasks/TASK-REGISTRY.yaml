@@ -1407,7 +1407,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B7
     title: School pilot security and operations gate
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B7-01, B7-02, B7-03, B7-04]
     decisions: []
     outcome: Tenant/admin adversarial, onboarding, support, and pilot release evidence.
