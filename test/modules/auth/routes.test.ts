@@ -1,316 +1,229 @@
-import { afterEach, describe, expect, test } from 'vitest';
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, test } from 'vitest';
+import { buildApp, type BuildAppOptions } from '../../../src/bootstrap/app.js';
+import { createDatabase, closeDatabase, type Database } from '../../../src/infrastructure/database/db.js';
 
-import { buildApp } from '../../../src/bootstrap/app.js';
-import { InMemoryAuthStore } from '../../../src/modules/auth/adapters/persistence/InMemoryAuthStore.js';
-import { createAuthService } from '../../../src/modules/auth/application/createAuthService.js';
-
-const apps: Array<Awaited<ReturnType<typeof buildApp>>> = [];
-
-async function makeApp() {
-  const app = await buildApp({ logger: false, serviceName: 'test', serviceVersion: 'test' });
-  apps.push(app);
-  return app;
+function resolveDatabaseUrl(): string | null {
+  if (process.env['DATABASE_URL']) return process.env['DATABASE_URL'];
+  try {
+    const envPath = path.resolve(process.cwd(), '.env');
+    const content = readFileSync(envPath, 'utf-8');
+    const match = content.match(/^DATABASE_URL=(.+)$/m);
+    if (match?.[1]) {
+      process.env['DATABASE_URL'] = match[1];
+      return match[1];
+    }
+  } catch { /* .env not readable */ }
+  return null;
 }
 
-afterEach(async () => {
-  await Promise.all(apps.splice(0).map((app) => app.close()));
-});
+const DATABASE_URL = resolveDatabaseUrl();
+const describeDb = DATABASE_URL ? describe : describe.skip;
 
-describe('auth routes', () => {
-  test('blocks state-changing requests without allowed origin and missing csrf token', async () => {
-    const app = await makeApp();
+describeDb('JWT auth routes', () => {
+  let db: Database;
 
-    const register = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/register',
-      payload: { email: 'teacher@example.test', password: 'passphrase-1' },
-    });
-
-    expect(register.statusCode).toBe(403);
-    expect(register.json()).toMatchObject({
-      error: { code: 'PERMISSION_DENIED', message: 'Permintaan tidak diizinkan.' },
-    });
-  });
-
-  test('accepts allowed-origin register, returns csrf token, and protects workspace switch', async () => {
-    const app = await makeApp();
-
-    const register = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/register',
-      headers: {
-        origin: 'http://localhost:3000',
-        'x-csrf-token': 'bootstrap',
-      },
-      payload: { email: 'teacher@example.test', password: 'passphrase-1' },
-    });
-
-    expect(register.statusCode).toBe(201);
-    const sessionCookie = register.cookies.find((cookie) =>
-      cookie.name.startsWith('__Host-lembar_session'),
-    );
-    const csrfCookie = register.cookies.find((cookie) => cookie.name === 'lembar_csrf');
-    expect(sessionCookie?.httpOnly).toBe(true);
-    expect(sessionCookie?.secure).toBe(true);
-    expect(csrfCookie?.value).toBeTruthy();
-
-    const me = await app.inject({
-      method: 'GET',
-      url: '/v1/me',
-      cookies: {
-        [sessionCookie!.name]: sessionCookie!.value,
-      },
-    });
-
-    expect(me.statusCode).toBe(200);
-    const body = me.json() as {
-      data: {
-        activeWorkspaceId: string;
-        activeWorkspace: { id: string; permissions: string[]; isActive: boolean };
-        context: { workspaceIds: string[]; permissionSet: string[] };
-        workspaces: Array<{
-          id: string;
-          type: 'personal' | 'school';
-          name: string;
-          role: string;
-          permissions: string[];
-          isActive: boolean;
-        }>;
-      };
-    };
-    const activeWorkspace = body.data.workspaces.find(
-      (workspace) => workspace.id === body.data.activeWorkspaceId,
-    );
-    expect(activeWorkspace?.type).toBe('personal');
-    expect(activeWorkspace?.role).toBe('teacher');
-    expect(activeWorkspace?.isActive).toBe(true);
-    expect(activeWorkspace?.permissions).toEqual([
-      'assessment.create',
-      'assessment.read',
-      'assessment.review',
-      'source.manage',
-    ]);
-    expect(body.data.activeWorkspace).toEqual(activeWorkspace);
-    expect(body.data.context).toEqual({
-      workspaceIds: [body.data.activeWorkspaceId],
-      permissionSet: activeWorkspace?.permissions,
-    });
-
-    const deniedByCsrf = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/workspace/switch',
-      cookies: {
-        [sessionCookie!.name]: sessionCookie!.value,
-        lembar_csrf: csrfCookie!.value,
-      },
-      payload: { workspaceId: '00000000-0000-0000-0000-000000000000' },
-    });
-
-    expect(deniedByCsrf.statusCode).toBe(403);
-    expect(deniedByCsrf.json()).toMatchObject({ error: { code: 'PERMISSION_DENIED' } });
-
-    const blocked = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/workspace/switch',
-      headers: {
-        origin: 'http://localhost:3000',
-        'x-csrf-token': csrfCookie!.value,
-      },
-      cookies: {
-        [sessionCookie!.name]: sessionCookie!.value,
-        lembar_csrf: csrfCookie!.value,
-      },
-      payload: { workspaceId: '00000000-0000-0000-0000-000000000000' },
-    });
-
-    expect(blocked.statusCode).toBe(404);
-    expect(blocked.json()).toMatchObject({ error: { code: 'WORKSPACE_ACCESS_DENIED' } });
-
-    const allowed = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/workspace/switch',
-      headers: {
-        origin: 'http://localhost:3000',
-        'x-csrf-token': csrfCookie!.value,
-      },
-      cookies: {
-        [sessionCookie!.name]: sessionCookie!.value,
-        lembar_csrf: csrfCookie!.value,
-      },
-      payload: { workspaceId: body.data.activeWorkspaceId },
-    });
-
-    expect(allowed.statusCode).toBe(200);
-    expect(allowed.json()).toMatchObject({ activeWorkspaceId: body.data.activeWorkspaceId });
-    expect(body.data.workspaces.map((workspace) => workspace.id)).toContain(
-      body.data.activeWorkspaceId,
-    );
-  });
-
-  test('denies cross-tenant workspace switch and keeps /v1/me scoped to memberships', async () => {
-    const store = new InMemoryAuthStore();
-    const auth = createAuthService({ store });
+  async function makeApp() {
+    db = createDatabase({ connectionString: DATABASE_URL! });
     const app = await buildApp({
       logger: false,
       serviceName: 'test',
       serviceVersion: 'test',
-      auth,
+      authDb: db,
     });
-    apps.push(app);
+    return { app, db };
+  }
 
-    const first = await auth.register({ email: 'first@example.test', password: 'passphrase-1' });
-    const firstLogin = await auth.login({ email: 'first@example.test', password: 'passphrase-1' });
-    const second = await auth.register({ email: 'second@example.test', password: 'passphrase-1' });
+  async function closeDb() {
+    try { await closeDatabase(db); } catch { /* */ }
+  }
 
-    const csrfToken = firstLogin.session.csrfToken;
-    const switchForeign = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/workspace/switch',
-      headers: {
-        origin: 'http://localhost:3000',
-        'x-csrf-token': csrfToken,
-      },
-      cookies: {
-        '__Host-lembar_session': firstLogin.session.id,
-        lembar_csrf: csrfToken,
-      },
-      payload: { workspaceId: second.workspaceId },
-    });
-    const me = await app.inject({
-      method: 'GET',
-      url: '/v1/me',
-      cookies: {
-        '__Host-lembar_session': firstLogin.session.id,
-      },
-    });
-    const dashboard = await app.inject({
-      method: 'GET',
-      url: '/v1/dashboard/summary',
-      cookies: {
-        '__Host-lembar_session': firstLogin.session.id,
-      },
-    });
-
-    expect(switchForeign.statusCode).toBe(404);
-    expect(switchForeign.json()).toMatchObject({ error: { code: 'WORKSPACE_ACCESS_DENIED' } });
-    expect(me.statusCode).toBe(200);
-    expect(me.json()).toMatchObject({ data: { activeWorkspaceId: first.workspaceId } });
-    expect(dashboard.statusCode).toBe(200);
-    expect(dashboard.json()).toMatchObject({
-      data: {
-        workspace: { id: first.workspaceId, isActive: true },
-        metrics: {
-          assessments: { total: 0, draft: 0, inReview: 0, final: 0 },
-          sources: { total: 0, ready: 0, processing: 0, failed: 0 },
-          jobs: { total: 0, active: 0, failed: 0 },
+  test('register creates subscriber user with full fields', async () => {
+    const { app } = await makeApp();
+    try {
+      const ts = Date.now();
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: `reg-${ts}@test.example`,
+          password: 'Test1234!@#A',
+          name: 'Tester',
+          username: `tester${ts}`,
+          phone: `0812${String(ts).slice(-8)}`,
         },
-        emptyState: { isEmpty: true, message: 'Belum ada aktivitas pada workspace ini.' },
-      },
-    });
-    expect(JSON.stringify(me.json())).not.toContain(second.workspaceId);
-    expect(JSON.stringify(dashboard.json())).not.toContain(second.workspaceId);
+      });
+
+      expect(res.statusCode).toBe(201);
+      const body = res.json();
+      expect(body).toHaveProperty('token');
+      expect(body).toHaveProperty('user');
+      expect(body.user.roles).toContain('subscriber');
+      expect(body.user.username).toBeTruthy();
+      expect(body.user.phone).toBeTruthy();
+    } finally {
+      await app.close();
+      await closeDb();
+    }
   });
 
-  test('workspace switch changes current read models only within memberships', async () => {
-    const store = new InMemoryAuthStore();
-    const auth = createAuthService({ store });
-    const app = await buildApp({
-      logger: false,
-      serviceName: 'test',
-      serviceVersion: 'test',
-      auth,
-    });
-    apps.push(app);
+  test('register rejects duplicate email', async () => {
+    const { app } = await makeApp();
+    try {
+      const ts = Date.now();
+      const payload = {
+        email: `dup-${ts}@test.example`,
+        password: 'Test1234!@#A',
+        name: 'Dup',
+        username: `dupuser${ts}`,
+        phone: `0812${String(ts + 1).slice(-8)}`,
+      };
+      await app.inject({ method: 'POST', url: '/v1/auth/register', payload });
+      const dup = await app.inject({ method: 'POST', url: '/v1/auth/register', payload });
 
-    const registered = await auth.register({
-      email: 'teacher@example.test',
-      password: 'passphrase-1',
-    });
-    const login = await auth.login({ email: 'teacher@example.test', password: 'passphrase-1' });
-    const schoolWorkspaceId = 'school-workspace';
-    await store.saveWorkspace({
-      id: schoolWorkspaceId,
-      slug: 'school-workspace',
-      name: 'Sekolah Uji',
-    });
-    await store.saveMembership({
-      workspaceId: schoolWorkspaceId,
-      userId: registered.userId,
-      role: 'school_admin',
-      state: 'active',
-    });
-
-    const csrfToken = login.session.csrfToken;
-    const switched = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/workspace/switch',
-      headers: {
-        origin: 'http://localhost:3000',
-        'x-csrf-token': csrfToken,
-      },
-      cookies: {
-        '__Host-lembar_session': login.session.id,
-        lembar_csrf: csrfToken,
-      },
-      payload: { workspaceId: schoolWorkspaceId },
-    });
-    const me = await app.inject({
-      method: 'GET',
-      url: '/v1/me',
-      cookies: { '__Host-lembar_session': login.session.id },
-    });
-    const dashboard = await app.inject({
-      method: 'GET',
-      url: '/v1/dashboard/summary',
-      cookies: { '__Host-lembar_session': login.session.id },
-    });
-
-    expect(switched.statusCode).toBe(200);
-    expect(me.json()).toMatchObject({
-      data: {
-        activeWorkspaceId: schoolWorkspaceId,
-        activeWorkspace: { id: schoolWorkspaceId, role: 'school_admin', isActive: true },
-        workspaces: [
-          { id: registered.workspaceId, isActive: false },
-          { id: schoolWorkspaceId, isActive: true },
-        ],
-      },
-    });
-    expect(dashboard.json()).toMatchObject({
-      data: { workspace: { id: schoolWorkspaceId, role: 'school_admin', isActive: true } },
-    });
-    expect(JSON.stringify(dashboard.json())).not.toContain('missing-workspace');
+      expect(dup.statusCode).toBe(409);
+      expect(dup.json().error.code).toBe('STATE_CONFLICT');
+    } finally {
+      await app.close();
+      await closeDb();
+    }
   });
 
-  test('recovery and invitation endpoints stay enumeration-safe', async () => {
-    const app = await makeApp();
+  test('login by email returns JWT token', async () => {
+    const { app } = await makeApp();
+    try {
+      const ts = Date.now();
+      await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: `login-${ts}@test.example`,
+          password: 'Test1234!@#A',
+          name: 'Login Test',
+          username: `logintest${ts}`,
+          phone: `0812${String(ts + 2).slice(-8)}`,
+        },
+      });
 
-    const recovery = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/recovery/request',
-      headers: {
-        origin: 'http://localhost:3000',
-        'x-csrf-token': 'bootstrap',
-      },
-      payload: { email: 'missing@example.test' },
-    });
+      const login = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: { email: `login-${ts}@test.example`, password: 'Test1234!@#A' },
+      });
 
-    expect(recovery.statusCode).toBe(202);
-    expect(recovery.json()).toEqual({
-      message: 'Jika akun ditemukan, instruksi pemulihan akan dikirim.',
-    });
+      expect(login.statusCode).toBe(200);
+      expect(login.json().token).toBeTruthy();
+      expect(login.json().user.email).toBe(`login-${ts}@test.example`);
+    } finally {
+      await app.close();
+      await closeDb();
+    }
+  });
 
-    const invite = await app.inject({
-      method: 'POST',
-      url: '/v1/auth/invitations/consume',
-      headers: {
-        origin: 'http://localhost:3000',
-        'x-csrf-token': 'bootstrap',
-      },
-      payload: { token: 'missing-token', password: 'passphrase-1' },
-    });
+  test('login by username returns JWT token', async () => {
+    const { app } = await makeApp();
+    try {
+      const ts = Date.now();
+      const uname = `userlogin${ts}`;
+      await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: `ulogin-${ts}@test.example`,
+          password: 'Test1234!@#A',
+          name: 'User Login',
+          username: uname,
+          phone: `0812${String(ts + 3).slice(-8)}`,
+        },
+      });
 
-    expect(invite.statusCode).toBe(400);
-    expect(invite.json()).toMatchObject({ error: { code: 'VALIDATION_FAILED' } });
+      const login = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: { identifier: uname, password: 'Test1234!@#A' },
+      });
+
+      expect(login.statusCode).toBe(200);
+      expect(login.json().user.username).toBe(uname);
+    } finally {
+      await app.close();
+      await closeDb();
+    }
+  });
+
+  test('login by phone returns JWT token', async () => {
+    const { app } = await makeApp();
+    try {
+      const ts = Date.now();
+      const phone = `0812${String(ts + 4).slice(-8)}`;
+      await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: `plogin-${ts}@test.example`,
+          password: 'Test1234!@#A',
+          name: 'Phone Login',
+          username: `plogin${ts}`,
+          phone,
+        },
+      });
+
+      const login = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/login',
+        payload: { identifier: phone, password: 'Test1234!@#A' },
+      });
+
+      expect(login.statusCode).toBe(200);
+      expect(login.json().user.phone).toBeTruthy();
+    } finally {
+      await app.close();
+      await closeDb();
+    }
+  });
+
+  test('GET /v1/auth/me requires Bearer token', async () => {
+    const { app } = await makeApp();
+    try {
+      const noToken = await app.inject({ method: 'GET', url: '/v1/auth/me' });
+      expect(noToken.statusCode).toBe(401);
+    } finally {
+      await app.close();
+      await closeDb();
+    }
+  });
+
+  test('GET /v1/auth/me with valid token returns user info', async () => {
+    const { app } = await makeApp();
+    try {
+      const ts = Date.now();
+      const reg = await app.inject({
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: `me-${ts}@test.example`,
+          password: 'Test1234!@#A',
+          name: 'Me Test',
+          username: `metest${ts}`,
+          phone: `0812${String(ts + 5).slice(-8)}`,
+        },
+      });
+
+      const token = reg.json().token;
+      const me = await app.inject({
+        method: 'GET',
+        url: '/v1/auth/me',
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(me.statusCode).toBe(200);
+      expect(me.json().id).toBeTruthy();
+      expect(me.json().email).toBe(`me-${ts}@test.example`);
+    } finally {
+      await app.close();
+      await closeDb();
+    }
   });
 });

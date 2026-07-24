@@ -138,18 +138,34 @@ export class JwtMultiRoleAuthService {
       throwApiError('workspace_creation_failed', 'Gagal membuat workspace');
     }
 
-    const [user] = await this.db
-      .insert(jwtUsers)
-      .values({
-        email,
-        username,
-        phone: phone || null,
-        passwordHash,
-        name,
-        roles,
-        workspaceId: workspace.id,
-      })
-      .returning();
+    let user: typeof jwtUsers.$inferSelect | undefined;
+    try {
+      [user] = await this.db
+        .insert(jwtUsers)
+        .values({
+          email,
+          username,
+          phone: phone || null,
+          passwordHash,
+          name,
+          roles,
+          workspaceId: workspace.id,
+        })
+        .returning();
+    } catch (insertError: unknown) {
+      const message = String(insertError ?? '');
+      // Unique constraint violations → friendly duplication error
+      if (message.includes('jwt_users_email_unique')) {
+        throwApiError('email_exists', 'Email sudah terdaftar');
+      }
+      if (message.includes('jwt_users_username_unique')) {
+        throwApiError('username_exists', 'Username sudah dipakai');
+      }
+      if (message.includes('jwt_users_phone_unique')) {
+        throwApiError('phone_exists', 'Nomor telepon sudah terdaftar');
+      }
+      throw insertError;
+    }
 
     if (!user) {
       throwApiError('user_creation_failed', 'Gagal membuat user');
