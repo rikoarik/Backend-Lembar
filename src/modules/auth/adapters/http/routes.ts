@@ -103,16 +103,35 @@ function enforceBrowserMutationProtection(
   allowedOrigins: Set<string>,
 ): void {
   const origin = request.headers.origin;
+
+  // Non-browser clients (curl, mobile) don't send Origin header — skip CSRF.
+  if (typeof origin !== 'string' || origin.length === 0) {
+    return;
+  }
+
+  // Origin must be in allowed list (cross-site guard).
+  if (!allowedOrigins.has(origin)) {
+    throw new ApiError({
+      code: 'PERMISSION_DENIED',
+      message: 'Permintaan tidak diizinkan.',
+      requestId: request.requestId ?? 'req_unknown',
+      status: 403,
+    });
+  }
+
+  // Same-origin browser requests (Swagger UI, SPA) are safe from CSRF
+  // as long as there is no existing session cookie to hijack.
   const csrf = request.headers['x-csrf-token'];
   const cookies = cookieMap(request);
-  const validBootstrap = csrf === 'bootstrap' && !cookies[SESSION_COOKIE];
+  if (!cookies[SESSION_COOKIE]) {
+    // No session → not a CSRF attack. Allow login/register from Swagger UI.
+    return;
+  }
+
+  // Has session → require matching CSRF token.
   const validSessionCsrf =
     typeof csrf === 'string' && csrf.length > 0 && csrf === cookies[CSRF_COOKIE];
-  if (
-    typeof origin !== 'string' ||
-    !allowedOrigins.has(origin) ||
-    (!validBootstrap && !validSessionCsrf)
-  ) {
+  if (!validSessionCsrf) {
     throw new ApiError({
       code: 'PERMISSION_DENIED',
       message: 'Permintaan tidak diizinkan.',

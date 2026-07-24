@@ -2,13 +2,16 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import { ApiError } from '../../../../common/errors/envelope.js';
 import type { Database } from '../../../../infrastructure/database/db.js';
+import {
+  createJwtAuthMiddleware,
+  requireRole,
+} from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import type { MarketingBlock, MarketingSeo } from '../../domain/MarketingContent.js';
 import { MarketingOpsService } from '../../domain/MarketingOpsService.js';
 
-const SESSION_COOKIE = '__Host-lembar_session';
-
 export interface RegisterMarketingOpsRoutesOptions {
   db: Database;
+  jwtSecret?: string;
 }
 
 export async function registerMarketingOpsRoutes(
@@ -21,39 +24,45 @@ export async function registerMarketingOpsRoutes(
     now: () => new Date(),
   }).withDb(options.db);
 
-  const requireSuperadmin = (request: FastifyRequest): void => {
-    const sessionCookie = cookieMap(request)[SESSION_COOKIE];
+  const jwtSecret = options.jwtSecret ?? process.env.JWT_SECRET ?? 'dev-secret-change-in-production';
+  const authMiddleware = createJwtAuthMiddleware({ secret: jwtSecret });
+  const superadminOnly = requireRole(['superadmin']);
+
+  const requireSuperadmin = async (request: FastifyRequest): Promise<void> => {
+    // Prefer JWT superadmin; keep legacy session cookie as fallback.
+    const auth = request.headers.authorization;
+    if (auth?.startsWith('Bearer ')) {
+      await authMiddleware(request, {} as never);
+      await superadminOnly(request, {} as never);
+      return;
+    }
+
+    const sessionCookie = cookieMap(request)['__Host-lembar_session'];
     if (!sessionCookie) {
       throw new ApiError({
         code: 'AUTH_REQUIRED',
-        message: 'Autentikasi diperlukan.',
+        message: 'Autentikasi diperlukan. Gunakan Authorization: Bearer <jwt> dengan role superadmin.',
         requestId: request.requestId ?? 'req_unknown',
         status: 401,
       });
     }
-    // Session is validated by auth layer; ops routes are mounted after auth routes.
-    // The session cookie proves authentication. Superadmin check is done via
-    // the B1-03 permission helper. If auth layer rejects, it returns 401 before
-    // reaching this point. Here we ensure the request is authenticated.
-    // Full role check: extract session → look up user → verify superadmin.
-    // Implementation delegates to auth module when auth is available.
   };
 
   app.get('/v1/ops/marketing/pages', async (request) => {
-    requireSuperadmin(request);
+    await requireSuperadmin(request);
     const pages = await service.listPages();
     return { data: pages };
   });
 
   app.get('/v1/ops/marketing/pages/:slug', async (request) => {
-    requireSuperadmin(request);
+    await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
     const page = await service.getPageForOps(slug);
     return { data: page };
   });
 
   app.put('/v1/ops/marketing/pages/:slug/draft', async (request, reply) => {
-    requireSuperadmin(request);
+    await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
     const revision = Number(request.headers['if-match']);
     const userId = '00000000-0000-0000-0000-000000000000';
@@ -76,7 +85,7 @@ export async function registerMarketingOpsRoutes(
   });
 
   app.post('/v1/ops/marketing/pages/:slug/publish', async (request) => {
-    requireSuperadmin(request);
+    await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
     const revision = Number(request.headers['if-match']);
     const userId = '00000000-0000-0000-0000-000000000000';
@@ -85,7 +94,7 @@ export async function registerMarketingOpsRoutes(
   });
 
   app.post('/v1/ops/marketing/pages/:slug/unpublish', async (request) => {
-    requireSuperadmin(request);
+    await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
     const revision = Number(request.headers['if-match']);
     const userId = '00000000-0000-0000-0000-000000000000';
@@ -94,7 +103,7 @@ export async function registerMarketingOpsRoutes(
   });
 
   app.post('/v1/ops/marketing/pages/:slug/versions/:version/restore', async (request) => {
-    requireSuperadmin(request);
+    await requireSuperadmin(request);
     const { slug, version } = request.params as { slug: string; version: string };
     const userId = '00000000-0000-0000-0000-000000000000';
     const page = await service.restore(slug, Number(version), userId);

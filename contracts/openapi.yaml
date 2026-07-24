@@ -48,6 +48,126 @@ paths:
                 $ref: "#/components/schemas/HealthResponse"
         "400":
           $ref: "#/components/responses/ValidationError"
+  /v1/auth/register:
+    post:
+      summary: Register a new user account
+      tags: [Identity]
+      operationId: registerUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, name]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                name: { type: string, minLength: 1 }
+                roles:
+                  type: array
+                  items: { type: string }
+                  default: ["subscriber"]
+                  description: User roles (default ["subscriber"])
+      responses:
+        "201":
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokenResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/auth/login:
+    post:
+      summary: Login and receive JWT token
+      tags: [Identity]
+      operationId: loginUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthTokenResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/auth/me:
+    get:
+      summary: Get current authenticated user info
+      tags: [Identity]
+      operationId: getCurrentUser
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Current user information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfoResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /v1/auth/me/roles:
+    patch:
+      summary: Update user roles (superadmin only)
+      tags: [Identity]
+      operationId: updateUserRoles
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roles]
+              properties:
+                roles:
+                  type: array
+                  items: { type: string }
+                  description: New roles array
+      responses:
+        "200":
+          description: Roles updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserInfoResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Forbidden - superadmin role required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/me:
     get:
       summary: Read the current account and workspace options
@@ -1647,6 +1767,11 @@ components:
       type: apiKey
       in: cookie
       name: __Host-lembar_session
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token dengan format "Bearer <token>"
   parameters:
     WorkspaceId:
       in: header
@@ -1798,6 +1923,39 @@ components:
                 items: { type: string }
             requestId: { type: string }
             retryable: { type: boolean }
+    AuthTokenResponse:
+      type: object
+      required: [token, user]
+      properties:
+        token:
+          type: string
+          description: JWT token for authentication
+        user:
+          type: object
+          required: [id, email, name, roles]
+          properties:
+            id: { type: string, format: uuid }
+            email: { type: string, format: email }
+            name: { type: string }
+            roles:
+              type: array
+              items: { type: string }
+              description: User roles (e.g., ["subscriber"], ["teacher", "school_admin"])
+            workspaceId: { type: string, format: uuid, nullable: true }
+    UserInfoResponse:
+      type: object
+      required: [id, email, name, roles, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        name: { type: string }
+        roles:
+          type: array
+          items: { type: string }
+          description: User roles array
+        workspaceId: { type: string, format: uuid, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     WorkspaceSummary:
       type: object
       required: [id, type, name, role]
@@ -2509,4 +2667,4 @@ components:
           type: array
           items: { $ref: "#/components/schemas/NotificationAuditRow" }
 security:
-  - sessionCookie: []
+  - BearerAuth: []

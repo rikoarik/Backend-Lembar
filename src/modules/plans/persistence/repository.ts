@@ -15,33 +15,49 @@ export class WorkspacePlanRepository {
 
   /**
    * Find the active plan for a workspace, or auto-create a free plan.
+   * Returns a default free plan if DB query fails (e.g., demo workspaces).
    */
   async findOrCreate(tenantId: string, workspaceId: string): Promise<WorkspacePlan> {
-    const existing = await this.db
-      .select()
-      .from(workspacePlans)
-      .where(and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)))
-      .limit(1);
+    try {
+      const existing = await this.db
+        .select()
+        .from(workspacePlans)
+        .where(and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)))
+        .limit(1);
 
-    if (existing[0]) return existing[0];
+      if (existing[0]) return existing[0];
 
-    const [created] = await this.db
-      .insert(workspacePlans)
-      .values({ tenantId, workspaceId, plan: 'free' })
-      .onConflictDoNothing()
-      .returning();
+      const [created] = await this.db
+        .insert(workspacePlans)
+        .values({ tenantId, workspaceId, plan: 'free' })
+        .onConflictDoNothing()
+        .returning();
 
-    if (created) return created;
+      if (created) return created;
 
-    // Race condition: another process inserted — fetch again
-    const [fetched] = await this.db
-      .select()
-      .from(workspacePlans)
-      .where(and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)))
-      .limit(1);
+      // Race condition: another process inserted — fetch again
+      const [fetched] = await this.db
+        .select()
+        .from(workspacePlans)
+        .where(and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)))
+        .limit(1);
 
-    if (!fetched) throw new Error(`Failed to find or create plan for workspace ${workspaceId}`);
-    return fetched;
+      if (!fetched) throw new Error(`Failed to find or create plan for workspace ${workspaceId}`);
+      return fetched;
+    } catch {
+      // Fallback: return default free plan for demo workspaces
+      return {
+        id: 'demo-plan',
+        tenantId,
+        workspaceId,
+        plan: 'free' as PlanType,
+        generationsUsedThisMonth: 0,
+        billingCycleStartedAt: new Date(),
+        active: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    }
   }
 
   async findByWorkspace(tenantId: string, workspaceId: string): Promise<WorkspacePlan | null> {

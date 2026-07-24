@@ -90,6 +90,40 @@ export async function registerJwtMultiRoleRoutes(
       return reply.status(200).send(user);
     },
   );
+
+  // GET /v1/me (backward compat — matches OpenAPI spec)
+  app.get(
+    '/v1/me',
+    { preHandler: authMiddleware },
+    async (request, reply) => {
+      const token = extractBearerToken(request);
+      if (!token) throwApiError('missing_token', 'Authorization header diperlukan');
+      const user = await service.getCurrentUser(token);
+      return reply.status(200).send({ data: user });
+    },
+  );
+
+  // GET /v1/dashboard/summary (backward compat — matches OpenAPI spec)
+  app.get(
+    '/v1/dashboard/summary',
+    { preHandler: authMiddleware },
+    async (request, reply) => {
+      const token = extractBearerToken(request);
+      if (!token) throwApiError('missing_token', 'Authorization header diperlukan');
+      const user = await service.getCurrentUser(token);
+      return reply.status(200).send({
+        data: {
+          activeWorkspaceId: user.workspaceId,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            roles: user.roles,
+          },
+        },
+      });
+    },
+  );
 }
 
 function extractBearerToken(request: FastifyRequest): string | null {
