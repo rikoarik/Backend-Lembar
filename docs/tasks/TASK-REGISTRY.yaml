@@ -1284,7 +1284,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B5
     title: History, private bank, and templates
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B4-04]
     decisions: []
     outcome: Tenant-scoped read models, question snapshots, and versioned configs.
