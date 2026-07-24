@@ -139,3 +139,10 @@ export { renderPrintHtml } from './application/printTemplate.js';
 export { registerPrintRoutes } from './adapters/http/printRoutes.js';
 export type { PrintDocument, PrintDocumentMeta, PrintQuestion, PrintQuestionOption } from './domain/PrintDocument.js';
 export { PRINT_DTO_VERSION } from './domain/PrintDocument.js';
+
+// B5-02
+export { PrintArtifactService } from './application/PrintArtifactService.js';
+export type { PrintArtifactServiceOptions, TriggerRenderResult, ArtifactInfoResult } from './application/PrintArtifactService.js';
+export { registerArtifactRoutes } from './adapters/http/artifactRoutes.js';
+export type { PrintArtifact, PrintArtifactStore, ArtifactStatus } from './domain/PrintArtifact.js';
+export { InMemoryPrintArtifactStore } from './persistence/InMemoryPrintArtifactStore.js';
