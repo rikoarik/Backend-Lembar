@@ -1,0 +1,43 @@
+name: Deploy Backend to VPS
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - 'src/**'
+      - 'contracts/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'tsconfig.json'
+      - 'tsconfig.build.json'
+      - '.env.example'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd ~/Projects/Backend-Lembar
+            
+            # Pull latest changes
+            git pull origin dev
+            
+            # Install dependencies
+            pnpm install --frozen-lockfile
+            
+            # Build
+            pnpm run build
+            
+            # Restart PM2
+            pm2 restart lembar-api --update-env
+            
+            # Check status
+            pm2 status lembar-api
+            
+            echo "✅ Backend deployed successfully!"
