@@ -1185,51 +1185,66 @@ tasks:
     repository: Backend-Lembar
     sprint: B4
     title: Question review, edit, and audit
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B3-05]
     decisions: []
     outcome: Versioned edit/review/delete commands with source and audit integrity.
     evidence: [validation, authorization, audit]
+    branch: feat/B4-01-question-review-edit-audit
+    merged_to: dev
+    commit: 33f0fbb
 
   - id: B4-02
     repository: Backend-Lembar
     sprint: B4
     title: Targeted question regeneration
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B4-01, B2-05]
     decisions: []
     outcome: Idempotent replacement candidate preserving prior question until accepted.
     evidence: [old-version, duplicate-job, quota-policy]
+    branch: feat/B4-02-targeted-question-regeneration
+    merged_to: dev
+    commit: c57d3b1
 
   - id: B4-03
     repository: Backend-Lembar
     sprint: B4
     title: Optimistic conflict handling
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B4-01]
     decisions: []
     outcome: Stable version/ETag conflict contract for concurrent review.
     evidence: [race-tests, safe-current-state]
+    branch: feat/B4-03-optimistic-conflict-handling
+    merged_to: dev
+    commit: cb87c05
 
   - id: B4-04
     repository: Backend-Lembar
     sprint: B4
     title: Immutable finalization
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B4-01, B4-03]
     decisions: []
     outcome: Idempotent final version only after all invariants pass.
     evidence: [blocking-matrix, immutable-test, audit]
+    branch: feat/B4-04-immutable-finalization
+    merged_to: dev
+    commit: 85ae34f
 
   - id: B4-05
     repository: Backend-Lembar
     sprint: B4
     title: Review and finalization integration gate
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B4-01, B4-02, B4-03, B4-04]
     decisions: []
     outcome: Contract, tenant, conflict, and failure end-to-end evidence.
     evidence: [integration-suite, contract-artifact]
+    branch: feat/B4-05-review-finalization-integration-gate
+    merged_to: dev
+    commit: 327a502
 
   - id: B5-01
     repository: Backend-Lembar
