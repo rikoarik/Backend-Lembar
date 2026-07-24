@@ -1,5 +1,5 @@
 /**
- * B2-03 — Public re-exports for the assessments module.
+ * B2-03..B4-04 — Public re-exports for the assessments module.
  */
 export type {
   Assessment,
@@ -66,9 +66,40 @@ export type {
   QuestionGenerationStore,
 } from './domain/QuestionGeneration.js';
 
+// B4-01..B4-04 — Question review, regeneration, conflict, finalization
+export {
+  QuestionReviewService,
+  QuestionNotFoundError,
+  QuestionEtagMismatchError,
+  QuestionFinalizedError,
+  QuestionNoCandidateError,
+  QuestionsPendingError,
+  AssessmentVersionNotFinalizedError,
+  computeEtag,
+} from './application/QuestionReviewService.js';
+
+export type { QuestionReviewServiceOptions } from './application/QuestionReviewService.js';
+
+export { FinalizationService } from './application/FinalizationService.js';
+export type {
+  FinalizationServiceOptions,
+  FinalizeResult,
+} from './application/FinalizationService.js';
+
+export type {
+  ReviewedQuestion,
+  QuestionReviewStatus,
+  QuestionAuditEntry,
+  QuestionAuditAction,
+  AssessmentFinalization,
+  EditReviewedQuestionInput,
+  QuestionReviewStore,
+} from './domain/QuestionReview.js';
+
 export { InMemoryAssessmentsStore } from './persistence/InMemoryAssessmentsStore.js';
 export { InMemoryBlueprintPipelineStore } from './persistence/InMemoryBlueprintPipelineStore.js';
 export { InMemoryQuestionGenerationStore } from './persistence/InMemoryQuestionGenerationStore.js';
+export { InMemoryQuestionReviewStore } from './persistence/InMemoryQuestionReviewStore.js';
 
 export {
   QualityService,
@@ -99,3 +130,4 @@ export type {
 
 export { registerAssessmentRoutes } from './adapters/http/routes.js';
 export { registerBlueprintPipelineRoutes } from './adapters/http/blueprintRoutes.js';
+export { registerQuestionReviewRoutes } from './adapters/http/questionReviewRoutes.js';
