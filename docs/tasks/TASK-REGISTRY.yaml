@@ -1250,27 +1250,31 @@ tasks:
     repository: Backend-Lembar
     sprint: B5
     title: PrintDocument and template contract
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B4-04, B0-07]
     decisions: [D-020]
     outcome: Minimal safe versioned print DTO and A4 template.
     evidence: [escaping, package-exclusion, fixtures]
+    branch: feat/B5-01-print-document-template
+    commit: b9b74f8
 
   - id: B5-02
     repository: Backend-Lembar
     sprint: B5
     title: PDF artifact lifecycle
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B5-01]
     decisions: [D-006, D-020]
     outcome: Isolated render, private artifact, deterministic reuse, authorized download.
     evidence: [golden-A4, egress-block, retry, checksum]
+    branch: feat/B5-02-pdf-artifact-lifecycle
+    commit: 28aba52
 
   - id: B5-03
     repository: Backend-Lembar
     sprint: B5
     title: Controlled share links
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B5-02]
     decisions: []
     outcome: High-entropy scoped expiry/revoke link and safe public package.
