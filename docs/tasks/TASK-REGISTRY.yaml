@@ -1387,7 +1387,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B7
     title: School private library and branding policy
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B7-01, B5-04]
     decisions: []
     outcome: Explicit ownership/visibility for school bank/templates and approved print branding.
@@ -1397,7 +1397,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B7
     title: School usage and billing operations
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B7-02, B6-02]
     decisions: [D-008, D-009]
     outcome: Aggregate reporting and provider-neutral contract/invoice state.

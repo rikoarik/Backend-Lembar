@@ -1,5 +1,5 @@
 /**
- * School module exports (B7-01, B7-02, B7-03).
+ * School module exports (B7-01, B7-02, B7-03, B7-04).
  */
 export { SchoolService, InvalidInvitationError } from './application/SchoolService.js';
 export type {
@@ -27,3 +27,6 @@ export { registerDashboardRoutes } from './adapters/http/dashboardRoutes.js';
 export type { RegisterDashboardRoutesOptions } from './adapters/http/dashboardRoutes.js';
 export { registerOnboardingRoutes } from './adapters/http/onboardingRoutes.js';
 export type { RegisterOnboardingRoutesOptions } from './adapters/http/onboardingRoutes.js';
+export { SchoolBillingService } from './application/SchoolBillingService.js';
+export { registerBillingRoutes } from './adapters/http/billingRoutes.js';
+export type { RegisterBillingRoutesOptions } from './adapters/http/billingRoutes.js';
