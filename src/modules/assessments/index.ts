@@ -131,3 +131,11 @@ export type {
 export { registerAssessmentRoutes } from './adapters/http/routes.js';
 export { registerBlueprintPipelineRoutes } from './adapters/http/blueprintRoutes.js';
 export { registerQuestionReviewRoutes } from './adapters/http/questionReviewRoutes.js';
+
+// B5-01
+export { PrintService } from './application/PrintService.js';
+export type { PrintServiceOptions } from './application/PrintService.js';
+export { renderPrintHtml } from './application/printTemplate.js';
+export { registerPrintRoutes } from './adapters/http/printRoutes.js';
+export type { PrintDocument, PrintDocumentMeta, PrintQuestion, PrintQuestionOption } from './domain/PrintDocument.js';
+export { PRINT_DTO_VERSION } from './domain/PrintDocument.js';
