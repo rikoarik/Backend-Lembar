@@ -1173,11 +1173,13 @@ tasks:
     repository: Backend-Lembar
     sprint: B3
     title: Pilot eval and model route gate
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B3-04]
     decisions: [D-012, D-013, D-019]
     outcome: Educator-reviewed eval, latency/cost report, and accepted release thresholds.
     evidence: [dataset-card, report, canary-plan]
+    branch: feat/B3-05-pilot-eval-model-gate
+    dev_commit: 358d867
 
   - id: B4-01
     repository: Backend-Lembar
