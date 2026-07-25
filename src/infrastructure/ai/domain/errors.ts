@@ -17,7 +17,7 @@ export interface AiAdapterErrorInit {
   redactedResponseFingerprint: string;
   retryAfterMs?: number;
   schemaRepairAttempt: number;
-  driver: 'mock' | 'openai';
+  driver: 'mock' | 'openai' | 'hermes';
   cause?: string;
 }
 
@@ -28,7 +28,7 @@ export class AiAdapterError extends Error {
   public readonly redactedResponseFingerprint: string;
   public readonly retryAfterMs: number | null;
   public readonly schemaRepairAttempt: number;
-  public readonly driver: 'mock' | 'openai';
+  public readonly driver: 'mock' | 'openai' | 'hermes';
   public override readonly cause: string | null;
 
   constructor(init: AiAdapterErrorInit) {

@@ -70,7 +70,7 @@ export interface AiGenerateResult {
 }
 
 export interface AiAdapterMeta {
-  driver: 'mock' | 'openai';
+  driver: 'mock' | 'openai' | 'hermes';
   providerModelId: string;
 }
 

@@ -14,7 +14,7 @@
  */
 import { ConfigError, type ConfigIssue } from './errors.js';
 
-export const AI_DRIVERS = ['mock', 'openai'] as const;
+export const AI_DRIVERS = ['mock', 'openai', 'hermes'] as const;
 export type AiDriver = (typeof AI_DRIVERS)[number];
 
 export const AI_PROVIDER_OUTCOMES = [
@@ -46,6 +46,7 @@ function readString(env: NodeJS.ProcessEnv, key: string): string | undefined {
 function parseDriver(
   raw: string | undefined,
   apiKeyPresent: boolean,
+  hermesApiKeyPresent: boolean,
   issues: ConfigIssue[],
 ): AiDriver {
   const fallback: AiDriver = 'mock';
@@ -53,11 +54,11 @@ function parseDriver(
   if ((AI_DRIVERS as readonly string[]).includes(raw)) {
     const value = raw as AiDriver;
     if (value === 'openai' && !apiKeyPresent) {
-      // Live driver requires the secret; the spike is intentionally safe-by-default.
-      issues.push({
-        key: 'AI_DRIVER',
-        reason: 'openai requires a non-empty OPENAI_API_KEY env var',
-      });
+      issues.push({ key: 'AI_DRIVER', reason: 'openai requires a non-empty OPENAI_API_KEY env var' });
+      return fallback;
+    }
+    if (value === 'hermes' && !hermesApiKeyPresent) {
+      issues.push({ key: 'AI_DRIVER', reason: 'hermes requires a non-empty HERMES_API_KEY env var' });
       return fallback;
     }
     return value;
@@ -108,7 +109,12 @@ export function parseAiEnv(env: NodeJS.ProcessEnv = process.env): AiEnv {
     return Boolean(v && v.length > 0);
   })();
 
-  const driver = parseDriver(readString(env, 'AI_DRIVER'), apiKeyPresent, issues);
+  const hermesApiKeyPresent = (() => {
+    const v = readString(env, 'HERMES_API_KEY');
+    return Boolean(v && v.length > 0);
+  })();
+
+  const driver = parseDriver(readString(env, 'AI_DRIVER'), apiKeyPresent, hermesApiKeyPresent, issues);
 
   const modelId = readString(env, 'AI_MODEL_ID') ?? 'mock-fixture-v1';
   const schemaRepairMaxAttempts = parseBoundedInt(
@@ -127,7 +133,7 @@ export function parseAiEnv(env: NodeJS.ProcessEnv = process.env): AiEnv {
     issues,
     'AI_TOKEN_CHARS_FALLBACK',
   );
-  const baseUrl = parseBaseUrl(readString(env, 'AI_BASE_URL'));
+  const baseUrl = parseBaseUrl(readString(env, 'AI_BASE_URL')) ?? parseBaseUrl(readString(env, 'HERMES_BASE_URL'));
   const timeoutMs = parseBoundedInt(
     readString(env, 'AI_TIMEOUT_MS'),
     30_000,

@@ -23,7 +23,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-export const AI_DRIVERS = ['mock', 'openai'] as const;
+export const AI_DRIVERS = ['mock', 'openai', 'hermes'] as const;
 export type AiDriver = (typeof AI_DRIVERS)[number];
 
 export const AI_OUTCOMES = [

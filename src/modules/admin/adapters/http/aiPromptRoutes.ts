@@ -343,4 +343,81 @@ export async function registerAiPromptRoutes(
       },
     });
   });
+
+  // ── Submit feedback ────────────────────────────────
+  app.post('/v1/admin/prompts/:id/feedback', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { rating: number; comment?: string; tags?: string[] } | null;
+    if (!body?.rating || body.rating < 1 || body.rating > 5)
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'rating must be 1-5' } });
+
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const promptRes = await pool.query('SELECT name FROM admin_prompts WHERE id = $1', [id]);
+    if (!promptRes.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Prompt not found' } });
+
+    const promptName = (promptRes.rows[0] as any).name;
+    const user = request.jwtUser!;
+
+    await pool.query(
+      `INSERT INTO ai_feedback (workspace_id, user_id, prompt_template_id, rating, comment, tags) VALUES ($1, $2, $3, $4, $5, $6)`,
+      ['admin', user.userId, promptName, body.rating, body.comment ?? null, JSON.stringify(body.tags ?? [])],
+    );
+
+    await auditLog(user.userId, 'prompt.feedback', id, { rating: body.rating });
+    return reply.status(201).send({ data: { id, rating: body.rating } });
+  });
+
+  // ── Get feedback metrics ───────────────────────────
+  app.get('/v1/admin/prompts/:id/feedback', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(200).send({ data: { feedback: [], metrics: {} } });
+
+    const promptRes = await pool.query('SELECT name FROM admin_prompts WHERE id = $1', [id]);
+    if (!promptRes.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Prompt not found' } });
+
+    const promptName = (promptRes.rows[0] as any).name;
+
+    const feedbackRes = await pool.query(
+      `SELECT id, rating, comment, tags, created_at FROM ai_feedback WHERE prompt_template_id = $1 ORDER BY created_at DESC LIMIT 50`,
+      [promptName],
+    );
+
+    const metricsRes = await pool.query(`
+      SELECT COUNT(*)::int as total, ROUND(AVG(rating), 2)::numeric as avg,
+        COUNT(*) FILTER (WHERE rating = 1)::int as r1,
+        COUNT(*) FILTER (WHERE rating = 2)::int as r2,
+        COUNT(*) FILTER (WHERE rating = 3)::int as r3,
+        COUNT(*) FILTER (WHERE rating = 4)::int as r4,
+        COUNT(*) FILTER (WHERE rating = 5)::int as r5
+      FROM ai_feedback WHERE prompt_template_id = $1
+    `, [promptName]);
+
+    const m = metricsRes.rows[0] as any;
+    return reply.status(200).send({
+      data: {
+        feedback: feedbackRes.rows.map((r: any) => ({
+          id: r.id, rating: r.rating, comment: r.comment, tags: r.tags, createdAt: r.created_at,
+        })),
+        metrics: {
+          totalRatings: m?.total ?? 0, avgRating: Number(m?.avg ?? 0),
+          distribution: { 1: m?.r1 ?? 0, 2: m?.r2 ?? 0, 3: m?.r3 ?? 0, 4: m?.r4 ?? 0, 5: m?.r5 ?? 0 },
+        },
+      },
+    });
+  });
+
+  // ── Learning signals ───────────────────────────────
+  app.get('/v1/admin/learning-signals', { preHandler: [auth, superadmin] }, async (_request, reply) => {
+    const pool = getPool(db);
+    if (!pool) return reply.status(200).send({ data: [] });
+
+    const result = await pool.query(`
+      SELECT prompt_template_id, pattern, frequency, avg_rating, suggested_action FROM ai_learning_signals ORDER BY avg_rating ASC LIMIT 20
+    `).catch(() => ({ rows: [] }));
+
+    return reply.status(200).send({ data: result.rows });
+  });
 }
