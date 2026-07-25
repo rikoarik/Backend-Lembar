@@ -34,6 +34,12 @@ export interface AiEnv {
   baseUrl: string | null;
   apiKeyPresent: boolean;
   timeoutMs: number;
+  // Hermes fallback chain
+  hermesApiKey: string | null;
+  hermesBaseUrl: string;
+  openaiApiKey: string | null;
+  openaiBaseUrl: string;
+  openaiModelId: string;
 }
 
 function readString(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -153,6 +159,11 @@ export function parseAiEnv(env: NodeJS.ProcessEnv = process.env): AiEnv {
     baseUrl,
     apiKeyPresent,
     timeoutMs,
+    hermesApiKey: readString(env, 'HERMES_API_KEY') ?? null,
+    hermesBaseUrl: readString(env, 'HERMES_BASE_URL') ?? 'https://api.nousresearch.com',
+    openaiApiKey: readString(env, 'OPENAI_API_KEY') ?? null,
+    openaiBaseUrl: readString(env, 'OPENAI_BASE_URL') ?? 'https://api.openai.com',
+    openaiModelId: readString(env, 'OPENAI_MODEL_ID') ?? 'gpt-4o-mini',
   };
 }
 
