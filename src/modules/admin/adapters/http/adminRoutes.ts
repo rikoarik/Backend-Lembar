@@ -289,6 +289,35 @@ export async function registerAdminRoutes(
     return reply.status(200).send({ data: { id, resetSent: true } });
   });
 
+  app.delete('/v1/admin/accounts/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    // Cegah hapus diri sendiri
+    const actingUser = request.jwtUser!;
+    if (actingUser.userId === id) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Tidak bisa menghapus akun sendiri' } });
+    }
+
+    const res = await pool.query('SELECT email, name, roles FROM jwt_users WHERE id = $1', [id]);
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+
+    const target = res.rows[0] as any;
+
+    // Cegah hapus superadmin lain
+    if (target.roles?.includes('superadmin')) {
+      return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'Tidak bisa menghapus akun superadmin' } });
+    }
+
+    await pool.query('DELETE FROM jwt_users WHERE id = $1', [id]);
+    await auditLog(actingUser.userId, 'account.delete', 'user', id, {
+      email: target.email,
+      name: target.name,
+    });
+    return reply.status(200).send({ data: { id, deleted: true, email: target.email } });
+  });
+
   app.post('/v1/admin/accounts/invite', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const body = request.body as { email: string; name?: string; role?: string } | null;
     if (!body?.email) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'email required' } });
