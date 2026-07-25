@@ -432,7 +432,11 @@ export async function buildApp(
     registerDashboardRoutes(app, { dashboardService: schoolDashboardService });
 
     // School member management (list, invite, update role, remove)
-    registerMemberRoutes(app, { service: schoolService });
+    registerMemberRoutes(app, {
+      service: schoolService,
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
 
     // School stats (KPI aggregates for admin panel)
     registerStatsRoutes(app, { workspaceStore: schoolWorkspaceStore, planRepo: new WorkspacePlanRepository(managedDb) });
@@ -445,6 +449,18 @@ export async function buildApp(
 
     // School audit log + invitations management (school_admin only)
     registerSchoolAuditRoutes(app, {
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
+
+    // School settings (GET profile, PATCH name — school_admin | teacher)
+    registerSettingsRoutes(app, {
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
+
+    // School usage (quota used/limit, per-user breakdown, monthly trend)
+    registerUsageRoutes(app, {
       db: managedDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     });
