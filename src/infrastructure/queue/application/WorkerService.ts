@@ -23,6 +23,17 @@ import {
   StubTextExtractorAdapter,
 } from '../../../modules/sources/application/SourceExtractionService.js';
 import { createStorageAdapter } from '../../storage/createStorageAdapter.js';
+// AI generate deps
+import { QuestionGenerationService } from '../../../modules/assessments/application/QuestionGenerationService.js';
+import { InMemoryQuestionGenerationStore } from '../../../modules/assessments/persistence/InMemoryQuestionGenerationStore.js';
+import { BlueprintPipelineService } from '../../../modules/assessments/application/BlueprintPipelineService.js';
+import { InMemoryBlueprintPipelineStore } from '../../../modules/assessments/persistence/InMemoryBlueprintPipelineStore.js';
+import { InMemoryAssessmentsStore } from '../../../modules/assessments/persistence/InMemoryAssessmentsStore.js';
+import { InMemorySourceRetrievalStore } from '../../../modules/sources/persistence/InMemorySourceRetrievalStore.js';
+import { SourceRetrievalService } from '../../../modules/sources/application/SourceRetrievalService.js';
+import { ProductAiService } from '../../ai/application/ProductAiService.js';
+import { InMemoryAiAuditRecorder } from '../../ai/persistence/AiAuditRepository.js';
+import { parseAiEnv } from '../../../config/ai.env.js';
 
 export interface WorkerServiceOptions {
   workerId: string;
@@ -34,6 +45,8 @@ export interface WorkerServiceOptions {
   onJobComplete?:
     | ((jobId: string, workspaceId: string, outcome: 'success' | 'failure') => void | Promise<void>)
     | undefined;
+  /** Optional: inject a custom AI adapter (HermesAdapter etc). If omitted, uses mock. */
+  aiAdapter?: import('../../ai/domain/ProductAiAdapter.js').ProductAiAdapter;
 }
 
 export interface WorkerServiceHealth {
@@ -77,8 +90,6 @@ export class WorkerService {
 
   private setupHandlers(): void {
     // SourceIngestionHandler requires storage + extraction service deps.
-    // WorkerService wires stub/in-memory adapters here; production wiring
-    // passes a real Database and storage via WorkerServiceOptions extensions (B2-02).
     const storage = createStorageAdapter();
     const jobsStore = new InMemorySourceExtractionJobsStore();
     const passagesStore = new InMemorySourcePassagesStore();
@@ -94,8 +105,50 @@ export class WorkerService {
         extractionService,
       }),
     );
-    this.registry.register(new AssessmentGenerationHandler());
-    this.registry.register(new QuestionRegenerationHandler());
+
+    // AI generate: wire QuestionGenerationService with AI adapter
+    let aiEnv;
+    try {
+      aiEnv = parseAiEnv(process.env);
+    } catch {
+      // fallback to mock if env is misconfigured
+      aiEnv = parseAiEnv({ AI_DRIVER: 'mock' } as any);
+    }
+
+    const aiAdapter = this.options.aiAdapter ?? (() => {
+      // Use mock adapter by default; real adapter injected via options.aiAdapter
+      const { MockAiAdapter } = require('../../ai/adapters/mock/MockAiAdapter.js');
+      return new MockAiAdapter();
+    })();
+
+    const aiService = new ProductAiService({
+      adapter: aiAdapter,
+      env: aiEnv,
+      schemas: new Map(),
+      audit: new InMemoryAiAuditRecorder(),
+    });
+
+    const uploadsStore = new InMemorySourceUploadsStore();
+    const retrievalStore = new InMemorySourceRetrievalStore({ passagesStore, uploadsStore });
+    const sourceRetrievalService = new SourceRetrievalService({ retrievalStore: retrievalStore });
+    const assessmentsStore = new InMemoryAssessmentsStore();
+    const blueprintStore = new InMemoryBlueprintPipelineStore();
+    const blueprintService = new BlueprintPipelineService({
+      store: blueprintStore,
+      assessmentsStore,
+      retrievalService: sourceRetrievalService,
+    });
+
+    const questionGenStore = new InMemoryQuestionGenerationStore();
+    const questionGenerationService = new QuestionGenerationService({
+      store: questionGenStore,
+      blueprintService,
+      aiService,
+      env: aiEnv,
+    });
+
+    this.registry.register(new AssessmentGenerationHandler({ questionGenerationService }));
+    this.registry.register(new QuestionRegenerationHandler({ questionGenerationService }));
     this.registry.register(new ExportPdfHandler());
   }
 

@@ -1,69 +1,86 @@
 /**
  * Handler for question_regeneration jobs.
  *
- * Regenerates a single question based on teacher feedback.
+ * Regenerates a single question using QuestionGenerationService.
+ * Stores as replacement candidate for teacher review.
  */
 import type { JobHandler, JobContext, JobResult } from '../domain/JobHandler.js';
+import type { QuestionGenerationService } from '../../../modules/assessments/application/QuestionGenerationService.js';
+import type { QuestionType, Difficulty } from '../../../modules/assessments/domain/Assessment.js';
+
+export interface QuestionRegenerationHandlerOptions {
+  questionGenerationService: QuestionGenerationService;
+}
 
 export class QuestionRegenerationHandler implements JobHandler {
   readonly kind = 'question_regeneration' as const;
+  private readonly questionGenerationService: QuestionGenerationService;
+
+  constructor(options: QuestionRegenerationHandlerOptions) {
+    this.questionGenerationService = options.questionGenerationService;
+  }
 
   async handle(context: JobContext): Promise<JobResult> {
-    const { payload, signal } = context;
+    const { payload, workspaceId, jobId, signal } = context;
+
+    console.log(
+      `[QuestionRegenerationHandler] Processing job ${jobId} for workspace ${workspaceId}`,
+    );
 
     try {
-      console.log(
-        `[QuestionRegenerationHandler] Processing job ${context.jobId} for workspace ${context.workspaceId}`,
-      );
+      const assessmentVersionId = String(payload.assessmentVersionId ?? payload.assessmentId ?? jobId);
+      const questionId = String(payload.questionId ?? '');
+      const feedback = String(payload.feedback ?? payload.reason ?? '');
 
-      // TODO: Implement actual question regeneration logic
-      // 1. Load original question and feedback
-      // 2. Apply feedback constraints
-      // 3. Call AI provider to regenerate
-      // 4. Validate new question
-      // 5. Store as replacement candidate
-      // 6. Mark for teacher review
+      if (signal.aborted) {
+        return { status: 'failure', error: { code: 'CANCELLED', message: 'Job was cancelled' } };
+      }
 
-      await this.simulateProcessing(signal);
+      // Regenerate: create a single-item blueprint with same params as original question
+      const result = await this.questionGenerationService.generateQuestions({
+        workspaceId,
+        assessmentVersionId: `${assessmentVersionId}-regen-${questionId.slice(0, 8)}`,
+        blueprintItems: [
+          {
+            sequence: 0,
+            questionType: (payload.questionType ?? 'multiple_choice') as QuestionType,
+            difficulty: (payload.difficulty ?? 'medium') as Difficulty,
+            cognitiveLevel: null,
+            topicHint: (payload.topicHint ?? payload.topic ?? feedback) as string | null,
+            outcomeId: null,
+            sourceUploadId: null,
+            citationIds: [],
+          },
+        ],
+        blueprintSchemaVersion: '1.0',
+        coverageTargets: { minTotalItems: 1, maxTotalItems: 1 },
+        requestId: jobId,
+      });
+
+      const regeneratedQuestion = result.questions[0];
 
       return {
         status: 'success',
         output: {
-          questionId: payload.questionId,
+          questionId,
           regenerated: true,
           needsReview: true,
+          newQuestionId: regeneratedQuestion?.id ?? null,
+          hasFailures: result.hasFailures,
         },
       };
     } catch (err) {
       if (signal.aborted) {
-        return {
-          status: 'failure',
-          error: {
-            code: 'CANCELLED',
-            message: 'Job was cancelled',
-          },
-        };
+        return { status: 'failure', error: { code: 'CANCELLED', message: 'Job was cancelled' } };
       }
-
+      console.error(`[QuestionRegenerationHandler] Error in job ${jobId}:`, err);
       return {
         status: 'failure',
         error: {
           code: 'REGENERATION_ERROR',
           message: err instanceof Error ? err.message : String(err),
-          details: err,
         },
       };
     }
-  }
-
-  private async simulateProcessing(signal: AbortSignal): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => resolve(), 1500);
-
-      signal.addEventListener('abort', () => {
-        clearTimeout(timeout);
-        reject(new Error('Aborted'));
-      });
-    });
   }
 }
