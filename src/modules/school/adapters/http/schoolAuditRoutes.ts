@@ -157,7 +157,7 @@ export async function registerSchoolAuditRoutes(
          i.expires_at   AS "expiresAt"
        FROM auth_school_invitations i
        WHERE i.tenant_id = $1
-         AND i.status = 'pending'
+         AND i.state = 'pending'
        ORDER BY i.created_at DESC`,
       [workspaceId],
     );
