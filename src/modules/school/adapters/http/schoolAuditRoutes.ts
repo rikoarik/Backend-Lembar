@@ -96,7 +96,7 @@ export async function registerSchoolAuditRoutes(
         e.occurred_at          AS "at",
         e.user_id             AS "actor",
         e.action,
-        e.metadata->>'target' AS "target",
+        e.metadata             AS "target",
         e.metadata
       FROM auth_audit_events e
       WHERE ${whereClause}
@@ -152,7 +152,7 @@ export async function registerSchoolAuditRoutes(
          i.id,
          i.email,
          i.role,
-         i.invited_by   AS "invitedBy",
+         NULL::text     AS "invitedBy",
          i.created_at   AS "createdAt",
          i.expires_at   AS "expiresAt"
        FROM auth_school_invitations i
