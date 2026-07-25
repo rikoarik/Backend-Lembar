@@ -34,6 +34,7 @@ import { SourceRetrievalService } from '../../../modules/sources/application/Sou
 import { ProductAiService } from '../../ai/application/ProductAiService.js';
 import { InMemoryAiAuditRecorder } from '../../ai/persistence/AiAuditRepository.js';
 import { parseAiEnv } from '../../../config/ai.env.js';
+import { MockAiAdapter } from '../../ai/adapters/mock/MockAiAdapter.js';
 
 export interface WorkerServiceOptions {
   workerId: string;
@@ -115,11 +116,7 @@ export class WorkerService {
       aiEnv = parseAiEnv({ AI_DRIVER: 'mock' } as any);
     }
 
-    const aiAdapter = this.options.aiAdapter ?? (() => {
-      // Use mock adapter by default; real adapter injected via options.aiAdapter
-      const { MockAiAdapter } = require('../../ai/adapters/mock/MockAiAdapter.js');
-      return new MockAiAdapter();
-    })();
+    const aiAdapter = this.options.aiAdapter ?? new MockAiAdapter();
 
     const aiService = new ProductAiService({
       adapter: aiAdapter,

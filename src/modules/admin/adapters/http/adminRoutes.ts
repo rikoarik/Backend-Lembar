@@ -73,8 +73,85 @@ export async function registerAdminRoutes(
 
   // ── Accounts ──────────────────────────────────────────
   app.get('/v1/admin/accounts', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const accounts = await service.listAccounts('superadmin');
-    return reply.status(200).send({ data: accounts });
+    const q = request.query as Record<string, string>;
+    const pool = getPool(db);
+    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
+
+    const search = q['q']?.trim() ?? '';
+    const role = q['role']?.trim() ?? '';
+    const status = q['status']?.trim() ?? '';
+    const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(q['limit'] ?? '50', 10)));
+    const offset = (page - 1) * limit;
+
+    const params: unknown[] = [];
+    let idx = 1;
+
+    const whereClauses: string[] = ['1=1'];
+
+    if (search) {
+      whereClauses.push(`(jw.email ILIKE $${idx} OR jw.name ILIKE $${idx} OR jw.username ILIKE $${idx})`);
+      params.push(`%${search}%`);
+      idx++;
+    }
+    if (role) {
+      whereClauses.push(`$${idx} = ANY(jw.roles)`);
+      params.push(role);
+      idx++;
+    }
+    if (status === 'ditangguhkan') {
+      whereClauses.push(`ab.state = 'blocked'`);
+    } else if (status === 'baru') {
+      whereClauses.push(`jw.created_at > now() - interval '7 days' AND (ab.state IS NULL OR ab.state != 'blocked')`);
+    } else if (status === 'aktif') {
+      whereClauses.push(`jw.created_at <= now() - interval '7 days' AND (ab.state IS NULL OR ab.state != 'blocked')`);
+    }
+
+    const where = whereClauses.join(' AND ');
+
+    const countRes = await pool.query(
+      `SELECT COUNT(*) as total
+       FROM jwt_users jw
+       LEFT JOIN tenants t ON t.id = jw.workspace_id
+       LEFT JOIN admin_billing ab ON ab.tenant_id = jw.workspace_id::text
+       WHERE ${where}`,
+      params,
+    );
+    const total = parseInt((countRes.rows[0] as any).total, 10);
+
+    const dataRes = await pool.query(
+      `SELECT jw.id, jw.email, jw.name, jw.username, jw.roles,
+         jw.workspace_id, t.name as school_name, jw.created_at,
+         CASE WHEN ab.state = 'blocked' THEN 'ditangguhkan'
+              WHEN jw.created_at > now() - interval '7 days' THEN 'baru'
+              ELSE 'aktif' END as status
+       FROM jwt_users jw
+       LEFT JOIN tenants t ON t.id = jw.workspace_id
+       LEFT JOIN admin_billing ab ON ab.tenant_id = jw.workspace_id::text
+       WHERE ${where}
+       ORDER BY jw.created_at DESC
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, limit, offset],
+    );
+
+    const data = dataRes.rows.map((r: any) => ({
+      id: r.id,
+      email: r.email,
+      name: r.name,
+      displayName: r.name,
+      username: r.username,
+      role: r.roles?.[0] ?? 'subscriber',
+      roles: r.roles ?? [],
+      status: r.status,
+      school: r.school_name ?? '—',
+      workspaceId: r.workspace_id,
+      createdAt: r.created_at,
+    }));
+
+    return reply.status(200).send({
+      data,
+      meta: { total, page, limit, pages: Math.ceil(total / limit) },
+    });
   });
 
   app.get('/v1/admin/accounts/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
@@ -133,6 +210,70 @@ export async function registerAdminRoutes(
     const user = request.jwtUser!;
     await auditLog(user.userId, 'account.suspend', 'user', id, { workspaceId });
     return reply.status(200).send({ data: { id, suspended: true } });
+  });
+
+  app.post('/v1/admin/accounts/:id/unsuspend', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const res = await pool.query('SELECT workspace_id FROM jwt_users WHERE id = $1', [id]);
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+
+    const workspaceId = (res.rows[0] as any).workspace_id;
+    if (workspaceId) {
+      await pool.query(`UPDATE admin_billing SET state = 'active' WHERE tenant_id = $1`, [workspaceId]);
+    }
+    const user = request.jwtUser!;
+    await auditLog(user.userId, 'account.unsuspend', 'user', id, { workspaceId });
+    return reply.status(200).send({ data: { id, suspended: false } });
+  });
+
+  app.post('/v1/admin/accounts/:id/impersonate', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    // Fetch target user
+    const res = await pool.query(
+      `SELECT id, email, name, roles, workspace_id FROM jwt_users WHERE id = $1`,
+      [id],
+    );
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+
+    const target = res.rows[0] as any;
+    const actingUser = request.jwtUser!;
+
+    // Sign a short-lived impersonation token (1 hour) using jsonwebtoken
+    const { sign } = await import('jsonwebtoken');
+    const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-in-production';
+    const token = sign(
+      {
+        userId: target.id,
+        email: target.email,
+        roles: target.roles,
+        workspaceId: target.workspace_id,
+        impersonatedBy: actingUser.userId,
+      },
+      jwtSecret,
+      { expiresIn: '1h' },
+    );
+
+    await auditLog(actingUser.userId, 'account.impersonate', 'user', id, {
+      targetEmail: target.email,
+      impersonatedBy: actingUser.userId,
+    });
+
+    return reply.status(200).send({
+      data: {
+        token,
+        targetId: target.id,
+        targetEmail: target.email,
+        targetName: target.name,
+        expiresIn: 3600,
+        note: 'Token berlaku 1 jam. Gunakan header Authorization: Bearer <token> untuk akses.',
+      },
+    });
   });
 
   app.post('/v1/admin/accounts/:id/reset-password', { preHandler: [auth, superadmin] }, async (request, reply) => {
