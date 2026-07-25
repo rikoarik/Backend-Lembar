@@ -85,10 +85,10 @@ export async function registerLibraryRoutes(
         a.title,
         '' AS subject,
         '' AS grade,
-        0 AS question_count       AS "questionCount",
+        0 AS "questionCount",
         a.created_at           AS "createdAt",
         a.creator_user_id            AS "authorId",
-        COALESCE(u.name, u.email, a.creator_user_id) AS "authorName"
+        COALESCE(u.name, u.email, a.creator_user_id::text) AS "authorName"
       FROM assessments a
       LEFT JOIN jwt_users u ON u.id = a.creator_user_id
       WHERE a.workspace_id = $1
@@ -157,10 +157,10 @@ export async function registerLibraryRoutes(
          a.title,
          '' AS subject,
          '' AS grade,
-         0 AS question_count       AS "questionCount",
+         0 AS "questionCount",
          a.created_at           AS "createdAt",
          a.creator_user_id            AS "authorId",
-         COALESCE(u.name, u.email, a.creator_user_id) AS "authorName",
+         COALESCE(u.name, u.email, a.creator_user_id::text) AS "authorName",
          NULL AS blueprint,
          a.status
        FROM assessments a
