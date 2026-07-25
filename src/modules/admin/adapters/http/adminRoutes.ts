@@ -130,48 +130,6 @@ export async function registerAdminRoutes(
     return reply.status(200).send({ data: { key, enabled: newEnabled === 'true' } });
   });
 
-  // ── Prompts ──────────────────────────────────────────
-  app.get('/v1/admin/prompts', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: [] });
-    const result = await pool.query(
-      `SELECT id, name, slug, description, version, status, created_by, created_at, updated_at FROM admin_prompts ORDER BY created_at DESC`,
-    );
-    return reply.status(200).send({ data: result.rows.map((r: any) => ({ id: r.id, name: r.name, owner: r.created_by, status: r.status })) });
-  });
-
-  app.post('/v1/admin/prompts', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const body = request.body as { name: string; slug?: string; description?: string; prompt_text?: string; version?: string } | null;
-    if (!body?.name) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'name required' } });
-
-    const slug = body.slug || body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    const user = request.jwtUser!;
-    const [created] = await db.insert(adminPrompts).values({
-      name: body.name,
-      slug,
-      description: body.description ?? '',
-      promptText: body.prompt_text ?? '',
-      version: body.version ?? 'v1',
-      createdBy: user.userId,
-    }).returning();
-
-    await auditLog(user.userId, 'prompt.create', 'prompt', created?.id ?? 'unknown');
-    return reply.status(201).send({ data: created ?? { slug, name: body.name } });
-  });
-
-  app.patch('/v1/admin/prompts/:slug/status', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { slug } = request.params as { slug: string };
-    const body = request.body as { status?: string } | null;
-    if (!body?.status || !['active', 'draft'].includes(body.status))
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'status must be active or draft' } });
-
-    const [updated] = await db.update(adminPrompts).set({ status: body.status, updatedAt: new Date() }).where(eq(adminPrompts.slug, slug)).returning();
-    if (!updated) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Prompt tidak ditemukan' } });
-
-    const user = request.jwtUser!;
-    await auditLog(user.userId, 'prompt.status', 'prompt', updated.id, { status: body.status });
-    return reply.status(200).send({ data: { slug, status: body.status } });
-  });
 
   // ── Audit Trail ──────────────────────────────────────
   app.get('/v1/admin/audit', { preHandler: [auth, superadmin] }, async (request, reply) => {

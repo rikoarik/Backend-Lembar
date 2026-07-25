@@ -55,6 +55,7 @@ import { AdminService } from '../modules/admin/application/AdminService.js';
 import { PostgresAdminDataStore } from '../modules/admin/persistence/PostgresAdminDataStore.js';
 import { NoOpAdminAuditStore } from '../modules/admin/persistence/NoOpAdminAuditStore.js';
 import { registerAdminRoutes } from '../modules/admin/adapters/http/adminRoutes.js';
+import { registerAiPromptRoutes } from '../modules/admin/adapters/http/aiPromptRoutes.js';
 
 // School routes
 import { SchoolService } from '../modules/school/application/SchoolService.js';
@@ -323,6 +324,11 @@ export async function buildApp(
     const adminService = new AdminService(adminStore, auditStore);
     registerAdminRoutes(app, {
       service: adminService,
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
+    // AI Prompt Management routes
+    registerAiPromptRoutes(app, {
       db: managedDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     });
