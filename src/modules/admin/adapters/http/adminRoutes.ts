@@ -53,13 +53,11 @@ export async function registerAdminRoutes(
   app.get('/v1/admin/dashboard', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const pool = getPool(db);
     if (!pool) return reply.status(200).send({ data: { users: 0, schools: 0, jobsActive: 0, qualityOpen: 0, flagsEnabled: 0 } });
-
     const usersRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM jwt_users');
     const tenantsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM tenants');
     const jobsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM spike_jobs WHERE status IN ($1, $2)', ['running', 'queued']);
     const qualityRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM admin_quality_reports WHERE status = $1', ['open']);
     const flagsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM admin_flags WHERE enabled = true');
-
     return reply.status(200).send({
       data: {
         users: Number(usersRes.rows[0]?.count ?? 0),
@@ -67,6 +65,31 @@ export async function registerAdminRoutes(
         jobsActive: Number(jobsRes.rows[0]?.count ?? 0),
         qualityOpen: Number(qualityRes.rows[0]?.count ?? 0),
         flagsEnabled: Number(flagsRes.rows[0]?.count ?? 0),
+      },
+    });
+  });
+
+  app.get('/v1/admin/dashboard/trends', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const pool = getPool(db);
+    if (!pool) return reply.status(200).send({ data: { jobs: [], quality: [] } });
+
+    const jobsTrend = await pool.query<{ day: string; count: string }>(
+      `SELECT date_trunc('day', created_at)::date::text as day, count(*)::text as count
+       FROM spike_jobs
+       WHERE created_at >= now() - interval '7 days'
+       GROUP BY 1 ORDER BY 1`,
+    );
+    const qualityTrend = await pool.query<{ day: string; count: string }>(
+      `SELECT date_trunc('day', created_at)::date::text as day, count(*)::text as count
+       FROM admin_quality_reports
+       WHERE created_at >= now() - interval '7 days'
+       GROUP BY 1 ORDER BY 1`,
+    );
+
+    return reply.status(200).send({
+      data: {
+        jobs: jobsTrend.rows.map((r) => ({ day: r.day, count: Number(r.count) })),
+        quality: qualityTrend.rows.map((r) => ({ day: r.day, count: Number(r.count) })),
       },
     });
   });
@@ -506,9 +529,54 @@ export async function registerAdminRoutes(
   // ── Jobs ──────────────────────────────────────────────
   app.get('/v1/admin/jobs', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const q = request.query as Record<string, string>;
-    const limit = q['limit'] ? parseInt(q['limit'], 10) : undefined;
-    const jobs = await service.listJobs('superadmin', limit);
-    return reply.status(200).send({ data: jobs });
+    const pool = getPool(db);
+    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
+
+    const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(q['limit'] ?? '50', 10)));
+    const offset = (page - 1) * limit;
+    const status = q['status']?.trim() ?? '';
+    const tenant = q['tenant']?.trim() ?? '';
+    const type = q['type']?.trim() ?? '';
+    const search = q['q']?.trim() ?? '';
+
+    const whereClauses: string[] = ['1=1'];
+    const params: unknown[] = [];
+    let idx = 1;
+
+    if (status) { whereClauses.push(`sj.status = $${idx++}`); params.push(status); }
+    if (tenant) { whereClauses.push(`sj.workspace_id = $${idx++}`); params.push(tenant); }
+    if (type) { whereClauses.push(`sj.type = $${idx++}`); params.push(type); }
+    if (search) { whereClauses.push(`(sj.id ILIKE $${idx} OR sj.type ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
+
+    const where = whereClauses.join(' AND ');
+
+    const countRes = await pool.query(`SELECT COUNT(*) as total FROM spike_jobs sj WHERE ${where}`, params);
+    const total = parseInt((countRes.rows[0] as any).total, 10);
+
+    const dataRes = await pool.query(
+      `SELECT sj.id, sj.type, sj.status, sj.workspace_id, sj.attempt, sj.created_at, sj.updated_at,
+              t.name as tenant_name
+       FROM spike_jobs sj
+       LEFT JOIN tenants t ON t.id = sj.workspace_id::uuid
+       WHERE ${where}
+       ORDER BY sj.created_at DESC
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, limit, offset],
+    );
+
+    const data = dataRes.rows.map((r: any) => ({
+      id: r.id,
+      type: r.type,
+      status: r.status,
+      tenant: r.tenant_name ?? r.workspace_id ?? '—',
+      workspaceId: r.workspace_id,
+      attempt: r.attempt ?? 0,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    }));
+
+    return reply.status(200).send({ data, meta: { total, page, limit, pages: Math.ceil(total / limit) } });
   });
 
   app.get('/v1/admin/jobs/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
@@ -536,15 +604,51 @@ export async function registerAdminRoutes(
   // ── Quality Reports ──────────────────────────────────
   app.get('/v1/admin/quality-reports', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const q = request.query as Record<string, string>;
-    const limit = q['limit'] ? parseInt(q['limit'], 10) : undefined;
-    const reports = await service.listQualityReports('superadmin', limit);
-    return reply.status(200).send({ data: reports });
+    const pool = getPool(db);
+    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
+
+    const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(q['limit'] ?? '50', 10)));
+    const offset = (page - 1) * limit;
+    const status = q['status']?.trim() ?? '';
+    const search = q['q']?.trim() ?? '';
+
+    const whereClauses: string[] = ['1=1'];
+    const params: unknown[] = [];
+    let idx = 1;
+
+    if (status) { whereClauses.push(`qr.status = $${idx++}`); params.push(status); }
+    if (search) { whereClauses.push(`(qr.reason ILIKE $${idx} OR qr.reporter ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
+
+    const where = whereClauses.join(' AND ');
+
+    const countRes = await pool.query(`SELECT COUNT(*) as total FROM admin_quality_reports qr WHERE ${where}`, params);
+    const total = parseInt((countRes.rows[0] as any).total, 10);
+
+    const dataRes = await pool.query(
+      `SELECT qr.id, qr.reason, qr.status, qr.reporter, qr.notes, qr.workspace_id, qr.created_at
+       FROM admin_quality_reports qr
+       WHERE ${where}
+       ORDER BY qr.created_at DESC
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, limit, offset],
+    );
+
+    return reply.status(200).send({
+      data: dataRes.rows.map((r: any) => ({
+        id: r.id, reason: r.reason, status: r.status, reporter: r.reporter,
+        notes: r.notes ?? '', workspaceId: r.workspace_id,
+        createdAt: new Date(r.created_at).toISOString(),
+      })),
+      meta: { total, page, limit, pages: Math.ceil(total / limit) },
+    });
   });
 
   app.patch('/v1/admin/quality-reports/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = request.body as { status?: string; notes?: string } | null;
-    if (!body?.status) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'status required' } });
+    // allow notes-only update (no status required when only notes provided)
+    if (!body?.status && body?.notes === undefined) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'status or notes required' } });
 
     await db.update(adminQualityReports)
       .set({ status: body.status, notes: body.notes ?? '', updatedAt: new Date() })
@@ -576,6 +680,29 @@ export async function registerAdminRoutes(
       `SELECT id, key, description, enabled::text, scope, created_at, updated_at FROM admin_flags ORDER BY created_at DESC`,
     );
     return reply.status(200).send({ data: result.rows.map((r: any) => ({ ...r, enabled: r.enabled === 'true' })) });
+  });
+
+  app.get('/v1/admin/flags/:key', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { key } = request.params as { key: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
+    const res = await pool.query(
+      `SELECT id, key, description, enabled::text, scope, created_at, updated_at FROM admin_flags WHERE key = $1`,
+      [key],
+    );
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
+    const r = res.rows[0] as any;
+    return reply.status(200).send({ data: { ...r, enabled: r.enabled === 'true' } });
+  });
+
+  app.delete('/v1/admin/flags/:key', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { key } = request.params as { key: string };
+    const user = request.jwtUser!;
+    const [flag] = await db.select().from(adminFlags).where(eq(adminFlags.key, key)).limit(1);
+    if (!flag) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
+    await db.delete(adminFlags).where(eq(adminFlags.key, key));
+    await auditLog(user.userId, 'flag.delete', 'flag', key, { key });
+    return reply.status(200).send({ data: { key, deleted: true } });
   });
 
   app.patch('/v1/admin/flags/:key/toggle', { preHandler: [auth, superadmin] }, async (request, reply) => {
@@ -619,49 +746,129 @@ export async function registerAdminRoutes(
   // ── Audit Trail ──────────────────────────────────────
   app.get('/v1/admin/audit', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const q = request.query as Record<string, string>;
-    const limit = q['limit'] ? parseInt(q['limit'], 10) : 50;
     const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: [] });
+    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
 
-    let whereClause = 'WHERE 1=1';
+    const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
+    const limit = Math.min(200, Math.max(1, parseInt(q['limit'] ?? '50', 10)));
+    const offset = (page - 1) * limit;
+
+    const whereClauses: string[] = ['1=1'];
     const params: any[] = [];
     let paramIdx = 1;
-    if (q['action']) { whereClause += ` AND action = $${paramIdx++}`; params.push(q['action']); }
-    if (q['actor']) { whereClause += ` AND (actor_email = $${paramIdx} OR actor_id = $${paramIdx})`; params.push(q['actor']); paramIdx++; }
-    if (q['from']) { whereClause += ` AND created_at >= $${paramIdx++}`; params.push(q['from']); }
-    if (q['to']) { whereClause += ` AND created_at <= $${paramIdx++}`; params.push(q['to']); }
-    params.push(limit);
+    if (q['action']) { whereClauses.push(`action = $${paramIdx++}`); params.push(q['action']); }
+    if (q['actor']) { whereClauses.push(`(actor_email = $${paramIdx} OR actor_id = $${paramIdx})`); params.push(q['actor']); paramIdx++; }
+    if (q['from']) { whereClauses.push(`created_at >= $${paramIdx++}`); params.push(q['from']); }
+    if (q['to']) { whereClauses.push(`created_at <= $${paramIdx++}`); params.push(q['to']); }
+
+    const whereClause = 'WHERE ' + whereClauses.join(' AND ');
+
+    const countRes = await pool.query(`SELECT COUNT(*) as total FROM admin_audit ${whereClause}`, params);
+    const total = parseInt((countRes.rows[0] as any).total, 10);
 
     const result = await pool.query(
       `SELECT id, actor_id, actor_email, action, target_type, target_id, metadata, created_at
-       FROM admin_audit ${whereClause} ORDER BY created_at DESC LIMIT $${paramIdx}`,
-      params,
+       FROM admin_audit ${whereClause} ORDER BY created_at DESC LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      [...params, limit, offset],
     );
-    return reply.status(200).send({ data: result.rows.map((r: any) => ({
+    return reply.status(200).send({
+      data: result.rows.map((r: any) => ({
         id: r.id,
         at: new Date(r.created_at).toLocaleString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-'),
         actor: r.actor_email || r.actor_id,
         action: r.action,
         target: r.target_id,
-      })) });
+        metadata: r.metadata,
+        targetType: r.target_type,
+      })),
+      meta: { total, page, limit, pages: Math.ceil(total / limit) },
+    });
+  });
+
+  app.get('/v1/admin/audit/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Audit entry not found' } });
+    const res = await pool.query(
+      `SELECT aa.id, aa.actor_id, aa.actor_email, aa.action, aa.target_type, aa.target_id, aa.metadata, aa.created_at,
+              jw.email as actor_email_lookup, jw.name as actor_name
+       FROM admin_audit aa
+       LEFT JOIN jwt_users jw ON jw.id = aa.actor_id
+       WHERE aa.id = $1`,
+      [id],
+    );
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Audit entry not found' } });
+    const r = res.rows[0] as any;
+    return reply.status(200).send({
+      data: {
+        id: r.id,
+        actor: r.actor_email || r.actor_email_lookup || r.actor_id,
+        actorName: r.actor_name ?? '',
+        action: r.action,
+        targetType: r.target_type,
+        target: r.target_id,
+        metadata: r.metadata ?? {},
+        at: new Date(r.created_at).toISOString(),
+      },
+    });
   });
 
   // ── Billing ──────────────────────────────────────────
   app.get('/v1/admin/billing', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const q = request.query as Record<string, string>;
     const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: [] });
+    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
+
+    const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(q['limit'] ?? '50', 10)));
+    const offset = (page - 1) * limit;
+    const state = q['state']?.trim() ?? '';
+    const search = q['q']?.trim() ?? '';
+
+    const whereClauses: string[] = ['1=1'];
+    const params: unknown[] = [];
+    let idx = 1;
+
+    if (state) { whereClauses.push(`state = $${idx++}`); params.push(state); }
+    if (search) { whereClauses.push(`school_name ILIKE $${idx++}`); params.push(`%${search}%`); }
+
+    const where = whereClauses.join(' AND ');
+
+    const countRes = await pool.query(`SELECT COUNT(*) as total FROM admin_billing WHERE ${where}`, params);
+    const total = parseInt((countRes.rows[0] as any).total, 10);
+
     const result = await pool.query(
       `SELECT id, tenant_id, school_name, state, seats::text, plan, renews_at, created_at, updated_at
-       FROM admin_billing ORDER BY created_at DESC`,
+       FROM admin_billing WHERE ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, limit, offset],
     );
-    return reply.status(200).send({ data: result.rows.map((r: any) => ({
-      id: r.id,
-      school: r.school_name,
-      state: r.state,
-      seats: r.seats,
-      plan: r.plan,
-      renewsAt: r.renews_at ? new Date(r.renews_at).toISOString().slice(0, 10) : '',
-    })) });
+    return reply.status(200).send({
+      data: result.rows.map((r: any) => ({
+        id: r.id, school: r.school_name, state: r.state, seats: r.seats, plan: r.plan,
+        renewsAt: r.renews_at ? new Date(r.renews_at).toISOString().slice(0, 10) : '',
+        tenantId: r.tenant_id,
+      })),
+      meta: { total, page, limit, pages: Math.ceil(total / limit) },
+    });
+  });
+
+  app.post('/v1/admin/billing', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const body = request.body as { tenantId?: string; schoolName?: string; plan?: string; seats?: number; state?: string; renewsAt?: string } | null;
+    if (!body?.tenantId || !body?.schoolName) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'tenantId and schoolName required' } });
+    const user = request.jwtUser!;
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const existing = await pool.query('SELECT id FROM admin_billing WHERE tenant_id = $1', [body.tenantId]);
+    if (existing.rows[0]) return reply.status(409).send({ error: { code: 'CONFLICT', message: 'Billing record already exists for this tenant' } });
+
+    const res = await pool.query(
+      `INSERT INTO admin_billing (tenant_id, school_name, plan, seats, state, renews_at)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [body.tenantId, body.schoolName, body.plan ?? 'free', body.seats ?? 0, body.state ?? 'active', body.renewsAt ?? null],
+    );
+    await auditLog(user.userId, 'billing.create', 'billing', (res.rows[0] as any).id, { tenantId: body.tenantId, plan: body.plan });
+    return reply.status(201).send({ data: { id: (res.rows[0] as any).id, tenantId: body.tenantId, schoolName: body.schoolName } });
   });
 
   app.patch('/v1/admin/billing/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
