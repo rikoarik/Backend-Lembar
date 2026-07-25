@@ -160,23 +160,93 @@ export async function registerAdminRoutes(
     if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
 
     const res = await pool.query(`
-      SELECT jw.id, jw.email, jw.name, jw.username, jw.phone, jw.roles,
-        jw.workspace_id, t.name as school_name, jw.created_at,
+      SELECT
+        jw.id, jw.email, jw.name, jw.username, jw.phone, jw.roles,
+        jw.workspace_id, jw.created_at, jw.updated_at, jw.last_login_at,
+        t.name as school_name, t.slug as school_slug,
+        ab.state as billing_state, ab.plan as billing_plan,
+        ab.seats as billing_seats, ab.renews_at as billing_renews_at,
         CASE WHEN ab.state = 'blocked' THEN 'ditangguhkan'
              WHEN jw.created_at > now() - interval '7 days' THEN 'baru'
-             ELSE 'aktif' END as status
+             ELSE 'aktif' END as status,
+        (SELECT COUNT(*) FROM ai_jobs_audit WHERE workspace_id = jw.workspace_id::text) as jobs_total,
+        (SELECT COUNT(*) FROM quota_reservations WHERE workspace_id = jw.workspace_id::text AND state = 'committed') as quota_used,
+        (SELECT json_agg(json_build_object(
+          'id', aa.id, 'action', aa.action, 'at', aa.created_at, 'by', aa.actor_email
+        ) ORDER BY aa.created_at DESC) FROM admin_audit aa
+          WHERE aa.target_id = jw.id::text LIMIT 10) as audit_log
       FROM jwt_users jw
       LEFT JOIN tenants t ON t.id = jw.workspace_id
       LEFT JOIN admin_billing ab ON ab.tenant_id = jw.workspace_id::text
       WHERE jw.id = $1
     `, [id]);
+
     if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
     const r = res.rows[0] as any;
+
     return reply.status(200).send({
-      data: { id: r.id, email: r.email, name: r.name, username: r.username, phone: r.phone,
-        role: r.roles?.[0] ?? 'subscriber', status: r.status, school: r.school_name ?? '—',
-        workspaceId: r.workspace_id, createdAt: r.created_at },
+      data: {
+        // Identitas
+        id: r.id,
+        email: r.email,
+        name: r.name,
+        username: r.username,
+        phone: r.phone ?? null,
+        // Status & Akses
+        roles: r.roles ?? [],
+        role: r.roles?.[0] ?? 'subscriber',
+        status: r.status,
+        // Sekolah & Workspace
+        school: r.school_name ?? '—',
+        schoolSlug: r.school_slug ?? null,
+        workspaceId: r.workspace_id ?? null,
+        // Billing workspace
+        billing: {
+          state: r.billing_state ?? null,
+          plan: r.billing_plan ?? null,
+          seats: r.billing_seats ?? null,
+          renewsAt: r.billing_renews_at ?? null,
+        },
+        // Aktivitas
+        stats: {
+          jobsTotal: parseInt(r.jobs_total ?? '0', 10),
+          quotaUsed: parseInt(r.quota_used ?? '0', 10),
+        },
+        // Timestamps
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        lastLoginAt: r.last_login_at ?? null,
+        // History aksi admin (max 10)
+        auditLog: r.audit_log ?? [],
+      },
     });
+  });
+
+  app.patch('/v1/admin/accounts/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { name?: string; phone?: string } | null;
+    if (!body?.name && !body?.phone)
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'name or phone required' } });
+
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const setClauses: string[] = ['updated_at = now()'];
+    const params: unknown[] = [];
+    let idx = 1;
+    if (body.name) { setClauses.push(`name = $${idx++}`); params.push(body.name); }
+    if (body.phone !== undefined) { setClauses.push(`phone = $${idx++}`); params.push(body.phone || null); }
+    params.push(id);
+
+    const res = await pool.query(
+      `UPDATE jwt_users SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING id, email, name, phone, updated_at`,
+      params,
+    );
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+
+    const actor = request.jwtUser!;
+    await auditLog(actor.userId, 'account.update', 'user', id, { name: body.name, phone: body.phone });
+    return reply.status(200).send({ data: res.rows[0] });
   });
 
   app.patch('/v1/admin/accounts/:id/roles', { preHandler: [auth, superadmin] }, async (request, reply) => {
