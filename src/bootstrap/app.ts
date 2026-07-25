@@ -32,12 +32,39 @@ import { PlanService } from '../modules/plans/application/PlanService.js';
 import { WorkspacePlanRepository } from '../modules/plans/persistence/repository.js';
 import { registerPlanRoutes } from '../modules/plans/adapters/http/planRoutes.js';
 
-// B2-03: Assessment routes
+// B2-03: Assessment routes + full core product flow
 import { AssessmentService } from '../modules/assessments/application/AssessmentService.js';
 import { InMemoryAssessmentsStore } from '../modules/assessments/persistence/InMemoryAssessmentsStore.js';
 import { registerAssessmentRoutes } from '../modules/assessments/adapters/http/routes.js';
 import { InMemorySourceUploadsStore } from '../modules/uploads/persistence/InMemorySourceUploadsStore.js';
 import { InMemorySourceExtractionJobsStore } from '../modules/sources/persistence/InMemorySourceExtractionStores.js';
+// B5-04: History + bank soal
+import { HistoryService } from '../modules/assessments/application/HistoryService.js';
+import { InMemoryQuestionGenerationStore } from '../modules/assessments/persistence/InMemoryQuestionGenerationStore.js';
+import { registerHistoryRoutes } from '../modules/assessments/adapters/http/historyRoutes.js';
+// B5-03: Share links
+import { ShareLinkService } from '../modules/assessments/application/ShareLinkService.js';
+import { InMemoryShareLinkStore } from '../modules/assessments/persistence/InMemoryShareLinkStore.js';
+import { registerShareRoutes } from '../modules/assessments/adapters/http/shareRoutes.js';
+// B4-01: Question review + finalization
+import { QuestionReviewService } from '../modules/assessments/application/QuestionReviewService.js';
+import { InMemoryQuestionReviewStore } from '../modules/assessments/persistence/InMemoryQuestionReviewStore.js';
+import { FinalizationService } from '../modules/assessments/application/FinalizationService.js';
+import { registerQuestionReviewRoutes } from '../modules/assessments/adapters/http/questionReviewRoutes.js';
+// B3-02: Blueprint pipeline
+import { BlueprintPipelineService } from '../modules/assessments/application/BlueprintPipelineService.js';
+import { InMemoryBlueprintPipelineStore } from '../modules/assessments/persistence/InMemoryBlueprintPipelineStore.js';
+import { registerBlueprintPipelineRoutes } from '../modules/assessments/adapters/http/blueprintRoutes.js';
+import { SourceRetrievalService } from '../modules/sources/application/SourceRetrievalService.js';
+import { InMemorySourceRetrievalStore } from '../modules/sources/persistence/InMemorySourceRetrievalStore.js';
+import { InMemorySourcePassagesStore } from '../modules/sources/persistence/InMemorySourceExtractionStores.js';
+// B5-01/B5-02: Print + artifact
+import { PrintService } from '../modules/assessments/application/PrintService.js';
+import { PrintArtifactService } from '../modules/assessments/application/PrintArtifactService.js';
+import { InMemoryPrintArtifactStore } from '../modules/assessments/persistence/InMemoryPrintArtifactStore.js';
+import { registerPrintRoutes } from '../modules/assessments/adapters/http/printRoutes.js';
+import { registerArtifactRoutes } from '../modules/assessments/adapters/http/artifactRoutes.js';
+import { InMemoryAdapter } from '../infrastructure/storage/InMemoryAdapter.js';
 
 // B2-05: Job status and recovery routes
 import { InMemoryQueueStore } from '../infrastructure/queue/adapters/memory-store.js';
@@ -301,17 +328,70 @@ export async function buildApp(
     registerPlanRoutes(app, planService);
   }
 
-  // B2-03: Assessment routes (InMemory stores)
+// B2-03: Assessment routes (InMemory stores)
   {
     const assessmentStore = new InMemoryAssessmentsStore();
     const uploadsStore = new InMemorySourceUploadsStore();
     const extractionJobsStore = new InMemorySourceExtractionJobsStore();
+    const questionGenStore = new InMemoryQuestionGenerationStore();
+    const questionReviewStore = new InMemoryQuestionReviewStore();
+    const blueprintStore = new InMemoryBlueprintPipelineStore();
+    const shareLinkStore = new InMemoryShareLinkStore();
+    const printArtifactStore = new InMemoryPrintArtifactStore();
+
     const assessmentService = new AssessmentService({
       store: assessmentStore,
       uploadsStore,
       extractionJobsStore,
     });
+
+    // B5-04: History + bank soal
+    const historyService = new HistoryService({
+      assessmentsStore: assessmentStore,
+      questionStore: questionGenStore,
+    });
+
+    // B5-03: Share links
+    const shareLinkService = new ShareLinkService({ store: shareLinkStore });
+
+    // B4-01: Question review + finalization
+    const questionReviewService = new QuestionReviewService({ store: questionReviewStore });
+    const finalizationService = new FinalizationService({
+      store: questionReviewStore,
+      reviewService: questionReviewService,
+    });
+
+    // B3-02: Blueprint pipeline
+    const passagesStore = new InMemorySourcePassagesStore();
+    const sourceRetrievalStore = new InMemorySourceRetrievalStore({ passagesStore, uploadsStore });
+    const sourceRetrievalService = new SourceRetrievalService({ retrievalStore: sourceRetrievalStore });
+    const blueprintService = new BlueprintPipelineService({
+      store: blueprintStore,
+      assessmentsStore: assessmentStore,
+      retrievalService: sourceRetrievalService,
+    });
+
+    // B5-01/B5-02: Print + artifact
+    const printService = new PrintService({
+      assessmentsStore: assessmentStore,
+      reviewStore: questionReviewStore,
+    });
+    const { InMemoryAdapter } = await import('../infrastructure/storage/InMemoryAdapter.js');
+    const storageAdapter = new InMemoryAdapter();
+    const printArtifactService = new PrintArtifactService({
+      artifactStore: printArtifactStore,
+      storage: storageAdapter,
+      printService,
+    });
+
+    // Register all routes
     registerAssessmentRoutes(app, assessmentService);
+    await registerHistoryRoutes(app, historyService);
+    await registerShareRoutes(app, shareLinkService);
+    await registerQuestionReviewRoutes(app, questionReviewService, finalizationService);
+    await registerBlueprintPipelineRoutes(app, blueprintService);
+    await registerPrintRoutes(app, printService);
+    await registerArtifactRoutes(app, printArtifactService);
   }
 
   // Catalog routes (fallback to static data if DB empty)
