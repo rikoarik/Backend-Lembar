@@ -92,6 +92,10 @@ import { registerSchoolRoutes } from '../modules/school/adapters/http/schoolRout
 import { registerDashboardRoutes } from '../modules/school/adapters/http/dashboardRoutes.js';
 import { registerMemberRoutes } from '../modules/school/adapters/http/memberRoutes.js';
 import { registerStatsRoutes } from '../modules/school/adapters/http/statsRoutes.js';
+import { registerLibraryRoutes } from '../modules/school/adapters/http/libraryRoutes.js';
+import { registerSchoolAuditRoutes } from '../modules/school/adapters/http/schoolAuditRoutes.js';
+import { registerSettingsRoutes } from '../modules/school/adapters/http/settingsRoutes.js';
+import { registerUsageRoutes } from '../modules/school/adapters/http/usageRoutes.js';
 
 // Swagger
 import swagger from '@fastify/swagger';
@@ -432,6 +436,18 @@ export async function buildApp(
 
     // School stats (KPI aggregates for admin panel)
     registerStatsRoutes(app, { workspaceStore: schoolWorkspaceStore, planRepo: new WorkspacePlanRepository(managedDb) });
+
+    // School library (finalized assessments visible to workspace members)
+    registerLibraryRoutes(app, {
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
+
+    // School audit log + invitations management (school_admin only)
+    registerSchoolAuditRoutes(app, {
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
 
     // Seed demo school workspace for dashboard testing
     const demoWorkspaceId = 'demo-school-workspace-001';
