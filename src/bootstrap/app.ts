@@ -96,6 +96,8 @@ import { registerLibraryRoutes } from '../modules/school/adapters/http/libraryRo
 import { registerSchoolAuditRoutes } from '../modules/school/adapters/http/schoolAuditRoutes.js';
 import { registerSettingsRoutes } from '../modules/school/adapters/http/settingsRoutes.js';
 import { registerUsageRoutes } from '../modules/school/adapters/http/usageRoutes.js';
+import { registerSuspendRoutes } from '../modules/school/adapters/http/suspendRoutes.js';
+import { registerSchoolNotificationsRoutes } from '../modules/school/adapters/http/schoolNotificationsRoutes.js';
 
 // Swagger
 import swagger from '@fastify/swagger';
@@ -461,6 +463,18 @@ export async function buildApp(
 
     // School usage (quota used/limit, per-user breakdown, monthly trend)
     registerUsageRoutes(app, {
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
+
+    // School member suspend / unsuspend (school_admin only)
+    registerSuspendRoutes(app, {
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
+
+    // School notifications (recent outbox entries for school_admin)
+    registerSchoolNotificationsRoutes(app, {
       db: managedDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     });
