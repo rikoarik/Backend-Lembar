@@ -77,12 +77,134 @@ export async function registerAdminRoutes(
     return reply.status(200).send({ data: accounts });
   });
 
+  app.get('/v1/admin/accounts/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+
+    const res = await pool.query(`
+      SELECT jw.id, jw.email, jw.name, jw.username, jw.phone, jw.roles,
+        jw.workspace_id, t.name as school_name, jw.created_at,
+        CASE WHEN ab.state = 'blocked' THEN 'ditangguhkan'
+             WHEN jw.created_at > now() - interval '7 days' THEN 'baru'
+             ELSE 'aktif' END as status
+      FROM jwt_users jw
+      LEFT JOIN tenants t ON t.id = jw.workspace_id
+      LEFT JOIN admin_billing ab ON ab.tenant_id = jw.workspace_id::text
+      WHERE jw.id = $1
+    `, [id]);
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+    const r = res.rows[0] as any;
+    return reply.status(200).send({
+      data: { id: r.id, email: r.email, name: r.name, username: r.username, phone: r.phone,
+        role: r.roles?.[0] ?? 'subscriber', status: r.status, school: r.school_name ?? '—',
+        workspaceId: r.workspace_id, createdAt: r.created_at },
+    });
+  });
+
+  app.patch('/v1/admin/accounts/:id/roles', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { roles?: string[] } | null;
+    if (!body?.roles || !Array.isArray(body.roles))
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'roles array required' } });
+
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    await pool.query('UPDATE jwt_users SET roles = $1::text[] WHERE id = $2', [body.roles, id]);
+    const user = request.jwtUser!;
+    await auditLog(user.userId, 'account.roles', 'user', id, { roles: body.roles });
+    return reply.status(200).send({ data: { id, roles: body.roles } });
+  });
+
+  app.post('/v1/admin/accounts/:id/suspend', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const res = await pool.query('SELECT workspace_id FROM jwt_users WHERE id = $1', [id]);
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+
+    const workspaceId = (res.rows[0] as any).workspace_id;
+    if (workspaceId) {
+      await pool.query(`INSERT INTO admin_billing (tenant_id, school_name, state) VALUES ($1, 'Suspended', 'blocked')
+        ON CONFLICT (tenant_id) DO UPDATE SET state = 'blocked'`, [workspaceId]);
+    }
+    const user = request.jwtUser!;
+    await auditLog(user.userId, 'account.suspend', 'user', id, { workspaceId });
+    return reply.status(200).send({ data: { id, suspended: true } });
+  });
+
+  app.post('/v1/admin/accounts/:id/reset-password', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const res = await pool.query('SELECT email FROM jwt_users WHERE id = $1', [id]);
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+
+    const user = request.jwtUser!;
+    await auditLog(user.userId, 'account.reset_password', 'user', id, { email: (res.rows[0] as any).email });
+    return reply.status(200).send({ data: { id, resetSent: true } });
+  });
+
+  app.post('/v1/admin/accounts/invite', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const body = request.body as { email: string; name?: string; role?: string } | null;
+    if (!body?.email) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'email required' } });
+    if (!body) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'body required' } });
+    const inputEmail = String(body.email || '');
+    const inputName = body.name || inputEmail;
+    const inputRole = body.role || 'subscriber';
+
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const existing = await pool.query('SELECT id FROM jwt_users WHERE email = $1', [inputEmail]);
+    if (existing.rows[0]) return reply.status(409).send({ error: { code: 'CONFLICT', message: 'Email sudah terdaftar' } });
+
+    const parts = inputEmail.split('@');
+    const slug = (parts[0] || 'user').replace(/[^a-z0-9]/g, '-');
+    const tenantRes = await pool.query(`INSERT INTO tenants (slug, name) VALUES ($1, $2) ON CONFLICT (slug) DO NOTHING RETURNING id`, ['invited-' + slug, inputName + ' Workspace']);
+    const tenantId = tenantRes.rows[0]?.id ?? null;
+
+    await pool.query(
+      `INSERT INTO jwt_users (email, name, username, password_hash, roles, workspace_id) VALUES ($1, $2, $3, $4, $5::text[], $6)`,
+      [inputEmail, inputName, slug, '$2b$10$placeholder', [inputRole], tenantId],
+    );
+    const user = request.jwtUser!;
+    await auditLog(user.userId, 'account.invite', 'user', inputEmail, { role: inputRole });
+    return reply.status(201).send({ data: { email: inputEmail, invited: true } });
+  });
+
+
   // ── Jobs ──────────────────────────────────────────────
   app.get('/v1/admin/jobs', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const q = request.query as Record<string, string>;
     const limit = q['limit'] ? parseInt(q['limit'], 10) : undefined;
     const jobs = await service.listJobs('superadmin', limit);
     return reply.status(200).send({ data: jobs });
+  });
+
+  app.get('/v1/admin/jobs/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
+    const res = await pool.query('SELECT * FROM spike_jobs WHERE id = $1', [id]);
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
+    return reply.status(200).send({ data: res.rows[0] });
+  });
+
+  app.post('/v1/admin/jobs/:id/retry', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+    const res = await pool.query('SELECT id, status FROM spike_jobs WHERE id = $1', [id]);
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
+    if ((res.rows[0] as any).status !== 'failed') return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Only failed jobs can be retried' } });
+    await pool.query('UPDATE spike_jobs SET status = $1, attempt = attempt + 1 WHERE id = $2', ['queued', id]);
+    const user = request.jwtUser!;
+    await auditLog(user.userId, 'job.retry', 'job', id, {});
+    return reply.status(200).send({ data: { id, retried: true } });
   });
 
   // ── Quality Reports ──────────────────────────────────
@@ -105,6 +227,19 @@ export async function registerAdminRoutes(
     const user = request.jwtUser!;
     await auditLog(user.userId, 'quality.update', 'report', id, { status: body.status });
     return reply.status(200).send({ data: { id, status: body.status } });
+  });
+
+  app.get('/v1/admin/quality-reports/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Report not found' } });
+    const res = await pool.query('SELECT * FROM admin_quality_reports WHERE id = $1', [id]);
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Report not found' } });
+    const r = res.rows[0] as any;
+    return reply.status(200).send({
+      data: { id: r.id, reason: r.reason, status: r.status, reporter: r.reporter, notes: r.notes,
+        workspaceId: r.workspace_id, createdAt: r.created_at },
+    });
   });
 
   // ── Flags ─────────────────────────────────────────────
@@ -130,6 +265,30 @@ export async function registerAdminRoutes(
     return reply.status(200).send({ data: { key, enabled: newEnabled === 'true' } });
   });
 
+  app.post('/v1/admin/flags', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const body = request.body as { key?: string; description?: string; scope?: string } | null;
+    if (!body?.key) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'key required' } });
+    const user = request.jwtUser!;
+    const [created] = await db.insert(adminFlags).values({
+      key: body.key, description: body.description ?? '', scope: body.scope ?? 'global',
+    }).returning();
+    await auditLog(user.userId, 'flag.create', 'flag', body.key, { scope: body.scope ?? 'global' });
+    return reply.status(201).send({ data: { key: body.key, enabled: false, scope: body.scope ?? 'global' } });
+  });
+
+  app.patch('/v1/admin/flags/:key', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { key } = request.params as { key: string };
+    const body = request.body as { description?: string; scope?: string } | null;
+    const updates: Record<string, unknown> = { updatedAt: new Date() };
+    if (body?.description !== undefined) updates.description = body.description;
+    if (body?.scope) updates.scope = body.scope;
+    const [updated] = await db.update(adminFlags).set(updates).where(eq(adminFlags.key, key)).returning();
+    if (!updated) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag not found' } });
+    const user = request.jwtUser!;
+    await auditLog(user.userId, 'flag.update', 'flag', key, body ?? {});
+    return reply.status(200).send({ data: { key, ...body } });
+  });
+
 
   // ── Audit Trail ──────────────────────────────────────
   app.get('/v1/admin/audit', { preHandler: [auth, superadmin] }, async (request, reply) => {
@@ -138,10 +297,19 @@ export async function registerAdminRoutes(
     const pool = getPool(db);
     if (!pool) return reply.status(200).send({ data: [] });
 
+    let whereClause = 'WHERE 1=1';
+    const params: any[] = [];
+    let paramIdx = 1;
+    if (q['action']) { whereClause += ` AND action = $${paramIdx++}`; params.push(q['action']); }
+    if (q['actor']) { whereClause += ` AND (actor_email = $${paramIdx} OR actor_id = $${paramIdx})`; params.push(q['actor']); paramIdx++; }
+    if (q['from']) { whereClause += ` AND created_at >= $${paramIdx++}`; params.push(q['from']); }
+    if (q['to']) { whereClause += ` AND created_at <= $${paramIdx++}`; params.push(q['to']); }
+    params.push(limit);
+
     const result = await pool.query(
       `SELECT id, actor_id, actor_email, action, target_type, target_id, metadata, created_at
-       FROM admin_audit ORDER BY created_at DESC LIMIT $1`,
-      [limit],
+       FROM admin_audit ${whereClause} ORDER BY created_at DESC LIMIT $${paramIdx}`,
+      params,
     );
     return reply.status(200).send({ data: result.rows.map((r: any) => ({
         id: r.id,
@@ -184,6 +352,20 @@ export async function registerAdminRoutes(
     const user = request.jwtUser!;
     await auditLog(user.userId, 'billing.update', 'billing', id, body ?? {});
     return reply.status(200).send({ data: { id, ...body } });
+  });
+
+  app.get('/v1/admin/billing/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Billing not found' } });
+    const res = await pool.query('SELECT * FROM admin_billing WHERE id = $1', [id]);
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Billing not found' } });
+    const r = res.rows[0] as any;
+    return reply.status(200).send({
+      data: { id: r.id, school: r.school_name, state: r.state, seats: r.seats, plan: r.plan,
+        renewsAt: r.renews_at ? new Date(r.renews_at).toISOString().slice(0, 10) : '',
+        tenantId: r.tenant_id, createdAt: r.created_at },
+    });
   });
 
   // ── Schools / Tenants ──────────────────────────────
@@ -294,6 +476,18 @@ export async function registerAdminRoutes(
     const user = request.jwtUser!;
     await auditLog(user.userId, 'school.update', 'tenant', id, { name: body.name });
     return reply.status(200).send({ data: { id: updated.id, name: updated.name } });
+  });
+
+  app.delete('/v1/admin/schools/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+    const res = await pool.query('SELECT id, name FROM tenants WHERE id = $1', [id]);
+    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
+    await db.delete(tenants).where(eq(tenants.id, id));
+    const user = request.jwtUser!;
+    await auditLog(user.userId, 'school.delete', 'tenant', id, { name: (res.rows[0] as any).name });
+    return reply.status(200).send({ data: { id, deleted: true } });
   });
 
   // ── Entitlements ─────────────────────────────────────
