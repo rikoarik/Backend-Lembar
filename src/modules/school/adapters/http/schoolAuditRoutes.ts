@@ -96,7 +96,7 @@ export async function registerSchoolAuditRoutes(
         e.occurred_at          AS "at",
         e.user_id             AS "actor",
         e.action,
-        e.target              AS "target",
+        e.metadata->>'target' AS "target",
         e.metadata
       FROM auth_audit_events e
       WHERE ${whereClause}
