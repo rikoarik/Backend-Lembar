@@ -29,5 +29,18 @@ module.exports = {
       watch: false,
       max_memory_restart: '1G',
     },
+    {
+      name: 'lembar-worker',
+      script: 'pnpm',
+      args: 'run start:worker',
+      cwd: '/home/hermes/Projects/Backend-Lembar',
+      env: {
+        ...env,
+        NODE_ENV: 'production',
+      },
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '1G',
+    },
   ],
 };

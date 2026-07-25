@@ -32,6 +32,14 @@ tags:
     description: Superadmin-only marketing authoring and publication.
   - name: Notifications
     description: Transactional notification templates, dispatch, and redacted audit log.
+  - name: AdminOps
+    description: Superadmin-only school, account, flag, billing, and quality-report management.
+  - name: AiPrompts
+    description: Superadmin AI prompt lifecycle — versions, eval cases, and performance metrics.
+  - name: History
+    description: Tenant-scoped assessment history and private question bank.
+  - name: Shares
+    description: Controlled share links for assessments.
 paths:
   /health:
     get:
@@ -1861,6 +1869,853 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/NotificationAuditResponse" }
+
+  # ── AdminOps ─────────────────────────────────────────────────────────────────
+
+  /v1/admin/schools:
+    get:
+      summary: List all schools (tenants)
+      tags: [AdminOps]
+      operationId: adminListSchools
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Paginated list of schools
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, name, createdAt]
+                      properties:
+                        id: { type: string, format: uuid }
+                        name: { type: string }
+                        plan: { type: string, enum: [free, pro] }
+                        createdAt: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      summary: Create a new school (tenant)
+      tags: [AdminOps]
+      operationId: adminCreateSchool
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                plan: { type: string, enum: [free, pro], default: free }
+      responses:
+        "201":
+          description: School created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [id, name, createdAt]
+                    properties:
+                      id: { type: string, format: uuid }
+                      name: { type: string }
+                      plan: { type: string, enum: [free, pro] }
+                      createdAt: { type: string, format: date-time }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/admin/accounts/{id}:
+    get:
+      summary: Get account detail by ID
+      tags: [AdminOps]
+      operationId: adminGetAccount
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Account detail
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [id, email, role, status, createdAt]
+                    properties:
+                      id: { type: string, format: uuid }
+                      email: { type: string, format: email }
+                      name: { type: string }
+                      username: { type: [string, "null"] }
+                      phone: { type: [string, "null"] }
+                      role: { type: string, enum: [superadmin, school_admin, teacher, subscriber] }
+                      status: { type: string, enum: [aktif, baru, ditangguhkan] }
+                      school: { type: string }
+                      workspaceId: { type: [string, "null"], format: uuid }
+                      createdAt: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/admin/flags:
+    get:
+      summary: List all feature flags
+      tags: [AdminOps]
+      operationId: adminListFlags
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of feature flags
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, key, enabled]
+                      properties:
+                        id: { type: string, format: uuid }
+                        key: { type: string }
+                        enabled: { type: boolean }
+                        description: { type: [string, "null"] }
+                        updatedAt: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      summary: Create a new feature flag
+      tags: [AdminOps]
+      operationId: adminCreateFlag
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key, enabled]
+              properties:
+                key: { type: string, minLength: 1, maxLength: 100 }
+                enabled: { type: boolean }
+                description: { type: string }
+      responses:
+        "201":
+          description: Flag created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [id, key, enabled]
+                    properties:
+                      id: { type: string, format: uuid }
+                      key: { type: string }
+                      enabled: { type: boolean }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/admin/billing/{id}:
+    get:
+      summary: Get billing record for a tenant
+      tags: [AdminOps]
+      operationId: adminGetBilling
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+          description: Tenant (workspace) ID
+      responses:
+        "200":
+          description: Billing record
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [tenantId, plan, state]
+                    properties:
+                      tenantId: { type: string }
+                      plan: { type: string, enum: [free, pro] }
+                      state: { type: string, enum: [active, blocked, cancelled] }
+                      nextBillingAt: { type: [string, "null"], format: date-time }
+                      updatedAt: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/admin/quality-reports/{id}:
+    get:
+      summary: Get a quality report by ID
+      tags: [AdminOps]
+      operationId: adminGetQualityReport
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Quality report detail
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [id, status, createdAt]
+                    properties:
+                      id: { type: string, format: uuid }
+                      assessmentId: { type: [string, "null"], format: uuid }
+                      status: { type: string, enum: [open, reviewed, dismissed] }
+                      reason: { type: string }
+                      reportedBy: { type: [string, "null"], format: uuid }
+                      reviewedBy: { type: [string, "null"], format: uuid }
+                      createdAt: { type: string, format: date-time }
+                      updatedAt: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── AI Prompts ────────────────────────────────────────────────────────────────
+
+  /v1/admin/prompts:
+    get:
+      summary: List AI prompts with performance metrics
+      tags: [AiPrompts]
+      operationId: adminListPrompts
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: List of prompts with aggregated metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminPromptSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      summary: Create a new AI prompt
+      tags: [AiPrompts]
+      operationId: adminCreatePrompt
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, slug]
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                slug: { type: string, minLength: 1, maxLength: 100 }
+                description: { type: string }
+                contextWindow: { type: integer, minimum: 1 }
+      responses:
+        "201":
+          description: Prompt created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AdminPromptSummary"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/admin/prompts/{id}:
+    get:
+      summary: Get AI prompt detail
+      tags: [AiPrompts]
+      operationId: adminGetPrompt
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Prompt detail
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AdminPromptSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      summary: Update AI prompt metadata
+      tags: [AiPrompts]
+      operationId: adminUpdatePrompt
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 1, maxLength: 200 }
+                description: { type: string }
+                status: { type: string, enum: [draft, active, archived] }
+                contextWindow: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: Prompt updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/AdminPromptSummary"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/admin/prompts/{id}/versions:
+    get:
+      summary: List versions of an AI prompt
+      tags: [AiPrompts]
+      operationId: adminListPromptVersions
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Prompt versions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, version, status, createdAt]
+                      properties:
+                        id: { type: string, format: uuid }
+                        version: { type: integer, minimum: 1 }
+                        systemPrompt: { type: string }
+                        status: { type: string, enum: [draft, active, archived] }
+                        createdAt: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      summary: Create a new version of an AI prompt
+      tags: [AiPrompts]
+      operationId: adminCreatePromptVersion
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [systemPrompt]
+              properties:
+                systemPrompt: { type: string, minLength: 1 }
+                notes: { type: string }
+      responses:
+        "201":
+          description: Version created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [id, version, status, createdAt]
+                    properties:
+                      id: { type: string, format: uuid }
+                      version: { type: integer }
+                      status: { type: string, enum: [draft, active, archived] }
+                      createdAt: { type: string, format: date-time }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/admin/prompts/{id}/eval:
+    get:
+      summary: List eval cases for a prompt
+      tags: [AiPrompts]
+      operationId: adminListPromptEvals
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Eval cases
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, input, expectedOutput]
+                      properties:
+                        id: { type: string, format: uuid }
+                        input: { type: string }
+                        expectedOutput: { type: string }
+                        createdAt: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      summary: Add an eval case to a prompt
+      tags: [AiPrompts]
+      operationId: adminCreatePromptEval
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [input, expectedOutput]
+              properties:
+                input: { type: string, minLength: 1 }
+                expectedOutput: { type: string, minLength: 1 }
+      responses:
+        "201":
+          description: Eval case created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [id]
+                    properties:
+                      id: { type: string, format: uuid }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/admin/prompts/{id}/metrics:
+    get:
+      summary: Get performance metrics for a prompt
+      tags: [AiPrompts]
+      operationId: adminGetPromptMetrics
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Aggregated prompt performance metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [totalRuns, successRate, avgLatencyMs, avgCostUsd]
+                    properties:
+                      totalRuns: { type: integer, minimum: 0 }
+                      successRate: { type: number, minimum: 0, maximum: 1 }
+                      avgLatencyMs: { type: [number, "null"], minimum: 0 }
+                      avgCostUsd: { type: [number, "null"], minimum: 0 }
+                      lastRunAt: { type: [string, "null"], format: date-time }
+                      feedback:
+                        type: object
+                        properties:
+                          totalRatings: { type: integer, minimum: 0 }
+                          avgRating: { type: number, minimum: 0, maximum: 5 }
+                          distribution:
+                            type: object
+                            properties:
+                              "1": { type: integer }
+                              "2": { type: integer }
+                              "3": { type: integer }
+                              "4": { type: integer }
+                              "5": { type: integer }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── History & Bank ────────────────────────────────────────────────────────────
+
+  /v1/history:
+    get:
+      summary: List assessment history (tenant-scoped, paginated)
+      tags: [History]
+      operationId: listHistory
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: cursor
+          required: false
+          schema: { type: string }
+          description: Last seen assessment ID for cursor pagination
+      responses:
+        "200":
+          description: Paginated assessment history
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, title, createdAt]
+                      properties:
+                        id: { type: string, format: uuid }
+                        title: { type: string }
+                        status: { type: string }
+                        questionCount: { type: integer, minimum: 0 }
+                        createdAt: { type: string, format: date-time }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/history/{assessmentId}:
+    get:
+      summary: Get assessment history detail with question snapshots
+      tags: [History]
+      operationId: getHistoryDetail
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: assessmentId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Assessment detail with question snapshots
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [id, title, questions, createdAt]
+                    properties:
+                      id: { type: string, format: uuid }
+                      title: { type: string }
+                      status: { type: string }
+                      questions:
+                        type: array
+                        items:
+                          type: object
+                          required: [id, body]
+                          properties:
+                            id: { type: string, format: uuid }
+                            body: { type: string }
+                            type: { type: string }
+                      createdAt: { type: string, format: date-time }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/bank/questions:
+    get:
+      summary: List saved questions in private question bank (tenant-scoped)
+      tags: [History]
+      operationId: listBankQuestions
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: after
+          required: false
+          schema: { type: string }
+          description: Offset index cursor for pagination
+      responses:
+        "200":
+          description: Paginated question bank entries
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, body]
+                      properties:
+                        id: { type: string, format: uuid }
+                        body: { type: string }
+                        type: { type: string }
+                        sourceAssessmentId: { type: [string, "null"], format: uuid }
+                        createdAt: { type: string, format: date-time }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Shares ────────────────────────────────────────────────────────────────────
+
+  /v1/shares:
+    post:
+      summary: Create a controlled share link for an assessment
+      tags: [Shares]
+      operationId: createShareLink
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assessmentId]
+              properties:
+                assessmentId: { type: string, format: uuid }
+                ttlSeconds:
+                  type: integer
+                  minimum: 60
+                  description: Link expiry in seconds (default 7 days)
+      responses:
+        "201":
+          description: Share link created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ShareLinkResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/shares/{token}:
+    get:
+      summary: Resolve a share link (public)
+      tags: [Shares]
+      operationId: resolveShareLink
+      security: []
+      parameters:
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+          description: High-entropy share token
+      responses:
+        "200":
+          description: Share link resolved — returns assessment payload
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    $ref: "#/components/schemas/ShareLinkResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/shares/{token}/revoke:
+    delete:
+      summary: Revoke a share link (owner only)
+      tags: [Shares]
+      operationId: revokeShareLink
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: token
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Share link revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [id, token, revokedAt]
+                    properties:
+                      id: { type: string, format: uuid }
+                      token: { type: string }
+                      revokedAt: { type: string, format: date-time }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
 components:
   securitySchemes:
     sessionCookie:
@@ -2766,5 +3621,48 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/NotificationAuditRow" }
+    AdminPromptSummary:
+      type: object
+      required: [id, name, slug, status, version, activeVersion, versionCount, evalCount]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: [string, "null"] }
+        status: { type: string, enum: [draft, active, archived] }
+        version: { type: integer, minimum: 1 }
+        activeVersion: { type: integer, minimum: 0 }
+        contextWindow: { type: [integer, "null"], minimum: 1 }
+        owner: { type: [string, "null"] }
+        versionCount: { type: integer, minimum: 0 }
+        evalCount: { type: integer, minimum: 0 }
+        avgLatencyMs: { type: [number, "null"], minimum: 0 }
+        avgCostUsd: { type: [number, "null"], minimum: 0 }
+        successRate: { type: [number, "null"], minimum: 0, maximum: 1 }
+        totalRuns: { type: integer, minimum: 0 }
+        lastRunAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ShareLinkResponse:
+      type: object
+      required: [id, token, assessmentId, workspaceId, expiresAt, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        token: { type: string }
+        assessmentId: { type: string, format: uuid }
+        workspaceId: { type: string, format: uuid }
+        expiresAt: { type: string, format: date-time }
+        revokedAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+    InternalServerError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
 security:
   - BearerAuth: []
