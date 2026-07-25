@@ -212,6 +212,92 @@ export async function registerAdminRoutes(
     return reply.status(200).send({ data: { id, suspended: true } });
   });
 
+  // ── Bulk operations ──────────────────────────────────────
+  app.post('/v1/admin/accounts/bulk/suspend', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const body = request.body as { ids?: string[] } | null;
+    if (!body?.ids || !Array.isArray(body.ids) || body.ids.length === 0)
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'ids array required' } });
+
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const results: { id: string; success: boolean; error?: string }[] = [];
+    const actor = request.jwtUser!;
+
+    for (const id of body.ids) {
+      try {
+        const res = await pool.query('SELECT workspace_id FROM jwt_users WHERE id = $1', [id]);
+        if (!res.rows[0]) { results.push({ id, success: false, error: 'Not found' }); continue; }
+        const workspaceId = (res.rows[0] as any).workspace_id;
+        if (workspaceId) {
+          await pool.query(`INSERT INTO admin_billing (tenant_id, school_name, state) VALUES ($1, 'Suspended', 'blocked')
+            ON CONFLICT (tenant_id) DO UPDATE SET state = 'blocked'`, [workspaceId]);
+        }
+        await auditLog(actor.userId, 'account.suspend', 'user', id, { workspaceId, bulk: true });
+        results.push({ id, success: true });
+      } catch { results.push({ id, success: false, error: 'Internal error' }); }
+    }
+
+    const succeeded = results.filter((r) => r.success).length;
+    return reply.status(200).send({ data: { results, succeeded, failed: results.length - succeeded } });
+  });
+
+  app.post('/v1/admin/accounts/bulk/unsuspend', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const body = request.body as { ids?: string[] } | null;
+    if (!body?.ids || !Array.isArray(body.ids) || body.ids.length === 0)
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'ids array required' } });
+
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const results: { id: string; success: boolean; error?: string }[] = [];
+    const actor = request.jwtUser!;
+
+    for (const id of body.ids) {
+      try {
+        const res = await pool.query('SELECT workspace_id FROM jwt_users WHERE id = $1', [id]);
+        if (!res.rows[0]) { results.push({ id, success: false, error: 'Not found' }); continue; }
+        const workspaceId = (res.rows[0] as any).workspace_id;
+        if (workspaceId) {
+          await pool.query(`UPDATE admin_billing SET state = 'active' WHERE tenant_id = $1`, [workspaceId]);
+        }
+        await auditLog(actor.userId, 'account.unsuspend', 'user', id, { workspaceId, bulk: true });
+        results.push({ id, success: true });
+      } catch { results.push({ id, success: false, error: 'Internal error' }); }
+    }
+
+    const succeeded = results.filter((r) => r.success).length;
+    return reply.status(200).send({ data: { results, succeeded, failed: results.length - succeeded } });
+  });
+
+  app.post('/v1/admin/accounts/bulk/delete', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const body = request.body as { ids?: string[] } | null;
+    if (!body?.ids || !Array.isArray(body.ids) || body.ids.length === 0)
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'ids array required' } });
+
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const actor = request.jwtUser!;
+    const results: { id: string; success: boolean; error?: string }[] = [];
+
+    for (const id of body.ids) {
+      try {
+        if (actor.userId === id) { results.push({ id, success: false, error: 'Tidak bisa hapus akun sendiri' }); continue; }
+        const res = await pool.query('SELECT email, name, roles FROM jwt_users WHERE id = $1', [id]);
+        if (!res.rows[0]) { results.push({ id, success: false, error: 'Not found' }); continue; }
+        const target = res.rows[0] as any;
+        if (target.roles?.includes('superadmin')) { results.push({ id, success: false, error: 'Tidak bisa hapus superadmin' }); continue; }
+        await pool.query('DELETE FROM jwt_users WHERE id = $1', [id]);
+        await auditLog(actor.userId, 'account.delete', 'user', id, { email: target.email, bulk: true });
+        results.push({ id, success: true });
+      } catch { results.push({ id, success: false, error: 'Internal error' }); }
+    }
+
+    const succeeded = results.filter((r) => r.success).length;
+    return reply.status(200).send({ data: { results, succeeded, failed: results.length - succeeded } });
+  });
+
   app.post('/v1/admin/accounts/:id/unsuspend', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const pool = getPool(db);
