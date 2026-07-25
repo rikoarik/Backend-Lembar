@@ -57,7 +57,7 @@ export async function registerLibraryRoutes(
 
     // Build optional search filter
     const searchClause = q
-      ? `AND (a.title ILIKE $3 OR '' AS subject ILIKE $3)`
+      ? `AND (a.title ILIKE $3)`
       : '';
     const searchParam = q ? `%${q}%` : null;
 
@@ -68,8 +68,8 @@ export async function registerLibraryRoutes(
       rowParams.push(searchParam);
     }
     rowParams.push(limit, offset);
-    const limitIdx = rowParams.length - 1;   // $N for limit
-    const offsetIdx = rowParams.length;       // $N+1 for offset
+    const limitIdx = rowParams.length - 1;   // $N for limit (last but one)
+    const offsetIdx = rowParams.length;       // $N for offset (last)
 
     const countSql = `
       SELECT COUNT(*)::int AS total
@@ -95,7 +95,7 @@ export async function registerLibraryRoutes(
         AND a.status = $2
         ${searchClause}
       ORDER BY a.created_at DESC
-      LIMIT $${limitIdx} OFFSET $${offsetIdx + 1}
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
     `;
 
     const [countRes, rowsRes] = await Promise.all([
