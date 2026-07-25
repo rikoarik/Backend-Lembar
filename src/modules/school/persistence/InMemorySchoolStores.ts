@@ -38,6 +38,43 @@ export class InMemorySchoolWorkspaceStore implements SchoolWorkspaceStore {
     return [...(this.members.get(`${tenantId}:${workspaceId}`) ?? [])];
   }
 
+  async updateMemberRole(
+    tenantId: string,
+    workspaceId: string,
+    memberId: string,
+    role: SchoolMember['role'],
+  ): Promise<SchoolMember | null> {
+    const key = `${tenantId}:${workspaceId}`;
+    const list = this.members.get(key) ?? [];
+    const idx = list.findIndex((m) => m.id === memberId);
+    if (idx === -1) return null;
+    const existing = list[idx] as SchoolMember;
+    const updated: SchoolMember = {
+      id: existing.id,
+      email: existing.email,
+      role,
+      state: existing.state,
+      joinedAt: existing.joinedAt,
+    };
+    list[idx] = updated;
+    this.members.set(key, list);
+    return updated;
+  }
+
+  async removeMember(
+    tenantId: string,
+    workspaceId: string,
+    memberId: string,
+  ): Promise<boolean> {
+    const key = `${tenantId}:${workspaceId}`;
+    const list = this.members.get(key) ?? [];
+    const idx = list.findIndex((m) => m.id === memberId);
+    if (idx === -1) return false;
+    list.splice(idx, 1);
+    this.members.set(key, list);
+    return true;
+  }
+
   /** Seed helper used by bootstrap for demo dashboard. */
   seedWorkspace(workspace: SchoolWorkspace, members: SchoolMember[] = []): void {
     this.workspaces.set(`${workspace.tenantId}:${workspace.id}`, workspace);

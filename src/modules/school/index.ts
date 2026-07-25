@@ -30,3 +30,7 @@ export type { RegisterOnboardingRoutesOptions } from './adapters/http/onboarding
 export { SchoolBillingService } from './application/SchoolBillingService.js';
 export { registerBillingRoutes } from './adapters/http/billingRoutes.js';
 export type { RegisterBillingRoutesOptions } from './adapters/http/billingRoutes.js';
+export { registerMemberRoutes } from './adapters/http/memberRoutes.js';
+export type { RegisterMemberRoutesOptions } from './adapters/http/memberRoutes.js';
+export { registerStatsRoutes } from './adapters/http/statsRoutes.js';
+export type { RegisterStatsRoutesOptions, StatsData } from './adapters/http/statsRoutes.js';

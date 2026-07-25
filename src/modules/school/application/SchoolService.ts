@@ -20,6 +20,8 @@ export interface SchoolWorkspaceStore {
   createWorkspace(tenantId: string, name: string, level: string): Promise<SchoolWorkspace>;
   getWorkspace(tenantId: string, workspaceId: string): Promise<SchoolWorkspace | null>;
   listMembers(tenantId: string, workspaceId: string): Promise<SchoolMember[]>;
+  updateMemberRole(tenantId: string, workspaceId: string, memberId: string, role: SchoolMember['role']): Promise<SchoolMember | null>;
+  removeMember(tenantId: string, workspaceId: string, memberId: string): Promise<boolean>;
 }
 
 export interface SchoolInvitationStore {
@@ -139,6 +141,23 @@ export class SchoolService {
 
   async listMembers(tenantId: string, workspaceId: string): Promise<SchoolMember[]> {
     return this.workspaceStore.listMembers(tenantId, workspaceId);
+  }
+
+  async updateMemberRole(
+    tenantId: string,
+    workspaceId: string,
+    memberId: string,
+    role: SchoolMember['role'],
+  ): Promise<SchoolMember | null> {
+    return this.workspaceStore.updateMemberRole(tenantId, workspaceId, memberId, role);
+  }
+
+  async removeMember(
+    tenantId: string,
+    workspaceId: string,
+    memberId: string,
+  ): Promise<boolean> {
+    return this.workspaceStore.removeMember(tenantId, workspaceId, memberId);
   }
 }
 

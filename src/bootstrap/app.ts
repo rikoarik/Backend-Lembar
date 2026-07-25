@@ -90,6 +90,8 @@ import { SchoolDashboardService } from '../modules/school/application/SchoolDash
 import { InMemorySchoolWorkspaceStore, InMemorySchoolInvitationStore } from '../modules/school/persistence/InMemorySchoolStores.js';
 import { registerSchoolRoutes } from '../modules/school/adapters/http/schoolRoutes.js';
 import { registerDashboardRoutes } from '../modules/school/adapters/http/dashboardRoutes.js';
+import { registerMemberRoutes } from '../modules/school/adapters/http/memberRoutes.js';
+import { registerStatsRoutes } from '../modules/school/adapters/http/statsRoutes.js';
 
 // Swagger
 import swagger from '@fastify/swagger';
@@ -424,6 +426,12 @@ export async function buildApp(
     // School dashboard
     const schoolDashboardService = new SchoolDashboardService(schoolWorkspaceStore, new WorkspacePlanRepository(managedDb));
     registerDashboardRoutes(app, { dashboardService: schoolDashboardService });
+
+    // School member management (list, invite, update role, remove)
+    registerMemberRoutes(app, { service: schoolService });
+
+    // School stats (KPI aggregates for admin panel)
+    registerStatsRoutes(app, { workspaceStore: schoolWorkspaceStore, planRepo: new WorkspacePlanRepository(managedDb) });
 
     // Seed demo school workspace for dashboard testing
     const demoWorkspaceId = 'demo-school-workspace-001';
