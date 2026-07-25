@@ -57,7 +57,7 @@ export async function registerLibraryRoutes(
 
     // Build optional search filter
     const searchClause = q
-      ? `AND (a.title ILIKE $3 OR a.subject ILIKE $3)`
+      ? `AND (a.title ILIKE $3 OR '' AS subject ILIKE $3)`
       : '';
     const searchParam = q ? `%${q}%` : null;
 
@@ -83,14 +83,14 @@ export async function registerLibraryRoutes(
       SELECT
         a.id,
         a.title,
-        a.subject,
-        a.grade,
-        a.question_count       AS "questionCount",
+        '' AS subject,
+        '' AS grade,
+        0 AS question_count       AS "questionCount",
         a.created_at           AS "createdAt",
-        a.author_id            AS "authorId",
-        COALESCE(u.name, u.email, a.author_id) AS "authorName"
+        a.creator_user_id            AS "authorId",
+        COALESCE(u.name, u.email, a.creator_user_id) AS "authorName"
       FROM assessments a
-      LEFT JOIN jwt_users u ON u.id = a.author_id
+      LEFT JOIN jwt_users u ON u.id = a.creator_user_id
       WHERE a.workspace_id = $1
         AND a.status = $2
         ${searchClause}
@@ -155,16 +155,16 @@ export async function registerLibraryRoutes(
       `SELECT
          a.id,
          a.title,
-         a.subject,
-         a.grade,
-         a.question_count       AS "questionCount",
+         '' AS subject,
+         '' AS grade,
+         0 AS question_count       AS "questionCount",
          a.created_at           AS "createdAt",
-         a.author_id            AS "authorId",
-         COALESCE(u.name, u.email, a.author_id) AS "authorName",
-         a.blueprint,
+         a.creator_user_id            AS "authorId",
+         COALESCE(u.name, u.email, a.creator_user_id) AS "authorName",
+         NULL AS blueprint,
          a.status
        FROM assessments a
-       LEFT JOIN jwt_users u ON u.id = a.author_id
+       LEFT JOIN jwt_users u ON u.id = a.creator_user_id
        WHERE a.id = $1
          AND a.workspace_id = $2
          AND a.status = 'finalized'`,

@@ -68,7 +68,7 @@ export async function registerSchoolAuditRoutes(
       countParams.push(`%${actor}%`);
       rowParams.push(`%${actor}%`);
       const idx = countParams.length;
-      conditions.push(`e.actor_id ILIKE $${idx}`);
+      conditions.push(`e.user_id::text ILIKE $${idx}`);
     }
 
     if (action) {
@@ -93,14 +93,14 @@ export async function registerSchoolAuditRoutes(
     const rowsSql = `
       SELECT
         e.id,
-        e.created_at          AS "at",
-        e.actor_id            AS "actor",
+        e.occurred_at          AS "at",
+        e.user_id             AS "actor",
         e.action,
         e.target              AS "target",
         e.metadata
       FROM auth_audit_events e
       WHERE ${whereClause}
-      ORDER BY e.created_at DESC
+      ORDER BY e.occurred_at DESC
       LIMIT $${limitIdx} OFFSET $${offsetIdx}
     `;
 
