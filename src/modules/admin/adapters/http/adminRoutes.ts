@@ -791,9 +791,9 @@ export async function registerAdminRoutes(
     if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Audit entry not found' } });
     const res = await pool.query(
       `SELECT aa.id, aa.actor_id, aa.actor_email, aa.action, aa.target_type, aa.target_id, aa.metadata, aa.created_at,
-              jw.email as actor_email_lookup, jw.name as actor_name
+              jw.name as actor_name
        FROM admin_audit aa
-       LEFT JOIN jwt_users jw ON jw.id = aa.actor_id
+       LEFT JOIN jwt_users jw ON (jw.id::text = aa.actor_id OR jw.email = aa.actor_id)
        WHERE aa.id = $1`,
       [id],
     );
@@ -802,8 +802,8 @@ export async function registerAdminRoutes(
     return reply.status(200).send({
       data: {
         id: r.id,
-        actor: r.actor_email || r.actor_email_lookup || r.actor_id,
-        actorName: r.actor_name ?? '',
+        actor: r.actor_email || r.actor_id,
+        actorName: r.actor_name ?? r.actor_id ?? '',
         action: r.action,
         targetType: r.target_type,
         target: r.target_id,
