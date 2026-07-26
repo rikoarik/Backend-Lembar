@@ -423,7 +423,10 @@ export async function buildApp(
   }
 
   // Catalog routes (fallback to static data if DB empty)
-  await registerCatalogRoutes(app, curriculumDb ? { db: curriculumDb } : {});
+  await registerCatalogRoutes(app, {
+    db: curriculumDb ?? undefined,
+    jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+  });
 
   // Admin routes (JWT superadmin auth)
   if (managedDb) {
