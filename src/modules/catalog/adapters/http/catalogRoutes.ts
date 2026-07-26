@@ -34,6 +34,15 @@ export interface CatalogOption {
   status: 'active' | 'archived' | 'unavailable';
 }
 
+export interface CatalogGradeOption extends CatalogOption {
+  jenjang: 'sd' | 'smp' | 'sma' | 'smk';
+}
+
+export interface CatalogSubjectOption extends CatalogOption {
+  /** Daftar jenjang yang memiliki mata pelajaran ini */
+  jenjangList: ('sd' | 'smp' | 'sma' | 'smk')[];
+}
+
 export interface RegisterCatalogRoutesOptions {
   db?: Database | undefined;
   jwtSecret?: string | undefined;
@@ -41,58 +50,75 @@ export interface RegisterCatalogRoutesOptions {
 
 // ── Kurikulum Merdeka seed data ────────────────────────────────────────────────
 
-const FALLBACK_GRADES: CatalogOption[] = [
-  { id: 'grade-1',  label: 'Kelas 1',  status: 'active' },
-  { id: 'grade-2',  label: 'Kelas 2',  status: 'active' },
-  { id: 'grade-3',  label: 'Kelas 3',  status: 'active' },
-  { id: 'grade-4',  label: 'Kelas 4',  status: 'active' },
-  { id: 'grade-5',  label: 'Kelas 5',  status: 'active' },
-  { id: 'grade-6',  label: 'Kelas 6',  status: 'active' },
-  { id: 'grade-7',  label: 'Kelas 7',  status: 'active' },
-  { id: 'grade-8',  label: 'Kelas 8',  status: 'active' },
-  { id: 'grade-9',  label: 'Kelas 9',  status: 'active' },
-  { id: 'grade-10', label: 'Kelas 10', status: 'active' },
-  { id: 'grade-11', label: 'Kelas 11', status: 'active' },
-  { id: 'grade-12', label: 'Kelas 12', status: 'active' },
+type Jenjang = 'sd' | 'smp' | 'sma' | 'smk';
+
+const FALLBACK_GRADES: CatalogGradeOption[] = [
+  // SD (Sekolah Dasar) — 6 kelas
+  { id: 'sd-1',  label: 'Kelas 1 SD',  status: 'active', jenjang: 'sd' },
+  { id: 'sd-2',  label: 'Kelas 2 SD',  status: 'active', jenjang: 'sd' },
+  { id: 'sd-3',  label: 'Kelas 3 SD',  status: 'active', jenjang: 'sd' },
+  { id: 'sd-4',  label: 'Kelas 4 SD',  status: 'active', jenjang: 'sd' },
+  { id: 'sd-5',  label: 'Kelas 5 SD',  status: 'active', jenjang: 'sd' },
+  { id: 'sd-6',  label: 'Kelas 6 SD',  status: 'active', jenjang: 'sd' },
+  // SMP (Sekolah Menengah Pertama) — 3 kelas
+  { id: 'smp-7',  label: 'Kelas 7 SMP',  status: 'active', jenjang: 'smp' },
+  { id: 'smp-8',  label: 'Kelas 8 SMP',  status: 'active', jenjang: 'smp' },
+  { id: 'smp-9',  label: 'Kelas 9 SMP',  status: 'active', jenjang: 'smp' },
+  // SMA (Sekolah Menengah Atas) — 3 kelas
+  { id: 'sma-10', label: 'Kelas 10 SMA', status: 'active', jenjang: 'sma' },
+  { id: 'sma-11', label: 'Kelas 11 SMA', status: 'active', jenjang: 'sma' },
+  { id: 'sma-12', label: 'Kelas 12 SMA', status: 'active', jenjang: 'sma' },
+  // SMK (Sekolah Menengah Kejuruan) — 3 kelas
+  { id: 'smk-10', label: 'Kelas 10 SMK', status: 'active', jenjang: 'smk' },
+  { id: 'smk-11', label: 'Kelas 11 SMK', status: 'active', jenjang: 'smk' },
+  { id: 'smk-12', label: 'Kelas 12 SMK', status: 'active', jenjang: 'smk' },
 ];
 
-const FALLBACK_SUBJECTS: CatalogOption[] = [
-  // Inti lintas jenjang
-  { id: 'subject-matematika',        label: 'Matematika',                   status: 'active' },
-  { id: 'subject-bahasa-indonesia',  label: 'Bahasa Indonesia',             status: 'active' },
-  { id: 'subject-bahasa-inggris',    label: 'Bahasa Inggris',               status: 'active' },
-  { id: 'subject-ipa',               label: 'IPA',                          status: 'active' },
-  { id: 'subject-ips',               label: 'IPS',                          status: 'active' },
-  // Pendidikan karakter & agama
-  { id: 'subject-pai',               label: 'PAI (Pendidikan Agama Islam)', status: 'active' },
-  { id: 'subject-ppkn',              label: 'PPKn',                         status: 'active' },
-  // Seni & olahraga
-  { id: 'subject-seni-budaya',       label: 'Seni Budaya',                  status: 'active' },
-  { id: 'subject-pjok',              label: 'PJOK',                         status: 'active' },
-  { id: 'subject-seni-musik',        label: 'Seni Musik',                   status: 'active' },
-  { id: 'subject-seni-rupa',         label: 'Seni Rupa',                    status: 'active' },
-  // Keterampilan & teknologi
-  { id: 'subject-prakarya',          label: 'Prakarya',                     status: 'active' },
-  { id: 'subject-informatika',       label: 'Informatika',                  status: 'active' },
-  // IPS & humaniora (SMA)
-  { id: 'subject-sejarah-indonesia', label: 'Sejarah Indonesia',            status: 'active' },
-  { id: 'subject-ekonomi',           label: 'Ekonomi',                      status: 'active' },
-  { id: 'subject-geografi',          label: 'Geografi',                     status: 'active' },
-  { id: 'subject-sosiologi',         label: 'Sosiologi',                    status: 'active' },
-  // IPA peminatan (SMA)
-  { id: 'subject-kimia',             label: 'Kimia',                        status: 'active' },
-  { id: 'subject-fisika',            label: 'Fisika',                       status: 'active' },
-  { id: 'subject-biologi',           label: 'Biologi',                      status: 'active' },
-  // Bahasa
-  { id: 'subject-bahasa-daerah',     label: 'Bahasa Daerah',                status: 'active' },
-  { id: 'subject-bahasa-arab',       label: 'Bahasa Arab',                  status: 'active' },
+const FALLBACK_SUBJECTS: CatalogSubjectOption[] = [
+  // ── Lintas jenjang (SD + SMP + SMA + SMK) ──────────────────────────────────
+  { id: 'subject-matematika',        label: 'Matematika',                   status: 'active', jenjangList: ['sd', 'smp', 'sma', 'smk'] },
+  { id: 'subject-bahasa-indonesia',  label: 'Bahasa Indonesia',             status: 'active', jenjangList: ['sd', 'smp', 'sma', 'smk'] },
+  { id: 'subject-ppkn',              label: 'PPKn',                         status: 'active', jenjangList: ['sd', 'smp', 'sma', 'smk'] },
+  { id: 'subject-pjok',              label: 'PJOK',                         status: 'active', jenjangList: ['sd', 'smp', 'sma', 'smk'] },
+
+  // ── SD saja ────────────────────────────────────────────────────────────────
+  { id: 'subject-ipa',               label: 'IPA',                          status: 'active', jenjangList: ['sd'] },
+  { id: 'subject-ips',               label: 'IPS',                          status: 'active', jenjangList: ['sd'] },
+  { id: 'subject-seni-budaya',       label: 'Seni Budaya',                  status: 'active', jenjangList: ['sd'] },
+  { id: 'subject-prakarya',          label: 'Prakarya',                     status: 'active', jenjangList: ['sd'] },
+  { id: 'subject-pai',               label: 'PAI (Pendidikan Agama Islam)', status: 'active', jenjangList: ['sd'] },
+
+  // ── SMP saja ───────────────────────────────────────────────────────────────
+  { id: 'subject-bahasa-inggris',        label: 'Bahasa Inggris',        status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-ipa-smp',               label: 'IPA',                   status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-ips-smp',               label: 'IPS',                   status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-seni-budaya-smp',       label: 'Seni Budaya',           status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-prakarya-smp',          label: 'Prakarya',              status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-informatika-smp',       label: 'Informatika',           status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-pai-smp',               label: 'PAI (Pendidikan Agama Islam)', status: 'active', jenjangList: ['smp'] },
+
+  // ── SMA saja ───────────────────────────────────────────────────────────────
+  { id: 'subject-bahasa-inggris-sma',    label: 'Bahasa Inggris',        status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-fisika',                label: 'Fisika',                status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-kimia',                 label: 'Kimia',                 status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-biologi',               label: 'Biologi',               status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-ekonomi',               label: 'Ekonomi',               status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-geografi',              label: 'Geografi',              status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-sosiologi',             label: 'Sosiologi',             status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-sejarah-indonesia',     label: 'Sejarah Indonesia',     status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-seni-budaya-sma',       label: 'Seni Budaya',           status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-informatika-sma',       label: 'Informatika',           status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-pai-sma',               label: 'PAI (Pendidikan Agama Islam)', status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-pkwu',                  label: 'PKWU',                  status: 'active', jenjangList: ['sma'] },
+
+  // ── SMK saja ───────────────────────────────────────────────────────────────
+  { id: 'subject-bahasa-inggris-smk',    label: 'Bahasa Inggris',        status: 'active', jenjangList: ['smk'] },
+  { id: 'subject-produktif',             label: 'Produktif',              status: 'active', jenjangList: ['smk'] },
+  { id: 'subject-kompetensi-keahlian',   label: 'Kompetensi Keahlian',    status: 'active', jenjangList: ['smk'] },
+  { id: 'subject-pai-smk',               label: 'PAI (Pendidikan Agama Islam)', status: 'active', jenjangList: ['smk'] },
 ];
 
-const FALLBACK_MATERIALS: CatalogOption[] = [
-  { id: 'material-bab-1', label: 'Bab 1 — Pengantar',   status: 'active' },
-  { id: 'material-bab-2', label: 'Bab 2 — Inti Materi', status: 'active' },
-  { id: 'material-bab-3', label: 'Bab 3 — Latihan',     status: 'active' },
-];
+const FALLBACK_MATERIALS: CatalogOption[] = [];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -135,6 +161,17 @@ type CatalogStatus = (typeof VALID_STATUSES)[number];
 
 function isValidStatus(v: unknown): v is CatalogStatus {
   return VALID_STATUSES.includes(v as CatalogStatus);
+}
+
+/**
+ * Resolve jenjang from a gradeId like 'sd-1' → 'sd', 'smp-7' → 'smp', etc.
+ */
+function jenjangFromGradeId(gradeId: string): Jenjang | null {
+  if (gradeId.startsWith('sd-')) return 'sd';
+  if (gradeId.startsWith('smp-')) return 'smp';
+  if (gradeId.startsWith('sma-')) return 'sma';
+  if (gradeId.startsWith('smk-')) return 'smk';
+  return null;
 }
 
 /** Best-effort audit log — uses raw pool like adminRoutes.ts */
@@ -230,6 +267,7 @@ export async function registerCatalogRoutes(
             data: rows.map((r) => ({
               id: r.id,
               label: r.label,
+              gradeId: q.gradeId,
               status: 'active' as const,
             })),
           });
@@ -239,11 +277,18 @@ export async function registerCatalogRoutes(
       }
     }
 
-    // Fallback: return static subjects scoped by gradeId prefix
+    // Fallback: filter subjects by jenjang from gradeId
+    const jenjang = jenjangFromGradeId(q.gradeId);
+    const filtered = jenjang
+      ? FALLBACK_SUBJECTS.filter((s) => s.jenjangList.includes(jenjang))
+      : FALLBACK_SUBJECTS;
+
     return reply.status(200).send({
-      data: FALLBACK_SUBJECTS.map((s) => ({
-        ...s,
-        id: `${q.gradeId}-${s.id}`,
+      data: filtered.map((s) => ({
+        id: s.id,
+        label: s.label,
+        gradeId: q.gradeId,
+        status: s.status,
       })),
     });
   });
@@ -295,12 +340,7 @@ export async function registerCatalogRoutes(
       }
     }
 
-    return reply.status(200).send({
-      data: FALLBACK_MATERIALS.map((m) => ({
-        ...m,
-        id: `${q.subjectId}-${m.id}`,
-      })),
-    });
+    return reply.status(200).send({ data: FALLBACK_MATERIALS });
   });
 
   // ── Admin CRUD endpoints (superadmin only) ────────────────────────────────
@@ -407,7 +447,12 @@ export async function registerCatalogRoutes(
         body.status === 'archived' ? 'archived' : 'active';
       const id = `grade-${labelToSlug(label)}-${randomUUID().slice(0, 8)}`;
 
-      const newItem: CatalogOption = { id, label, status };
+      const newItem: CatalogGradeOption = {
+        id,
+        label,
+        status,
+        jenjang: 'sd', // default; admin can update later
+      };
       FALLBACK_GRADES.push(newItem);
 
       // Insert ke DB jika tersedia (best-effort, pakai raw SQL karena
@@ -451,7 +496,12 @@ export async function registerCatalogRoutes(
         body.status === 'archived' ? 'archived' : 'active';
       const id = `subject-${labelToSlug(label)}-${randomUUID().slice(0, 8)}`;
 
-      const newItem: CatalogOption = { id, label, status };
+      const newItem: CatalogSubjectOption = {
+        id,
+        label,
+        status,
+        jenjangList: ['sd', 'smp', 'sma', 'smk'], // default: lintas jenjang
+      };
       FALLBACK_SUBJECTS.push(newItem);
 
       await auditLog(db, actor?.id ?? 'unknown', 'catalog.subject.create', 'subject', id, { label, status });
