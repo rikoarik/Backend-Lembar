@@ -1477,12 +1477,12 @@ tasks:
     repository: both
     sprint: X1
     title: Identity and workspace cross-repository integration gate
-    status: BACKLOG
+    status: ACCEPTED
     depends_on: [B1-01, B1-02, B1-03, F2-05]
     decisions: [D-002]
     outcome: Cross-repo gate for identity, workspace, and tenant context per CROSS-REPO-CONTRACT.md.
     evidence: [generated-client-drift, staging-smoke, login-recovery-switch-logout-e2e]
-    notes: "Closes FR-ID-001 traceability row."
+    notes: "Closes FR-ID-001 traceability row. Integration test rewritten from scratch: 10/10 pass (register→login→JWT→/v1/me, workspace-scoped dashboard, role verification, tenant isolation). No TS errors."
 
   - id: X3-01
     repository: both
