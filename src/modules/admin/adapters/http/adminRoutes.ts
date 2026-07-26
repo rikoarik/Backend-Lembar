@@ -18,6 +18,7 @@ import {
 } from '../../persistence/adminOpsSchema.js';
 import type { AdminService } from '../../application/AdminService.js';
 import { tenants } from "../../../../infrastructure/database/schema.js";
+import jwt from 'jsonwebtoken';
 
 function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? req.requestId ?? 'req_unknown';
@@ -426,9 +427,7 @@ export async function registerAdminRoutes(
     const actingUser = request.jwtUser!;
 
     // Sign a short-lived impersonation token (1 hour) using jsonwebtoken
-    const { sign } = await import('jsonwebtoken');
-    const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-in-production';
-    const token = sign(
+    const token = jwt.sign(
       {
         userId: target.id,
         email: target.email,
@@ -551,8 +550,8 @@ export async function registerAdminRoutes(
 
     if (status) { whereClauses.push(`sj.status = $${idx++}`); params.push(status); }
     if (tenant) { whereClauses.push(`sj.workspace_id = $${idx++}`); params.push(tenant); }
-    if (type) { whereClauses.push(`sj.type = $${idx++}`); params.push(type); }
-    if (search) { whereClauses.push(`(sj.id ILIKE $${idx} OR sj.type ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
+    if (type) { whereClauses.push(`sj.kind = $${idx++}`); params.push(type); }
+    if (search) { whereClauses.push(`(sj.id ILIKE $${idx} OR sj.kind ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
 
     const where = whereClauses.join(' AND ');
 
@@ -560,7 +559,7 @@ export async function registerAdminRoutes(
     const total = parseInt((countRes.rows[0] as any).total, 10);
 
     const dataRes = await pool.query(
-      `SELECT sj.id, sj.type, sj.status, sj.workspace_id, sj.attempt, sj.created_at, sj.updated_at,
+      `SELECT sj.id, sj.kind, sj.status, sj.workspace_id, sj.attempt, sj.created_at, sj.updated_at,
               t.name as tenant_name
        FROM spike_jobs sj
        LEFT JOIN tenants t ON t.id = sj.workspace_id::uuid
@@ -572,7 +571,7 @@ export async function registerAdminRoutes(
 
     const data = dataRes.rows.map((r: any) => ({
       id: r.id,
-      type: r.type,
+      type: r.kind,
       status: r.status,
       tenant: r.tenant_name ?? r.workspace_id ?? '—',
       workspaceId: r.workspace_id,
