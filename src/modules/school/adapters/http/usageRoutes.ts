@@ -68,7 +68,7 @@ export async function registerUsageRoutes(
         quota_limit: string;
       }>(
         `SELECT
-           COALESCE(SUM(tokens_reserved), 0)      AS quota_used,
+           COALESCE(SUM(units), 0)      AS quota_used,
            COALESCE(MAX(quota_limit), 0)           AS quota_limit
          FROM quota_reservations
          WHERE workspace_id = $1`,
@@ -89,7 +89,7 @@ export async function registerUsageRoutes(
            qr.user_id,
            COALESCE(u.name, 'Unknown')             AS name,
            COALESCE(u.email, '')                   AS email,
-           SUM(qr.tokens_reserved)                 AS used
+           SUM(qr.units)                 AS used
          FROM quota_reservations qr
          LEFT JOIN jwt_users u ON u.id::text = qr.user_id::text
          WHERE qr.workspace_id = $1

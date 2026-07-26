@@ -200,9 +200,8 @@ export async function registerLibraryRoutes(
       questionNo: number | null;
       type: string | null;
       status: string | null;
-      bloom: string | null;
     }>(
-      `SELECT rq.id, rq.question_no AS "questionNo", rq.type, rq.status, rq.bloom
+      `SELECT rq.id, rq.question_no AS "questionNo", rq.question_type AS "type", rq.status
        FROM reviewed_questions rq
        WHERE rq.assessment_id = $1
        ORDER BY rq.question_no ASC`,

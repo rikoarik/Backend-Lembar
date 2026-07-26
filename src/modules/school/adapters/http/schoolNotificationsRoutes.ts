@@ -135,7 +135,7 @@ export async function registerSchoolNotificationsRoutes(
       }>(
         `SELECT
            id,
-           type,
+           template_key AS type,
            status,
            attempt_count,
            last_error,
