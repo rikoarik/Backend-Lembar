@@ -102,7 +102,7 @@ export async function registerSettingsRoutes(
          LEFT JOIN schools s ON s.tenant_id = t.id
          LEFT JOIN workspace_plans wp
            ON wp.workspace_id = $1 AND wp.active = true
-         WHERE t.id = $1
+         WHERE t.id = $1::uuid
          LIMIT 1`,
         [workspaceId],
       );
@@ -174,7 +174,7 @@ export async function registerSettingsRoutes(
       if (!name) {
         // Nothing to update — return current state.
         const { rows } = await pool.query<{ id: string; name: string; created_at: Date }>(
-          `SELECT id, name, created_at FROM tenants WHERE id = $1 LIMIT 1`,
+          `SELECT id, name, created_at FROM tenants WHERE id = $1::uuid LIMIT 1`,
           [workspaceId],
         );
         if (rows.length === 0) {
@@ -189,7 +189,7 @@ export async function registerSettingsRoutes(
       const { rows } = await pool.query<{ id: string; name: string; updated_at: Date }>(
         `UPDATE tenants
          SET name = $1
-         WHERE id = $2
+         WHERE id = $2::uuid
          RETURNING id, name, now() AS updated_at`,
         [name.trim(), workspaceId],
       );

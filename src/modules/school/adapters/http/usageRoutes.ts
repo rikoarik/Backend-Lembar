@@ -7,7 +7,8 @@
  * DB:   raw SQL via getPool(db).
  *
  * Data sources:
- *   - quota_reservations  → quotaUsed / quotaLimit + per-user used counts
+ *   - workspace_plans     → quota limit + total used
+ *   - quota_reservations  → per-user used counts (when available)
  *   - jwt_users           → name + email for breakdown
  *   - ai_jobs_audit       → monthly trend (succeeded jobs per month)
  */
@@ -62,48 +63,28 @@ export async function registerUsageRoutes(
         });
       }
 
-      // ── 1. Aggregate quota used + limit from quota_reservations ────────────
-      const quotaRes = await pool.query<{
-        quota_used: string;
-        quota_limit: string;
-      }>(
-        `SELECT
-           COALESCE(SUM(units), 0)      AS quota_used,
-           COALESCE(MAX(quota_limit), 0)           AS quota_limit
+      // ── 1. Aggregate quota used from quota_reservations ────────────────────
+      const quotaUsedRes = await pool.query<{ quota_used: string }>(
+        `SELECT COALESCE(SUM(units), 0) AS quota_used
          FROM quota_reservations
          WHERE workspace_id = $1`,
         [workspaceId],
       );
 
-      const quotaUsed = parseInt(quotaRes.rows[0]?.quota_used ?? '0', 10);
-      const quotaLimit = parseInt(quotaRes.rows[0]?.quota_limit ?? '0', 10);
+      const quotaUsed = parseInt(quotaUsedRes.rows[0]?.quota_used ?? '0', 10);
 
-      // ── 2. Per-user breakdown: reservations joined with jwt_users ──────────
-      const breakdownRes = await pool.query<{
-        user_id: string;
-        name: string;
-        email: string;
-        used: string;
-      }>(
-        `SELECT
-           qr.user_id,
-           COALESCE(u.name, 'Unknown')             AS name,
-           COALESCE(u.email, '')                   AS email,
-           SUM(qr.units)                 AS used
-         FROM quota_reservations qr
-         LEFT JOIN jwt_users u ON u.id::text = qr.user_id::text
-         WHERE qr.workspace_id = $1
-         GROUP BY qr.user_id, u.name, u.email
-         ORDER BY used DESC`,
+      // ── 2. Get quota limit from workspace_plans ────────────────────────────
+      // quota_limit is determined by plan: free → 10, pro → unlimited (0 = no limit)
+      const planRes = await pool.query<{ plan: string }>(
+        `SELECT COALESCE(plan, 'free') AS plan
+         FROM workspace_plans
+         WHERE workspace_id = $1 AND active = true
+         LIMIT 1`,
         [workspaceId],
       );
 
-      const breakdown = breakdownRes.rows.map((r) => ({
-        userId: r.user_id,
-        name: r.name,
-        email: r.email,
-        used: parseInt(r.used, 10),
-      }));
+      const plan = planRes.rows[0]?.plan ?? 'free';
+      const quotaLimit = plan === 'pro' ? 0 : 10;
 
       // ── 3. Monthly trend from ai_jobs_audit (last 12 months) ──────────────
       const trendRes = await pool.query<{
@@ -125,6 +106,31 @@ export async function registerUsageRoutes(
       const trend = trendRes.rows.map((r) => ({
         month: r.month,
         used: parseInt(r.used, 10),
+      }));
+
+      // ── 4. Per-user breakdown from jwt_users ──────────────────────────────
+      // For now, return workspace-level usage since quota_reservations
+      // does not have a user_id column for per-user breakdown.
+      const breakdownRes = await pool.query<{
+        user_id: string;
+        name: string;
+        email: string;
+      }>(
+        `SELECT
+           u.id AS user_id,
+           COALESCE(u.name, 'Unknown')  AS name,
+           COALESCE(u.email, '')        AS email
+         FROM jwt_users u
+         WHERE u.workspace_id = $1::uuid
+         ORDER BY u.created_at ASC`,
+        [workspaceId],
+      );
+
+      const breakdown = breakdownRes.rows.map((r) => ({
+        userId: r.user_id,
+        name: r.name,
+        email: r.email,
+        used: 0, // Per-user breakdown not available without user_id on reservations
       }));
 
       return reply.status(200).send({

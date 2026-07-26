@@ -74,7 +74,7 @@ export async function registerLibraryRoutes(
     const countSql = `
       SELECT COUNT(*)::int AS total
       FROM assessments a
-      WHERE a.workspace_id = $1
+      WHERE a.workspace_id = $1::uuid
         AND a.status = $2
         ${searchClause}
     `;
@@ -91,7 +91,7 @@ export async function registerLibraryRoutes(
         COALESCE(u.name, u.email, a.creator_user_id::text) AS "authorName"
       FROM assessments a
       LEFT JOIN jwt_users u ON u.id = a.creator_user_id
-      WHERE a.workspace_id = $1
+      WHERE a.workspace_id = $1::uuid
         AND a.status = $2
         ${searchClause}
       ORDER BY a.created_at DESC
@@ -166,7 +166,7 @@ export async function registerLibraryRoutes(
        FROM assessments a
        LEFT JOIN jwt_users u ON u.id = a.creator_user_id
        WHERE a.id = $1
-         AND a.workspace_id = $2
+         AND a.workspace_id = $2::uuid
          AND a.status = 'finalized'`,
       [id, workspaceId],
     );

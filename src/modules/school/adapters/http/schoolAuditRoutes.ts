@@ -60,7 +60,7 @@ export async function registerSchoolAuditRoutes(
     }
 
     // Build dynamic WHERE clauses
-    const conditions: string[] = ['e.tenant_id = $1'];
+    const conditions: string[] = ['e.tenant_id = $1::uuid'];
     const countParams: unknown[] = [workspaceId];
     const rowParams: unknown[] = [workspaceId];
 
@@ -156,7 +156,7 @@ export async function registerSchoolAuditRoutes(
          i.created_at   AS "createdAt",
          i.expires_at   AS "expiresAt"
        FROM auth_school_invitations i
-       WHERE i.tenant_id = $1
+       WHERE i.tenant_id = $1::uuid
          AND i.state = 'pending'
        ORDER BY i.created_at DESC`,
       [workspaceId],
@@ -194,10 +194,10 @@ export async function registerSchoolAuditRoutes(
       // Only cancel if still pending and belongs to this workspace
       const res = await pool.query<{ id: string }>(
         `UPDATE auth_school_invitations
-         SET status = 'cancelled', updated_at = NOW()
+         SET state = 'revoked'
          WHERE id = $1
-           AND tenant_id = $2
-           AND status = 'pending'
+           AND tenant_id = $2::uuid
+           AND state = 'pending'
          RETURNING id`,
         [id, workspaceId],
       );

@@ -206,7 +206,7 @@ export async function registerMemberRoutes(
             name: string | null;
             last_active_at: string | null;
           }>(
-            `SELECT name, last_active_at FROM jwt_users WHERE id = $1 LIMIT 1`,
+            `SELECT name, last_active_at FROM jwt_users WHERE id = $1::uuid LIMIT 1`,
             [memberId],
           );
           if (userRow.rows.length > 0) {
@@ -218,19 +218,20 @@ export async function registerMemberRoutes(
           const assessmentRow = await pool.query<{ count: string }>(
             `SELECT COUNT(*)::text AS count
                FROM assessments
-              WHERE workspace_id = $1
-                AND created_by = $2`,
+              WHERE workspace_id = $1::uuid
+                AND creator_user_id = $2::uuid`,
             [workspaceId, memberId],
           );
           assessmentCount = parseInt(assessmentRow.rows[0]?.count ?? '0', 10);
 
-          // quotaUsed — total quota consumed by this member in the workspace
+          // quotaUsed — workspace-level generations used this month from workspace_plans
+          // (quota_reservations does not have per-user tracking)
           const quotaRow = await pool.query<{ total: string }>(
-            `SELECT COALESCE(SUM(tokens_used), 0)::text AS total
-               FROM quota_reservations
-              WHERE workspace_id = $1
-                AND user_id = $2`,
-            [workspaceId, memberId],
+            `SELECT COALESCE(generations_used_this_month, 0)::text AS total
+               FROM workspace_plans
+              WHERE workspace_id = $1 AND active = true
+              LIMIT 1`,
+            [workspaceId],
           );
           quotaUsed = parseInt(quotaRow.rows[0]?.total ?? '0', 10);
         } catch {

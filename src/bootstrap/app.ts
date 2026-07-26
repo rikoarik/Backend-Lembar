@@ -94,6 +94,7 @@ import { registerAiPromptRoutes } from '../modules/admin/adapters/http/aiPromptR
 import { SchoolService } from '../modules/school/application/SchoolService.js';
 import { SchoolDashboardService } from '../modules/school/application/SchoolDashboardService.js';
 import { InMemorySchoolWorkspaceStore, InMemorySchoolInvitationStore } from '../modules/school/persistence/InMemorySchoolStores.js';
+import { PostgresSchoolWorkspaceStore } from '../modules/school/persistence/PostgresSchoolStores.js';
 import { registerSchoolRoutes } from '../modules/school/adapters/http/schoolRoutes.js';
 import { registerDashboardRoutes } from '../modules/school/adapters/http/dashboardRoutes.js';
 import { registerMemberRoutes } from '../modules/school/adapters/http/memberRoutes.js';
@@ -445,9 +446,9 @@ export async function buildApp(
     });
   }
 
-  // School routes (InMemory stores for now, seed demo data)
+  // School routes (Postgres-backed stores)
   if (managedDb) {
-    const schoolWorkspaceStore = new InMemorySchoolWorkspaceStore();
+    const schoolWorkspaceStore = new PostgresSchoolWorkspaceStore(managedDb);
     const schoolInvitationStore = new InMemorySchoolInvitationStore();
     const schoolService = new SchoolService(schoolWorkspaceStore, schoolInvitationStore);
     registerSchoolRoutes(app, { service: schoolService });
@@ -502,34 +503,7 @@ export async function buildApp(
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     });
 
-    // Seed demo school workspace for dashboard testing
-    const demoWorkspaceId = 'demo-school-workspace-001';
-    const demoTenantId = 'demo-tenant-001';
-    schoolWorkspaceStore.seedWorkspace(
-      {
-        id: demoWorkspaceId,
-        tenantId: demoTenantId,
-        name: 'SDN 1 Demo',
-        level: 'sd',
-        createdAt: new Date().toISOString(),
-      },
-      [
-        {
-          id: 'member-001',
-          email: 'teacher@demo.school',
-          role: 'teacher',
-          state: 'active',
-          joinedAt: new Date().toISOString(),
-        },
-        {
-          id: 'member-002',
-          email: 'admin@demo.school',
-          role: 'school_admin',
-          state: 'active',
-          joinedAt: new Date().toISOString(),
-        },
-      ],
-    );
+    // Note: Demo workspaces are now in the database. No in-memory seeding needed.
   }
 
   return app;
