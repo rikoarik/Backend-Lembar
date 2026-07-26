@@ -445,6 +445,9 @@ export async function registerAdminRoutes(
       impersonatedBy: actingUser.userId,
     });
 
+    const roles: string[] = target.roles ?? [];
+    const homePath = roles.includes('superadmin') ? '/ops' : roles.includes('school_admin') ? '/school' : '/app';
+
     return reply.status(200).send({
       data: {
         token,
@@ -452,7 +455,7 @@ export async function registerAdminRoutes(
         targetEmail: target.email,
         targetName: target.name,
         expiresIn: 3600,
-        note: 'Token berlaku 1 jam. Gunakan header Authorization: Bearer <token> untuk akses.',
+        homePath,
       },
     });
   });
@@ -1071,5 +1074,168 @@ export async function registerAdminRoutes(
     const user = request.jwtUser!;
     const result = await service.setEntitlement(user.userId, { workspaceId, plan: body.plan as 'free' | 'pro', actorId: user.userId });
     return reply.status(200).send({ data: result });
+  });
+
+  // ── B8-02: Data lifecycle — schedule-delete & purge ───────────────────────
+  // PATCH /v1/admin/accounts/:id/schedule-delete
+  // Schedule soft-delete + deferred hard-delete setelah retention window (default 30 hari).
+  app.patch('/v1/admin/accounts/:id/schedule-delete', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { retentionDays?: number; reason?: string } | null;
+    const user = request.jwtUser!;
+
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    // Cek akun ada
+    const accountRes = await pool.query(
+      'SELECT id, email, roles, tenant_id, workspace_id FROM jwt_users WHERE id = $1',
+      [id],
+    );
+    if (!accountRes.rows[0]) {
+      return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+    }
+
+    // Cek belum ada schedule pending
+    const existingRes = await pool.query(
+      "SELECT id FROM account_delete_schedule WHERE account_id = $1 AND status = 'pending'",
+      [id],
+    );
+    if (existingRes.rows[0]) {
+      return reply.status(409).send({ error: { code: 'CONFLICT', message: 'Delete already scheduled for this account' } });
+    }
+
+    const retentionDays = Number(body?.retentionDays ?? 30);
+    if (retentionDays < 1 || retentionDays > 365) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'retentionDays must be 1–365' } });
+    }
+    const reason = body?.reason ?? null;
+
+    const purgeAfter = new Date();
+    purgeAfter.setDate(purgeAfter.getDate() + retentionDays);
+
+    // Soft-delete akun
+    await pool.query('UPDATE jwt_users SET deleted_at = now() WHERE id = $1', [id]);
+
+    // Buat schedule record
+    const schedRes = await pool.query<{ id: string; purge_after: Date }>(
+      `INSERT INTO account_delete_schedule
+         (account_id, scheduled_by, purge_after, retention_days, reason)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, purge_after`,
+      [id, user.userId, purgeAfter.toISOString(), retentionDays, reason],
+    );
+
+    await auditLog(user.userId, 'account.delete_scheduled', 'account', id, {
+      retentionDays,
+      purgeAfter: purgeAfter.toISOString(),
+      reason,
+    });
+
+    const schedRow = schedRes.rows[0];
+    if (!schedRow) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create schedule' } });
+
+    return reply.status(200).send({
+      data: {
+        accountId: id,
+        scheduleId: schedRow.id,
+        purgeAfter: schedRow.purge_after,
+        retentionDays,
+        status: 'pending',
+      },
+    });
+  });
+
+  // DELETE /v1/admin/accounts/:id/purge
+  // Hard-delete akun + tulis tombstone (immutable audit trail). Superadmin only.
+  app.delete('/v1/admin/accounts/:id/purge', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { reason?: string } | null;
+    const user = request.jwtUser!;
+
+    const pool = getPool(db);
+    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    // Cek tombstone sudah ada (idempoten — sudah di-purge sebelumnya)
+    const tombRes = await pool.query(
+      'SELECT id FROM account_tombstones WHERE original_id = $1',
+      [id],
+    );
+    if (tombRes.rows[0]) {
+      return reply.status(410).send({ error: { code: 'GONE', message: 'Account already purged (tombstone exists)' } });
+    }
+
+    // Ambil data akun sebelum dihapus
+    const accountRes = await pool.query(
+      'SELECT id, email, roles, tenant_id, workspace_id, created_at FROM jwt_users WHERE id = $1',
+      [id],
+    );
+    if (!accountRes.rows[0]) {
+      return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+    }
+    const account = accountRes.rows[0] as {
+      id: string; email: string; roles: string[];
+      tenant_id: string | null; workspace_id: string | null; created_at: Date;
+    };
+
+    const reason = body?.reason ?? null;
+
+    // Hash email (PII minimisation — SHA-256)
+    const { createHash } = await import('node:crypto');
+    const emailHash = createHash('sha256').update(account.email.toLowerCase()).digest('hex');
+
+    const snapshot = {
+      roles: account.roles,
+      tenantId: account.tenant_id,
+      workspaceId: account.workspace_id,
+      createdAt: account.created_at,
+    };
+
+    // Mark pending schedule sebagai executed (jika ada)
+    await pool.query(
+      "UPDATE account_delete_schedule SET status = 'executed', executed_at = now() WHERE account_id = $1 AND status = 'pending'",
+      [id],
+    );
+
+    // Hard-delete dari jwt_users
+    await pool.query('DELETE FROM jwt_users WHERE id = $1', [id]);
+
+    // Tulis tombstone (immutable)
+    const insertTombstone = await pool.query<{ id: string; purged_at: Date }>(
+      `INSERT INTO account_tombstones
+         (original_id, email_hash, roles, tenant_id, workspace_id, deleted_by, delete_reason, snapshot, retention_days)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, purged_at`,
+      [
+        id,
+        emailHash,
+        account.roles ?? [],
+        account.tenant_id,
+        account.workspace_id,
+        user.userId,
+        reason,
+        JSON.stringify(snapshot),
+        30,
+      ],
+    );
+
+    await auditLog(user.userId, 'account.purged', 'account', id, {
+      tombstoneId: insertTombstone.rows[0]?.id,
+      emailHash,
+      reason,
+    });
+
+    const tombRow = insertTombstone.rows[0];
+    if (!tombRow) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create tombstone' } });
+
+    return reply.status(200).send({
+      data: {
+        purged: true,
+        accountId: id,
+        tombstoneId: tombRow.id,
+        purgedAt: tombRow.purged_at,
+        emailHash,
+      },
+    });
   });
 }

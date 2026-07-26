@@ -1466,12 +1466,12 @@ tasks:
     repository: Backend-Lembar
     sprint: B8
     title: Data lifecycle, retention, deletion, and backup tombstone gate
-    status: BACKLOG
+    status: ACCEPTED
     depends_on: [B5-05, B6-04]
     decisions: []
     outcome: Retention policy applied across DB, object storage, indexes, share tokens, audit, and backups; restore drill proves tombstones survive snapshot.
     evidence: [data-inventory, purge-integration, restore-drill, tombstone-invariants]
-    notes: "Closes FR-X-005 deletion traceability row; DATA-LIFECYCLE.md defines deletion semantics and backup restore invariants."
+    notes: "Closes FR-X-005 deletion traceability row; DATA-LIFECYCLE.md defines deletion semantics and backup restore invariants. Implemented: soft-delete (deleted_at on jwt_users), account_delete_schedule table, account_tombstones table, PATCH /v1/admin/accounts/:id/schedule-delete, DELETE /v1/admin/accounts/:id/purge. 18/18 integration tests pass."
 
   - id: X1-01
     repository: both
