@@ -52,10 +52,11 @@ export async function registerAdminRoutes(
   // ── Dashboard KPI ────────────────────────────────────
   app.get('/v1/admin/dashboard', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: { users: 0, schools: 0, jobsActive: 0, qualityOpen: 0, flagsEnabled: 0 } });
+    if (!pool) return reply.status(200).send({ data: { users: 0, schools: 0, jobsActive: 0, jobsFailed: 0, qualityOpen: 0, flagsEnabled: 0 } });
     const usersRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM jwt_users');
     const tenantsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM tenants');
     const jobsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM spike_jobs WHERE status IN ($1, $2)', ['running', 'queued']);
+    const jobsFailedRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM spike_jobs WHERE status = $1', ['failed']);
     const qualityRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM admin_quality_reports WHERE status = $1', ['open']);
     const flagsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM admin_flags WHERE enabled = true');
     return reply.status(200).send({
@@ -63,6 +64,7 @@ export async function registerAdminRoutes(
         users: Number(usersRes.rows[0]?.count ?? 0),
         schools: Number(tenantsRes.rows[0]?.count ?? 0),
         jobsActive: Number(jobsRes.rows[0]?.count ?? 0),
+        jobsFailed: Number(jobsFailedRes.rows[0]?.count ?? 0),
         qualityOpen: Number(qualityRes.rows[0]?.count ?? 0),
         flagsEnabled: Number(flagsRes.rows[0]?.count ?? 0),
       },
@@ -903,11 +905,43 @@ export async function registerAdminRoutes(
 
   // ── Schools / Tenants ──────────────────────────────
   app.get('/v1/admin/schools', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const q = request.query as Record<string, string>;
     const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: [] });
+    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 10, pages: 1 } });
 
-    const result = await pool.query(`
-      SELECT
+    const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
+    const limit = Math.min(100, Math.max(1, parseInt(q['limit'] ?? '10', 10)));
+    const offset = (page - 1) * limit;
+    const search = q['q']?.trim() ?? '';
+    const plan = q['plan']?.trim() ?? '';
+
+    const whereClauses: string[] = [];
+    const params: unknown[] = [];
+    let idx = 1;
+
+    if (search) {
+      whereClauses.push(`(t.name ILIKE $${idx} OR t.slug ILIKE $${idx})`);
+      params.push(`%${search}%`);
+      idx++;
+    }
+    if (plan) {
+      whereClauses.push(`COALESCE(ab.plan, 'free') = $${idx++}`);
+      params.push(plan);
+    }
+
+    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+    const countRes = await pool.query(
+      `SELECT COUNT(DISTINCT t.id)::int as total
+       FROM tenants t
+       LEFT JOIN admin_billing ab ON ab.tenant_id = t.id::text
+       ${whereClause}`,
+      params,
+    );
+    const total = (countRes.rows[0] as any).total ?? 0;
+
+    const result = await pool.query(
+      `SELECT
         t.id, t.name, t.slug,
         COUNT(DISTINCT jw.id)::int as teachers,
         COALESCE(ab.plan, 'free') as plan,
@@ -918,9 +952,12 @@ export async function registerAdminRoutes(
       FROM tenants t
       LEFT JOIN jwt_users jw ON jw.workspace_id = t.id AND jw.roles @> ARRAY['teacher']
       LEFT JOIN admin_billing ab ON ab.tenant_id = t.id::text
+      ${whereClause}
       GROUP BY t.id, t.name, t.slug, ab.plan, ab.state, ab.seats, ab.renews_at
       ORDER BY t.name
-    `);
+      LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...params, limit, offset],
+    );
 
     return reply.status(200).send({
       data: result.rows.map((r: any) => ({
@@ -934,6 +971,7 @@ export async function registerAdminRoutes(
         renewsAt: r.renews_at,
         owner: r.owner_email ?? '—',
       })),
+      meta: { total, page, limit, pages: Math.max(1, Math.ceil(total / limit)) },
     });
   });
 

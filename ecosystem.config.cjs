@@ -31,8 +31,8 @@ module.exports = {
     },
     {
       name: 'lembar-worker',
-      script: 'pnpm',
-      args: 'run start:worker',
+      script: 'node',
+      args: '--max-old-space-size=512 dist/bootstrap/worker.js',
       cwd: '/home/hermes/Projects/Backend-Lembar',
       env: {
         ...env,
@@ -40,7 +40,7 @@ module.exports = {
       },
       autorestart: true,
       watch: false,
-      max_memory_restart: '1G',
+      max_memory_restart: '400M',
     },
   ],
 };

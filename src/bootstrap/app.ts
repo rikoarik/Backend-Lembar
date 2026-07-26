@@ -32,6 +32,12 @@ import { PlanService } from '../modules/plans/application/PlanService.js';
 import { WorkspacePlanRepository } from '../modules/plans/persistence/repository.js';
 import { registerPlanRoutes } from '../modules/plans/adapters/http/planRoutes.js';
 
+// B6-02: Payment integration
+import { PaymentRepository } from '../modules/payment/persistence/repository.js';
+import { PaymentService } from '../modules/payment/application/PaymentService.js';
+import { registerWebhookRoutes } from '../modules/payment/adapters/http/webhookRoutes.js';
+import { registerSubscriptionRoutes } from '../modules/payment/adapters/http/subscriptionRoutes.js';
+
 // B2-03: Assessment routes + full core product flow
 import { AssessmentService } from '../modules/assessments/application/AssessmentService.js';
 import { InMemoryAssessmentsStore } from '../modules/assessments/persistence/InMemoryAssessmentsStore.js';
@@ -334,6 +340,20 @@ export async function buildApp(
     const planRepo = new WorkspacePlanRepository(managedDb);
     const planService = new PlanService(planRepo);
     registerPlanRoutes(app, planService);
+  }
+
+  // B6-02: Payment integration routes (webhook + subscription upgrade/downgrade)
+  if (managedDb) {
+    const planRepo = new WorkspacePlanRepository(managedDb);
+    const paymentRepo = new PaymentRepository(managedDb);
+    const paymentOpts: { midtransServerKey?: string | undefined; stripeWebhookSecret?: string | undefined } = {};
+    const midtransKey = process.env['MIDTRANS_SERVER_KEY'];
+    const stripeSecret = process.env['STRIPE_WEBHOOK_SECRET'];
+    if (midtransKey !== undefined) paymentOpts.midtransServerKey = midtransKey;
+    if (stripeSecret !== undefined) paymentOpts.stripeWebhookSecret = stripeSecret;
+    const paymentService = new PaymentService(paymentRepo, planRepo, paymentOpts);
+    await registerWebhookRoutes(app, { paymentService });
+    await registerSubscriptionRoutes(app, { paymentService });
   }
 
 // B2-03: Assessment routes (InMemory stores)

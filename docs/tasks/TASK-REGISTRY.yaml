@@ -1315,7 +1315,7 @@ tasks:
     repository: Backend-Lembar
     sprint: B6
     title: Payment integration
-    status: BLOCKED
+    status: ACCEPTED
     depends_on: [B6-01]
     decisions: [D-007, D-008, D-009]
     outcome: Verified idempotent checkout/webhook/reconciliation and subscription transitions.

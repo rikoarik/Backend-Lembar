@@ -10,11 +10,46 @@ interface AuditEvent {
   reason?: string;
 }
 
+/** Max completed/dead-letter jobs to retain before the oldest are evicted. */
+const MAX_COMPLETED_JOBS = 500;
+
+/** Max audit events to retain in the ring buffer. */
+const MAX_AUDIT_EVENTS = 1_000;
+
 export class InMemoryQueueStore implements QueueStore {
   private readonly jobs = new Map<string, QueueStoreJob>();
   private readonly workers = new Map<string, string>();
   private readonly idem = new Map<string, QueueStoreIdempotencyRecord>();
   private readonly audit: AuditEvent[] = [];
+
+  /**
+   * Evict oldest terminal-state jobs once the completed set exceeds the cap.
+   * Only removes `succeeded`, `failed`, and `dead_letter` entries — never
+   * anything that is still queued, running, or waiting for retry.
+   */
+  private evictCompletedJobs(): void {
+    const terminal = [...this.jobs.values()].filter(
+      (j) =>
+        j.status === 'succeeded' ||
+        j.status === 'failed' ||
+        j.status === 'partially_succeeded' ||
+        j.status === 'cancelled',
+    );
+    if (terminal.length <= MAX_COMPLETED_JOBS) return;
+    // Sort oldest-first and remove the excess
+    terminal.sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime());
+    const toRemove = terminal.slice(0, terminal.length - MAX_COMPLETED_JOBS);
+    for (const job of toRemove) {
+      this.jobs.delete(job.id);
+    }
+  }
+
+  /** Trim audit ring buffer to MAX_AUDIT_EVENTS most-recent entries. */
+  private trimAudit(): void {
+    if (this.audit.length > MAX_AUDIT_EVENTS) {
+      this.audit.splice(0, this.audit.length - MAX_AUDIT_EVENTS);
+    }
+  }
 
   async insertJob(job: Omit<QueueStoreJob, 'createdAt' | 'updatedAt'>): Promise<QueueStoreJob> {
     const now = new Date();
@@ -272,6 +307,8 @@ export class InMemoryQueueStore implements QueueStore {
     };
     this.jobs.set(id, done);
     this.workers.delete(id);
+    // Evict oldest terminal jobs so the Map doesn't grow without bound.
+    this.evictCompletedJobs();
     return done;
   }
 }

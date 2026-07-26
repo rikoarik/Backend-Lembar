@@ -109,7 +109,6 @@ export class WorkerExecutor {
     try {
       // Check concurrency limit
       if (this.activeJobs.size >= this.options.concurrency) {
-        this.schedulePoll();
         return;
       }
 
@@ -121,7 +120,6 @@ export class WorkerExecutor {
       const claimable = await this.store.nextClaimable(now, busyWorkspaces);
 
       if (!claimable) {
-        this.schedulePoll();
         return;
       }
 
@@ -135,13 +133,13 @@ export class WorkerExecutor {
 
       if (!claimed) {
         // Someone else claimed it
-        this.schedulePoll();
         return;
       }
 
       // Execute the job
       await this.execute(claimed);
     } finally {
+      // Always schedule the next poll exactly once, regardless of how we exited.
       this.schedulePoll();
     }
   }
