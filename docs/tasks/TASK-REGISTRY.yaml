@@ -1499,7 +1499,7 @@ tasks:
     repository: both
     sprint: X5
     title: Print/PDF/share cross-repository integration gate
-    status: BACKLOG
+    status: ACCEPTED
     depends_on: [B5-01, B5-02, B5-03, F5-05]
     decisions: [D-020]
     outcome: "Cross-repo gate for the canonical artifact path (print, PDF render, secure share link)."
