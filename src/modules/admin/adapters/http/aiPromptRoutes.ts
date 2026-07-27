@@ -35,9 +35,29 @@ export async function registerAiPromptRoutes(
   };
 
   // ── List prompts with performance metrics ──────────
-  app.get('/v1/admin/prompts', { preHandler: [auth, superadmin] }, async (_request, reply) => {
+  app.get('/v1/admin/prompts', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const pool = getPool(db);
     if (!pool) return reply.status(200).send({ data: [] });
+
+    const query = request.query as { status?: string; search?: string } | undefined;
+    const allowed = new Set(['active', 'draft', 'archived']);
+    const status = allowed.has(query?.status ?? '') ? query!.status : undefined;
+    const search = query?.search?.trim() ? query.search.trim() : undefined;
+
+    const where: string[] = [];
+    const params: unknown[] = [];
+    if (status) {
+      params.push(status);
+      where.push(`p.status = $${params.length}`);
+    }
+    if (search) {
+      params.push(`%${search}%`);
+      const idx = params.length;
+      where.push(
+        `(p.name ILIKE $${idx} OR p.slug ILIKE $${idx} OR COALESCE(p.description, '') ILIKE $${idx})`,
+      );
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const result = await pool.query(`
       SELECT
@@ -47,8 +67,10 @@ export async function registerAiPromptRoutes(
         p.created_at, p.updated_at,
         (SELECT COUNT(*)::int FROM ai_prompt_versions pv WHERE pv.prompt_id = p.id) as version_count,
         (SELECT COUNT(*)::int FROM ai_prompt_eval_cases pe WHERE pe.prompt_id = p.id) as eval_count
-      FROM admin_prompts p ORDER BY p.created_at DESC
-    `);
+      FROM admin_prompts p
+      ${whereSql}
+      ORDER BY p.created_at DESC
+    `, params);
 
     return reply.status(200).send({
       data: result.rows.map((r: any) => ({
