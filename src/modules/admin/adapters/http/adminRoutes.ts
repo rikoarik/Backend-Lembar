@@ -638,6 +638,7 @@ export async function registerAdminRoutes(
     if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
     const res = await pool.query('SELECT * FROM spike_jobs WHERE id = $1', [id]);
     if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
+    await auditLog(request.jwtUser!.userId, 'job.read', 'job', id);
     return reply.status(200).send({ data: res.rows[0] });
   });
 
@@ -687,6 +688,10 @@ export async function registerAdminRoutes(
       [...params, limit, offset],
     );
 
+    await auditLog(request.jwtUser!.userId, 'quality.list', 'report', 'list', {
+      page, limit, search: Boolean(search), filters: { status },
+    });
+
     return reply.status(200).send({
       data: dataRes.rows.map((r: any) => ({
         id: r.id, reason: r.reason, status: r.status, reporter: r.reporter,
@@ -718,6 +723,7 @@ export async function registerAdminRoutes(
     if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Report not found' } });
     const res = await pool.query('SELECT * FROM admin_quality_reports WHERE id = $1', [id]);
     if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Report not found' } });
+    await auditLog(request.jwtUser!.userId, 'quality.read', 'report', id);
     const r = res.rows[0] as any;
     return reply.status(200).send({
       data: { id: r.id, reason: r.reason, status: r.status, reporter: r.reporter, notes: r.notes,
@@ -732,6 +738,7 @@ export async function registerAdminRoutes(
     const result = await pool.query(
       `SELECT id, key, description, enabled::text, scope, created_at, updated_at FROM admin_flags ORDER BY created_at DESC`,
     );
+    await auditLog(request.jwtUser!.userId, 'flag.list', 'flag', 'list');
     return reply.status(200).send({ data: result.rows.map((r: any) => ({ ...r, enabled: r.enabled === 'true' })) });
   });
 
@@ -744,6 +751,7 @@ export async function registerAdminRoutes(
       [key],
     );
     if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
+    await auditLog(request.jwtUser!.userId, 'flag.read', 'flag', key);
     const r = res.rows[0] as any;
     return reply.status(200).send({ data: { ...r, enabled: r.enabled === 'true' } });
   });
