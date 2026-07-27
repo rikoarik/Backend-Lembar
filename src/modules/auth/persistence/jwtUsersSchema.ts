@@ -2,7 +2,7 @@
 // Separate from session-based auth tables (auth_accounts, auth_workspace_memberships)
 
 import { sql } from 'drizzle-orm';
-import { pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 import { tenants } from '../../../infrastructure/database/schema.js';
 
@@ -15,7 +15,8 @@ export const jwtUsers = pgTable('jwt_users', {
   email: text('email').notNull().unique(),
   username: text('username').notNull().unique(),
   phone: text('phone').unique(),
-  passwordHash: text('password_hash').notNull(),
+  passwordHash: text('password_hash'),
+  needsPasswordSetup: boolean('needs_password_setup').notNull().default(false),
   name: text('name').notNull(),
   roles: text('roles')
     .array()

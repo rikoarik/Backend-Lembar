@@ -17,6 +17,7 @@ import {
   adminBilling,
 } from '../../persistence/adminOpsSchema.js';
 import type { AdminService } from '../../application/AdminService.js';
+import { PasswordResetService } from '../../../auth/application/PasswordResetService.js';
 import { tenants } from "../../../../infrastructure/database/schema.js";
 import jwt from 'jsonwebtoken';
 
@@ -37,6 +38,7 @@ export async function registerAdminRoutes(
   const { service, db, jwtSecret } = options;
   const auth = createJwtAuthMiddleware({ secret: jwtSecret });
   const superadmin = requireRole(['superadmin']);
+  const passwordResetService = new PasswordResetService(db);
 
   const auditLog = async (actorId: string, action: string, targetType: string, targetId: string, metadata: Record<string, unknown> = {}) => {
     const pool = getPool(db);
@@ -467,9 +469,19 @@ export async function registerAdminRoutes(
     const res = await pool.query('SELECT email FROM jwt_users WHERE id = $1', [id]);
     if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
 
+    const issued = await passwordResetService.issue(id);
+    const resetUrl = `/reset-password?token=${encodeURIComponent(issued.token)}`;
     const user = request.jwtUser!;
     await auditLog(user.userId, 'account.reset_password', 'user', id, { email: (res.rows[0] as any).email });
-    return reply.status(200).send({ data: { id, resetSent: true } });
+    return reply.status(200).send({
+      data: {
+        id,
+        sent: true,
+        token: issued.token,
+        resetUrl,
+        expiresAt: issued.expiresAt.toISOString(),
+      },
+    });
   });
 
   app.delete('/v1/admin/accounts/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
@@ -505,9 +517,13 @@ export async function registerAdminRoutes(
     const body = request.body as { email: string; name?: string; role?: string } | null;
     if (!body?.email) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'email required' } });
     if (!body) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'body required' } });
-    const inputEmail = String(body.email || '');
+    const inputEmail = String(body.email || '').trim().toLowerCase();
     const inputName = body.name || inputEmail;
     const inputRole = body.role || 'subscriber';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inputEmail))
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'email tidak valid' } });
+    if (!['superadmin', 'school_admin', 'teacher', 'subscriber'].includes(inputRole))
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'role tidak valid' } });
 
     const pool = getPool(db);
     if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
@@ -516,17 +532,36 @@ export async function registerAdminRoutes(
     if (existing.rows[0]) return reply.status(409).send({ error: { code: 'CONFLICT', message: 'Email sudah terdaftar' } });
 
     const parts = inputEmail.split('@');
-    const slug = (parts[0] || 'user').replace(/[^a-z0-9]/g, '-');
-    const tenantRes = await pool.query(`INSERT INTO tenants (slug, name) VALUES ($1, $2) ON CONFLICT (slug) DO NOTHING RETURNING id`, ['invited-' + slug, inputName + ' Workspace']);
+    const slugBase = (parts[0] || 'user').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'user';
+    const slug = `${slugBase}-${Date.now().toString(36)}`;
+    const tenantRes = await pool.query(
+      `INSERT INTO tenants (slug, name) VALUES ($1, $2) RETURNING id`,
+      ['invited-' + slug, inputName + ' Workspace'],
+    );
     const tenantId = tenantRes.rows[0]?.id ?? null;
 
-    await pool.query(
-      `INSERT INTO jwt_users (email, name, username, password_hash, roles, workspace_id) VALUES ($1, $2, $3, $4, $5::text[], $6)`,
-      [inputEmail, inputName, slug, '$2b$10$placeholder', [inputRole], tenantId],
+    const inserted = await pool.query<{ id: string }>(
+      `INSERT INTO jwt_users (email, name, username, password_hash, needs_password_setup, roles, workspace_id)
+       VALUES ($1, $2, $3, $4, $5, $6::text[], $7)
+       RETURNING id`,
+      [inputEmail, inputName, slug, null, true, [inputRole], tenantId],
     );
+    const accountId = inserted.rows[0]?.id;
+    if (!accountId) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create account' } });
+
+    const issued = await passwordResetService.issue(accountId);
+    const welcomeUrl = `/set-password?token=${encodeURIComponent(issued.token)}`;
     const user = request.jwtUser!;
-    await auditLog(user.userId, 'account.invite', 'user', inputEmail, { role: inputRole });
-    return reply.status(201).send({ data: { email: inputEmail, invited: true } });
+    await auditLog(user.userId, 'account.invite', 'user', accountId, { role: inputRole, email: inputEmail });
+    return reply.status(201).send({
+      data: {
+        invited: true,
+        accountId,
+        token: issued.token,
+        welcomeUrl,
+        expiresAt: issued.expiresAt.toISOString(),
+      },
+    });
   });
 
 

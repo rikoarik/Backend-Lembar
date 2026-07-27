@@ -13,6 +13,7 @@ import { closeDatabase, createDatabase, type Database } from '../infrastructure/
 import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRoutes.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
 import { registerJwtMultiRoleRoutes } from '../modules/auth/adapters/http/jwtMultiRoleRoutes.js';
+import { registerPasswordResetRoutes } from '../modules/auth/adapters/http/passwordResetRoutes.js';
 import { registerGoogleOAuthRoutes } from '../modules/auth/adapters/http/googleOAuthRoutes.js';
 import { registerCurriculumRoutes } from '../modules/curriculum/adapters/http/routes.js';
 import { registerMarketingRoutes } from '../modules/marketing/adapters/http/routes.js';
@@ -280,6 +281,7 @@ export async function buildApp(
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
       jwtExpiryDays: parseInt(process.env.JWT_EXPIRY_DAYS || '7', 10),
     });
+    await registerPasswordResetRoutes(app, { db: authDb });
 
     // Google OAuth routes
     const googleClientId = process.env.GOOGLE_CLIENT_ID;

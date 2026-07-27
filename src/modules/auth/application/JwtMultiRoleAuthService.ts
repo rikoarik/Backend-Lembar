@@ -185,6 +185,10 @@ export class JwtMultiRoleAuthService {
       throwApiError('invalid_credentials', 'Email/username/telepon atau password salah');
     }
 
+    if (!user.passwordHash) {
+      throwApiError('invalid_credentials', 'Email/username/telepon atau password salah');
+    }
+
     const isValid = await verifyPassword(input.password, user.passwordHash);
     if (!isValid) {
       throwApiError('invalid_credentials', 'Email/username/telepon atau password salah');
