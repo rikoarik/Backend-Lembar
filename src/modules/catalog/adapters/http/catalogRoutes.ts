@@ -383,7 +383,7 @@ export async function registerCatalogRoutes(
 
       await auditLog(db, actor?.id ?? 'unknown', 'catalog.grade.status', 'grade', id, { status });
 
-      return reply.status(200).send({ id, status });
+      return reply.status(200).send({ data: { id, status } });
     },
   );
 
@@ -425,7 +425,7 @@ export async function registerCatalogRoutes(
 
       await auditLog(db, actor?.id ?? 'unknown', 'catalog.subject.status', 'subject', id, { status });
 
-      return reply.status(200).send({ id, status });
+      return reply.status(200).send({ data: { id, status } });
     },
   );
 
@@ -474,7 +474,7 @@ export async function registerCatalogRoutes(
 
       await auditLog(db, actor?.id ?? 'unknown', 'catalog.grade.create', 'grade', id, { label, status });
 
-      return reply.status(201).send(newItem);
+      return reply.status(201).send({ data: newItem });
     },
   );
 
@@ -506,7 +506,7 @@ export async function registerCatalogRoutes(
 
       await auditLog(db, actor?.id ?? 'unknown', 'catalog.subject.create', 'subject', id, { label, status });
 
-      return reply.status(201).send(newItem);
+      return reply.status(201).send({ data: newItem });
     },
   );
 
@@ -528,7 +528,7 @@ export async function registerCatalogRoutes(
 
       await auditLog(db, actor?.id ?? 'unknown', 'catalog.grade.delete', 'grade', id, {});
 
-      return reply.status(200).send({ id, archived: true });
+      return reply.status(200).send({ data: { id, archived: true } });
     },
   );
 
@@ -550,7 +550,7 @@ export async function registerCatalogRoutes(
 
       await auditLog(db, actor?.id ?? 'unknown', 'catalog.subject.delete', 'subject', id, {});
 
-      return reply.status(200).send({ id, archived: true });
+      return reply.status(200).send({ data: { id, archived: true } });
     },
   );
 }

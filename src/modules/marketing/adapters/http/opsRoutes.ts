@@ -54,6 +54,25 @@ export async function registerMarketingOpsRoutes(
     return { data: pages };
   });
 
+  app.post('/v1/ops/marketing/pages', async (request, reply) => {
+    await requireSuperadmin(request);
+    const body = request.body as { slug?: unknown; title?: unknown } | null;
+    if (typeof body?.slug !== 'string' || !body.slug.trim()) {
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: 'Slug wajib diisi.',
+        requestId: request.requestId ?? 'req_marketing',
+        status: 400,
+      });
+    }
+    const userId = request.jwtUser?.userId ?? '00000000-0000-0000-0000-000000000000';
+    const page = await service.createPage(
+      { slug: body.slug, title: typeof body.title === 'string' ? body.title : body.slug },
+      userId,
+    );
+    return reply.status(201).send({ data: page });
+  });
+
   app.get('/v1/ops/marketing/pages/:slug', async (request) => {
     await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };

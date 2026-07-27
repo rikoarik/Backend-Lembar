@@ -66,6 +66,58 @@ export class MarketingOpsService {
     return rows.map((row) => this.summaryFromRow(row));
   }
 
+  async createPage(
+    input: { slug: string; title: string },
+    userId: string,
+  ): Promise<MarketingOpsSummary> {
+    this.requirePermission(PERMISSIONS.platformSupportAct);
+    const slug = input.slug.trim().toLowerCase();
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: 'Slug hanya boleh berisi huruf kecil, angka, dan tanda hubung.',
+        requestId: 'req_marketing',
+        status: 400,
+      });
+    }
+    const [existing] = await this.db
+      .select({ id: marketingContent.id })
+      .from(marketingContent)
+      .where(and(eq(marketingContent.slug, slug), eq(marketingContent.locale, 'id-ID')))
+      .limit(1);
+    if (existing) {
+      throw new ApiError({
+        code: 'STATE_CONFLICT',
+        message: 'Slug halaman sudah digunakan.',
+        requestId: 'req_marketing',
+        status: 409,
+      });
+    }
+    const now = this.now();
+    const [page] = await this.db
+      .insert(marketingContent)
+      .values({
+        kind: 'page',
+        slug,
+        locale: 'id-ID',
+        currentVersion: 1,
+        revision: 1,
+        state: 'draft',
+        draftPayload: {
+          schemaVersion: 1,
+          blocks: [],
+          seo: { title: input.title.trim() || slug, description: '' },
+        },
+        updatedBy: userId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning();
+    if (!page) throw new Error('Gagal membuat halaman marketing.');
+    this.audit('page_created', page.id, userId, 1);
+    return this.summaryFromRow(page);
+  }
+
   async getPageForOps(slug: string): Promise<MarketingOpsPage> {
     this.requirePermission(PERMISSIONS.platformSupportAct);
     const [page] = await this.db

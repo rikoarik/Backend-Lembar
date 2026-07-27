@@ -330,4 +330,48 @@ describe.skipIf(!hasDb)('B6-06 marketing CMS authoring ops', () => {
       await app.close();
     }
   });
+
+  it('creates a marketing page draft via POST', async () => {
+    const app = await buildApp({ logger: false, marketingDb: db });
+    await app.ready();
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/ops/marketing/pages',
+        headers: { cookie: SUPERADMIN_COOKIE },
+        payload: { slug: 'tentang-kami', title: 'Tentang Kami' },
+      });
+      expect(response.statusCode).toBe(201);
+      const body = response.json();
+      expect(body.data.slug).toBe('tentang-kami');
+      expect(body.data.state).toBe('draft');
+
+      // duplicate slug should 409
+      const dup = await app.inject({
+        method: 'POST',
+        url: '/v1/ops/marketing/pages',
+        headers: { cookie: SUPERADMIN_COOKIE },
+        payload: { slug: 'tentang-kami', title: 'Dup' },
+      });
+      expect(dup.statusCode).toBe(409);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects invalid slugs on create', async () => {
+    const app = await buildApp({ logger: false, marketingDb: db });
+    await app.ready();
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/ops/marketing/pages',
+        headers: { cookie: SUPERADMIN_COOKIE },
+        payload: { slug: 'Slug Dengan Spasi', title: 'x' },
+      });
+      expect(response.statusCode).toBe(400);
+    } finally {
+      await app.close();
+    }
+  });
 });

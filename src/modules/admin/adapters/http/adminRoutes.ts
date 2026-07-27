@@ -1001,6 +1001,7 @@ export async function registerAdminRoutes(
       data: {
         school: {
           id: schoolRes.rows[0].id,
+          workspaceId: schoolRes.rows[0].id,
           name: schoolRes.rows[0].name,
           slug: schoolRes.rows[0].slug,
           plan: schoolRes.rows[0].plan,
