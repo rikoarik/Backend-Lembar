@@ -205,7 +205,7 @@ export async function registerCatalogRoutes(
 
   // Build auth middlewares only when jwtSecret is available
   const auth = options.jwtSecret
-    ? createJwtAuthMiddleware({ secret: options.jwtSecret })
+    ? createJwtAuthMiddleware({ secret: options.jwtSecret, db: options.db })
     : null;
   const superadmin = requireRole(['superadmin']);
 

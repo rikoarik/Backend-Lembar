@@ -28,7 +28,7 @@ export async function registerLibraryRoutes(
   options: RegisterLibraryRoutesOptions,
 ): Promise<void> {
   const { db, jwtSecret } = options;
-  const auth = createJwtAuthMiddleware({ secret: jwtSecret });
+  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
 
   // ── GET /v1/school/library ────────────────────────────────────────────────
   app.get('/v1/school/library', { preHandler: [auth] }, async (request, reply) => {

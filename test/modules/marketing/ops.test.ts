@@ -10,6 +10,8 @@ import {
   marketingContent,
   marketingContentVersions,
 } from '../../../src/infrastructure/database/schema.js';
+import { adminAudit } from '../../../src/modules/admin/persistence/adminOpsSchema.js';
+import { sql } from 'drizzle-orm';
 
 const DATABASE_URL = process.env['DATABASE_URL'] ?? '';
 const hasDb = DATABASE_URL.length > 0;
@@ -354,6 +356,40 @@ describe.skipIf(!hasDb)('B6-06 marketing CMS authoring ops', () => {
         payload: { slug: 'tentang-kami', title: 'Dup' },
       });
       expect(dup.statusCode).toBe(409);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('writes admin_audit rows for marketing ops actions', async () => {
+    const app = await buildApp({ logger: false, marketingDb: db });
+    await app.ready();
+    try {
+      await db.delete(adminAudit);
+      await app.inject({
+        method: 'PUT',
+        url: '/v1/ops/marketing/pages/home/draft',
+        headers: { cookie: SUPERADMIN_COOKIE, 'if-match': '1' },
+        payload: makeDraft(),
+      });
+      await app.inject({
+        method: 'POST',
+        url: '/v1/ops/marketing/pages/home/publish',
+        headers: { cookie: SUPERADMIN_COOKIE, 'if-match': '2' },
+      });
+      await app.inject({
+        method: 'GET',
+        url: '/v1/ops/marketing/pages/home/preview',
+        headers: { cookie: SUPERADMIN_COOKIE },
+      });
+      await db.execute(sql`SELECT pg_sleep(0.05)`);
+      const rows = await db.select().from(adminAudit).execute();
+      const actions = rows.map((r) => r.action).sort();
+      expect(actions).toEqual(
+        expect.arrayContaining(['draft_saved', 'preview_rendered', 'published']),
+      );
+      expect(rows.every((r) => r.targetType === 'marketing_page')).toBe(true);
+      expect(rows.every((r) => r.actorId === '00000000-0000-0000-0000-000000000000')).toBe(true);
     } finally {
       await app.close();
     }

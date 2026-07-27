@@ -185,6 +185,10 @@ export class JwtMultiRoleAuthService {
       throwApiError('invalid_credentials', 'Email/username/telepon atau password salah');
     }
 
+    if (user.suspendedAt) {
+      throwApiError('account_suspended', 'Akun ditangguhkan. Hubungi administrator.');
+    }
+
     if (!user.passwordHash) {
       throwApiError('invalid_credentials', 'Email/username/telepon atau password salah');
     }
@@ -208,6 +212,10 @@ export class JwtMultiRoleAuthService {
 
       if (!user) {
         throwApiError('user_not_found', 'User tidak ditemukan');
+      }
+
+      if (user.suspendedAt) {
+        throwApiError('account_suspended', 'Akun ditangguhkan. Hubungi administrator.');
       }
 
       return {

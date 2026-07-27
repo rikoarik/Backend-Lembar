@@ -17,6 +17,8 @@ export const jwtUsers = pgTable('jwt_users', {
   phone: text('phone').unique(),
   passwordHash: text('password_hash'),
   needsPasswordSetup: boolean('needs_password_setup').notNull().default(false),
+  suspendedAt: timestamp('suspended_at', { withTimezone: true, mode: 'date' }),
+  suspendedReason: text('suspended_reason'),
   name: text('name').notNull(),
   roles: text('roles')
     .array()

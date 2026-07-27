@@ -30,7 +30,7 @@ export async function registerSchoolAuditRoutes(
   options: RegisterSchoolAuditRoutesOptions,
 ): Promise<void> {
   const { db, jwtSecret } = options;
-  const auth = createJwtAuthMiddleware({ secret: jwtSecret });
+  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
   const adminOnly = requireRole(['school_admin', 'superadmin']);
 
   // ── GET /v1/school/audit ─────────────────────────────────────────────────

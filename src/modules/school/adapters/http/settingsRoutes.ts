@@ -29,7 +29,7 @@ export async function registerSettingsRoutes(
   options: RegisterSettingsRoutesOptions,
 ): Promise<void> {
   const { db, jwtSecret } = options;
-  const auth = createJwtAuthMiddleware({ secret: jwtSecret });
+  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
   const adminOrTeacher = requireRole(['school_admin', 'teacher']);
   const adminOnly = requireRole(['school_admin']);
 

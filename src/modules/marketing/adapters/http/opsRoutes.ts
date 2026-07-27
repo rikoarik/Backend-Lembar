@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 
 import { ApiError } from '../../../../common/errors/envelope.js';
-import type { Database } from '../../../../infrastructure/database/db.js';
+import { getPool, type Database } from '../../../../infrastructure/database/db.js';
 import {
   createJwtAuthMiddleware,
   requireRole,
@@ -18,14 +18,38 @@ export async function registerMarketingOpsRoutes(
   app: FastifyInstance,
   options: RegisterMarketingOpsRoutesOptions,
 ): Promise<void> {
+  const auditLog = async (
+    actorId: string,
+    action: string,
+    targetType: string,
+    targetId: string,
+    metadata: Record<string, unknown> = {},
+  ): Promise<void> => {
+    const pool = getPool(options.db);
+    if (!pool) return;
+    try {
+      await pool.query(
+        `INSERT INTO admin_audit (actor_id, action, target_type, target_id, metadata)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [actorId, action, targetType, targetId, JSON.stringify(metadata)],
+      );
+    } catch {
+      // best-effort
+    }
+  };
+
+  const actorIdFromRequest = (request: FastifyRequest): string =>
+    request.jwtUser?.userId ?? '00000000-0000-0000-0000-000000000000';
+
   const service = new MarketingOpsService({
     requirePermission: (_permission) => {},
-    audit: () => {},
+    audit: (action, pageId, userId, version) =>
+      auditLog(userId, action, 'marketing_page', pageId, version === undefined ? {} : { version }),
     now: () => new Date(),
   }).withDb(options.db);
 
   const jwtSecret = options.jwtSecret ?? process.env.JWT_SECRET ?? 'dev-secret-change-in-production';
-  const authMiddleware = createJwtAuthMiddleware({ secret: jwtSecret });
+  const authMiddleware = createJwtAuthMiddleware({ secret: jwtSecret, db: options.db });
   const superadminOnly = requireRole(['superadmin']);
 
   const requireSuperadmin = async (request: FastifyRequest): Promise<void> => {
@@ -50,7 +74,7 @@ export async function registerMarketingOpsRoutes(
 
   app.get('/v1/ops/marketing/pages', async (request) => {
     await requireSuperadmin(request);
-    const pages = await service.listPages();
+    const pages = await service.listPages(actorIdFromRequest(request));
     return { data: pages };
   });
 
@@ -65,7 +89,7 @@ export async function registerMarketingOpsRoutes(
         status: 400,
       });
     }
-    const userId = request.jwtUser?.userId ?? '00000000-0000-0000-0000-000000000000';
+    const userId = actorIdFromRequest(request);
     const page = await service.createPage(
       { slug: body.slug, title: typeof body.title === 'string' ? body.title : body.slug },
       userId,
@@ -76,7 +100,7 @@ export async function registerMarketingOpsRoutes(
   app.get('/v1/ops/marketing/pages/:slug', async (request) => {
     await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
-    const page = await service.getPageForOps(slug);
+    const page = await service.getPageForOps(slug, actorIdFromRequest(request));
     return { data: page };
   });
 
@@ -84,7 +108,7 @@ export async function registerMarketingOpsRoutes(
     await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
     const revision = Number(request.headers['if-match']);
-    const userId = '00000000-0000-0000-0000-000000000000';
+    const userId = actorIdFromRequest(request);
     const payload = request.body as {
       schemaVersion: number;
       blocks: MarketingBlock[];
@@ -96,9 +120,9 @@ export async function registerMarketingOpsRoutes(
   });
 
   app.get('/v1/ops/marketing/pages/:slug/preview', async (request, reply) => {
-    requireSuperadmin(request);
+    await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
-    const preview = await service.preview(slug);
+    const preview = await service.preview(slug, actorIdFromRequest(request));
     reply.header('Cache-Control', 'no-store');
     return { data: preview };
   });
@@ -107,7 +131,7 @@ export async function registerMarketingOpsRoutes(
     await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
     const revision = Number(request.headers['if-match']);
-    const userId = '00000000-0000-0000-0000-000000000000';
+    const userId = actorIdFromRequest(request);
     const page = await service.publish(slug, revision, userId);
     return { data: page };
   });
@@ -116,7 +140,7 @@ export async function registerMarketingOpsRoutes(
     await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
     const revision = Number(request.headers['if-match']);
-    const userId = '00000000-0000-0000-0000-000000000000';
+    const userId = actorIdFromRequest(request);
     const page = await service.unpublish(slug, revision, userId);
     return { data: page };
   });
@@ -124,7 +148,7 @@ export async function registerMarketingOpsRoutes(
   app.post('/v1/ops/marketing/pages/:slug/versions/:version/restore', async (request) => {
     await requireSuperadmin(request);
     const { slug, version } = request.params as { slug: string; version: string };
-    const userId = '00000000-0000-0000-0000-000000000000';
+    const userId = actorIdFromRequest(request);
     const page = await service.restore(slug, Number(version), userId);
     return { data: page };
   });

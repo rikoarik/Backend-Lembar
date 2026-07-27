@@ -34,7 +34,7 @@ export async function registerUsageRoutes(
   options: RegisterUsageRoutesOptions,
 ): Promise<void> {
   const { db, jwtSecret } = options;
-  const auth = createJwtAuthMiddleware({ secret: jwtSecret });
+  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
   const anyMember = requireRole(['school_admin', 'teacher', 'subscriber']);
 
   // ── GET /v1/school/usage ───────────────────────────────────────────────────

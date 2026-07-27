@@ -35,7 +35,7 @@ export async function registerSchoolNotificationsRoutes(
   options: RegisterSchoolNotificationsRoutesOptions,
 ): Promise<void> {
   const { db, jwtSecret } = options;
-  const auth = createJwtAuthMiddleware({ secret: jwtSecret });
+  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
   const adminOnly = requireRole(['school_admin']);
 
   // ── GET /v1/school/notifications ────────────────────────────────────────────

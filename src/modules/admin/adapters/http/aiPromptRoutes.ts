@@ -20,7 +20,7 @@ export async function registerAiPromptRoutes(
   options: RegisterAiPromptRoutesOptions,
 ): Promise<void> {
   const { db, jwtSecret } = options;
-  const auth = createJwtAuthMiddleware({ secret: jwtSecret });
+  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
   const superadmin = requireRole(['superadmin']);
 
   const auditLog = async (actorId: string, action: string, targetId: string, metadata: Record<string, unknown> = {}) => {

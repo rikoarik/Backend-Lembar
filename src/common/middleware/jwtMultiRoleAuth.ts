@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { verifyJwt, type JwtPayload } from '../../modules/auth/infrastructure/jwtMultiRole.js';
 import { throwApiError } from '../errors/apiError.js';
 import type { UserRole } from '../../modules/auth/persistence/jwtUsersSchema.js';
+import { getPool, type Database } from '../../infrastructure/database/db.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -11,6 +12,13 @@ declare module 'fastify' {
 
 export interface JwtAuthMiddlewareOptions {
   secret: string;
+  /**
+   * Optional DB pool provider. When supplied, the middleware rejects
+   * requests whose user has `suspended_at IS NOT NULL` so that an existing
+   * token cannot outlive a suspension. Caller is responsible for wiring the
+   * same pool that owns the auth tables.
+   */
+  db?: Database | undefined;
 }
 
 export function createJwtAuthMiddleware(options: JwtAuthMiddlewareOptions) {
@@ -22,7 +30,7 @@ export function createJwtAuthMiddleware(options: JwtAuthMiddlewareOptions) {
 
     const parts = auth.split(' ');
     if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      throwApiError('invalid_auth_format', 'Format: Authorization: Bearer <token>');
+      throwApiError('invalid_auth_format', 'Format: Authorization: Bearer ***');
     }
 
     const token = parts[1]!;
@@ -31,6 +39,24 @@ export function createJwtAuthMiddleware(options: JwtAuthMiddlewareOptions) {
       request.jwtUser = payload;
     } catch (error) {
       throwApiError('invalid_token', 'Token tidak valid atau expired');
+    }
+
+    const pool = options.db ? getPool(options.db) : null;
+    if (pool && request.jwtUser?.userId) {
+      try {
+        const result = await pool.query(
+          'SELECT suspended_at IS NOT NULL AS suspended FROM jwt_users WHERE id = $1',
+          [request.jwtUser.userId],
+        );
+        const row = (result.rows as Array<{ suspended: boolean | string }>)[0];
+        if (row && (row.suspended === true || row.suspended === 't' || row.suspended === 'true')) {
+          throwApiError('account_suspended', 'Akun ditangguhkan. Hubungi administrator.');
+        }
+      } catch (err) {
+        // Surface known API errors; for unknown DB errors fall through so we
+        // do not lock out users on transient DB hiccups.
+        if ((err as { name?: string }).name === 'ApiError') throw err;
+      }
     }
   };
 }

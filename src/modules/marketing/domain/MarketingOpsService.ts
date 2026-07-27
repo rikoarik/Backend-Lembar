@@ -24,7 +24,7 @@ export interface MarketingOpsPage {
 
 export interface MarketingOpsServiceOptions {
   requirePermission: (permission: Permission) => void;
-  audit: (action: string, pageId: string, userId: string, version?: number) => void;
+  audit: (action: string, pageId: string, userId: string, version?: number) => void | Promise<void>;
   now: () => Date;
 }
 
@@ -35,7 +35,7 @@ export class MarketingOpsService {
     pageId: string,
     userId: string,
     version?: number,
-  ) => void;
+  ) => void | Promise<void>;
   private readonly now: () => Date;
   private db!: Database;
 
@@ -56,13 +56,14 @@ export class MarketingOpsService {
     return p;
   }
 
-  async listPages(): Promise<MarketingOpsSummary[]> {
+  async listPages(userId: string): Promise<MarketingOpsSummary[]> {
     this.requirePermission(PERMISSIONS.platformSupportAct);
     const rows = await this.db
       .select()
       .from(marketingContent)
       .where(eq(marketingContent.kind, 'page'))
       .execute();
+    await this.audit('pages_listed', 'all', userId);
     return rows.map((row) => this.summaryFromRow(row));
   }
 
@@ -114,11 +115,11 @@ export class MarketingOpsService {
       })
       .returning();
     if (!page) throw new Error('Gagal membuat halaman marketing.');
-    this.audit('page_created', page.id, userId, 1);
+    await this.audit('page_created', page.id, userId, 1);
     return this.summaryFromRow(page);
   }
 
-  async getPageForOps(slug: string): Promise<MarketingOpsPage> {
+  async getPageForOps(slug: string, userId?: string): Promise<MarketingOpsPage> {
     this.requirePermission(PERMISSIONS.platformSupportAct);
     const [page] = await this.db
       .select()
@@ -126,6 +127,7 @@ export class MarketingOpsService {
       .where(and(eq(marketingContent.slug, slug), eq(marketingContent.kind, 'page')))
       .execute();
     if (!page) throw notFound();
+    if (userId) await this.audit('page_viewed', page.id, userId);
     const versions = await this.db
       .select()
       .from(marketingContentVersions)
@@ -184,12 +186,13 @@ export class MarketingOpsService {
        WHERE id = $5`,
       [draftJson, newRevision, userId, now, page.id],
     );
-    this.audit('draft_saved', page.id, userId, newRevision);
+    await this.audit('draft_saved', page.id, userId, newRevision);
     return this.getPageForOps(slug);
   }
 
   async preview(
     slug: string,
+    userId: string,
   ): Promise<{ schemaVersion: number; blocks: unknown[]; seo: unknown } | null> {
     this.requirePermission(PERMISSIONS.platformSupportAct);
     const [page] = await this.db
@@ -198,7 +201,7 @@ export class MarketingOpsService {
       .where(and(eq(marketingContent.slug, slug), eq(marketingContent.kind, 'page')))
       .execute();
     if (!page) throw notFound();
-    this.audit('preview_rendered', page.id, 'system');
+    await this.audit('preview_rendered', page.id, userId);
     return parseJsonb(page.draftPayload) as MarketingOpsPage['draft'];
   }
 
@@ -251,7 +254,7 @@ export class MarketingOpsService {
           updatedAt: now,
         })
         .where(eq(marketingContent.id, page.id));
-      this.audit('published', page.id, userId, newVersion);
+      await this.audit('published', page.id, userId, newVersion);
     });
     return this.getPageForOps(slug);
   }
@@ -280,7 +283,7 @@ export class MarketingOpsService {
        WHERE id = $4`,
       [newRevision, userId, now, page.id],
     );
-    this.audit('unpublished', page.id, userId, page.publishedVersion ?? undefined);
+    await this.audit('unpublished', page.id, userId, page.publishedVersion ?? undefined);
     return this.getPageForOps(slug);
   }
 
@@ -306,7 +309,7 @@ export class MarketingOpsService {
        WHERE id = $5`,
       [JSON.stringify(rows[0].payload), newRevision, userId, now, page.id],
     );
-    this.audit('restored', page.id, userId, version);
+    await this.audit('restored', page.id, userId, version);
     return this.getPageForOps(slug);
   }
 

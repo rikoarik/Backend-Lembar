@@ -33,7 +33,7 @@ export async function registerSuspendRoutes(
   options: RegisterSuspendRoutesOptions,
 ): Promise<void> {
   const { db, jwtSecret } = options;
-  const auth = createJwtAuthMiddleware({ secret: jwtSecret });
+  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
   const adminOnly = requireRole(['school_admin']);
 
   // ── POST /v1/school/members/:id/suspend ─────────────────────────────────────

@@ -87,7 +87,7 @@ export async function registerMemberRoutes(
   options: RegisterMemberRoutesOptions,
 ): Promise<void> {
   const { service, db, jwtSecret } = options;
-  const auth = createJwtAuthMiddleware({ secret: jwtSecret });
+  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
 
   // ── GET /v1/school/members ─────────────────────────────────────────────────
   /**

@@ -36,7 +36,7 @@ export async function registerAdminRoutes(
   options: RegisterAdminRoutesOptions,
 ): Promise<void> {
   const { service, db, jwtSecret } = options;
-  const auth = createJwtAuthMiddleware({ secret: jwtSecret });
+  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
   const superadmin = requireRole(['superadmin']);
   const passwordResetService = new PasswordResetService(db);
 
@@ -176,6 +176,9 @@ export async function registerAdminRoutes(
       createdAt: r.created_at,
     }));
 
+    await auditLog(request.jwtUser!.userId, 'account.list', 'user', 'list', {
+      page, limit, search: Boolean(search), filters: { role, status },
+    });
     return reply.status(200).send({
       data,
       meta: { total, page, limit, pages: Math.ceil(total / limit) },
@@ -212,6 +215,7 @@ export async function registerAdminRoutes(
     if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
     const r = res.rows[0] as any;
 
+    await auditLog(request.jwtUser!.userId, 'account.read', 'user', id);
     return reply.status(200).send({
       data: {
         // Identitas
@@ -297,14 +301,16 @@ export async function registerAdminRoutes(
     const pool = getPool(db);
     if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    const res = await pool.query('SELECT workspace_id FROM jwt_users WHERE id = $1', [id]);
+    const res = await pool.query(
+      `UPDATE jwt_users
+       SET suspended_at = now(), suspended_reason = 'superadmin', updated_at = now()
+       WHERE id = $1
+       RETURNING workspace_id`,
+      [id],
+    );
     if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
 
     const workspaceId = (res.rows[0] as any).workspace_id;
-    if (workspaceId) {
-      await pool.query(`INSERT INTO admin_billing (tenant_id, school_name, state) VALUES ($1, 'Suspended', 'blocked')
-        ON CONFLICT (tenant_id) DO UPDATE SET state = 'blocked'`, [workspaceId]);
-    }
     const user = request.jwtUser!;
     await auditLog(user.userId, 'account.suspend', 'user', id, { workspaceId });
     return reply.status(200).send({ data: { id, suspended: true } });
@@ -324,13 +330,15 @@ export async function registerAdminRoutes(
 
     for (const id of body.ids) {
       try {
-        const res = await pool.query('SELECT workspace_id FROM jwt_users WHERE id = $1', [id]);
+        const res = await pool.query(
+          `UPDATE jwt_users
+           SET suspended_at = now(), suspended_reason = 'superadmin', updated_at = now()
+           WHERE id = $1
+           RETURNING workspace_id`,
+          [id],
+        );
         if (!res.rows[0]) { results.push({ id, success: false, error: 'Not found' }); continue; }
         const workspaceId = (res.rows[0] as any).workspace_id;
-        if (workspaceId) {
-          await pool.query(`INSERT INTO admin_billing (tenant_id, school_name, state) VALUES ($1, 'Suspended', 'blocked')
-            ON CONFLICT (tenant_id) DO UPDATE SET state = 'blocked'`, [workspaceId]);
-        }
         await auditLog(actor.userId, 'account.suspend', 'user', id, { workspaceId, bulk: true });
         results.push({ id, success: true });
       } catch { results.push({ id, success: false, error: 'Internal error' }); }
@@ -353,12 +361,15 @@ export async function registerAdminRoutes(
 
     for (const id of body.ids) {
       try {
-        const res = await pool.query('SELECT workspace_id FROM jwt_users WHERE id = $1', [id]);
+        const res = await pool.query(
+          `UPDATE jwt_users
+           SET suspended_at = NULL, suspended_reason = NULL, updated_at = now()
+           WHERE id = $1
+           RETURNING workspace_id`,
+          [id],
+        );
         if (!res.rows[0]) { results.push({ id, success: false, error: 'Not found' }); continue; }
         const workspaceId = (res.rows[0] as any).workspace_id;
-        if (workspaceId) {
-          await pool.query(`UPDATE admin_billing SET state = 'active' WHERE tenant_id = $1`, [workspaceId]);
-        }
         await auditLog(actor.userId, 'account.unsuspend', 'user', id, { workspaceId, bulk: true });
         results.push({ id, success: true });
       } catch { results.push({ id, success: false, error: 'Internal error' }); }
@@ -401,13 +412,16 @@ export async function registerAdminRoutes(
     const pool = getPool(db);
     if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    const res = await pool.query('SELECT workspace_id FROM jwt_users WHERE id = $1', [id]);
+    const res = await pool.query(
+      `UPDATE jwt_users
+       SET suspended_at = NULL, suspended_reason = NULL, updated_at = now()
+       WHERE id = $1
+       RETURNING workspace_id`,
+      [id],
+    );
     if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
 
     const workspaceId = (res.rows[0] as any).workspace_id;
-    if (workspaceId) {
-      await pool.query(`UPDATE admin_billing SET state = 'active' WHERE tenant_id = $1`, [workspaceId]);
-    }
     const user = request.jwtUser!;
     await auditLog(user.userId, 'account.unsuspend', 'user', id, { workspaceId });
     return reply.status(200).send({ data: { id, suspended: false } });
@@ -810,6 +824,9 @@ export async function registerAdminRoutes(
        FROM admin_audit ${whereClause} ORDER BY created_at DESC LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
       [...params, limit, offset],
     );
+    await auditLog(request.jwtUser!.userId, 'audit.list', 'audit', 'list', {
+      page, limit, filters: { action: q['action'] ?? '', actor: Boolean(q['actor']), from: q['from'] ?? '', to: q['to'] ?? '' },
+    });
     return reply.status(200).send({
       data: result.rows.map((r: any) => ({
         id: r.id,
@@ -838,6 +855,7 @@ export async function registerAdminRoutes(
     );
     if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Audit entry not found' } });
     const r = res.rows[0] as any;
+    await auditLog(request.jwtUser!.userId, 'audit.read', 'audit', id);
     return reply.status(200).send({
       data: {
         id: r.id,
@@ -881,6 +899,9 @@ export async function registerAdminRoutes(
        FROM admin_billing WHERE ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
       [...params, limit, offset],
     );
+    await auditLog(request.jwtUser!.userId, 'billing.list', 'billing', 'list', {
+      page, limit, search: Boolean(search), filters: { state },
+    });
     return reply.status(200).send({
       data: result.rows.map((r: any) => ({
         id: r.id, school: r.school_name, state: r.state, seats: r.seats, plan: r.plan,
@@ -933,6 +954,7 @@ export async function registerAdminRoutes(
     const res = await pool.query('SELECT * FROM admin_billing WHERE id = $1', [id]);
     if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Billing not found' } });
     const r = res.rows[0] as any;
+    await auditLog(request.jwtUser!.userId, 'billing.read', 'billing', id);
     return reply.status(200).send({
       data: { id: r.id, school: r.school_name, state: r.state, seats: r.seats, plan: r.plan,
         renewsAt: r.renews_at ? new Date(r.renews_at).toISOString().slice(0, 10) : '',
@@ -996,6 +1018,9 @@ export async function registerAdminRoutes(
       [...params, limit, offset],
     );
 
+    await auditLog(request.jwtUser!.userId, 'school.list', 'tenant', 'list', {
+      page, limit, search: Boolean(search), filters: { plan },
+    });
     return reply.status(200).send({
       data: result.rows.map((r: any) => ({
         id: r.id,
@@ -1032,6 +1057,7 @@ export async function registerAdminRoutes(
       [id],
     );
 
+    await auditLog(request.jwtUser!.userId, 'school.read', 'tenant', id);
     return reply.status(200).send({
       data: {
         school: {
