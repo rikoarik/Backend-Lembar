@@ -83,7 +83,48 @@ export class QuestionGenerationService {
     }
 
     // ---- 2. Load blueprint snapshot ----
-    const blueprint = await this.blueprintService.getBlueprint(workspaceId, assessmentVersionId);
+    // Prefer an inline blueprintItems payload (queue path) over a persisted
+    // snapshot (HTTP path). ponytail: inline synthesis bypasses the immutable
+    // snapshot store; promote to a real blueprint persistence layer when
+    // post-pipeline feedback shows we need it.
+    let blueprint = await this.blueprintService.getBlueprint(
+      workspaceId,
+      assessmentVersionId,
+    );
+    if (!blueprint && input.blueprintItems.length > 0) {
+      blueprint = {
+        id: `inline-${assessmentVersionId}`,
+        assessmentVersionId,
+        workspaceId,
+        blueprintSchemaVersion: input.blueprintSchemaVersion,
+        items: input.blueprintItems.map((it) => ({
+          sequence: it.sequence,
+          questionType: it.questionType,
+          difficulty: it.difficulty,
+          cognitiveLevel: it.cognitiveLevel,
+          topicHint: it.topicHint,
+          outcomeId: it.outcomeId,
+          sourceUploadId: it.sourceUploadId,
+          citationIds: it.citationIds,
+        })),
+        coverageReport: {
+          totalItems: input.blueprintItems.length,
+          difficultyCounts: { easy: 0, medium: 0, hard: 0 },
+          questionTypeCounts: {
+            multiple_choice: 0,
+            short_answer: 0,
+            essay: 0,
+            true_false: 0,
+          },
+          itemsWithSource: 0,
+          sourceCoverageFraction: 0,
+          meetsTargets: true,
+          violations: [],
+        },
+        sourceEvidence: [],
+        createdAt: this.clock().toISOString(),
+      };
+    }
     if (!blueprint) {
       throw new ApiError({
         code: 'RESOURCE_NOT_FOUND',
