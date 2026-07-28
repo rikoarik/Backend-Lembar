@@ -658,6 +658,71 @@ export async function registerAdminRoutes(
   });
 
   // ── Quality Reports ──────────────────────────────────
+  app.post('/v1/admin/quality-reports', { preHandler: [auth] }, async (request, reply) => {
+    const body = request.body as { reason?: string; notes?: string; assessmentId?: string; questionId?: string } | null;
+    const reason = (body?.reason ?? '').trim();
+    const notes = (body?.notes ?? '').toString();
+    // reason required; allow reason-only (notes optional)
+    if (!reason) {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_FAILED', message: 'reason wajib diisi' },
+      });
+    }
+    if (reason.length > 200) {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_FAILED', message: 'reason terlalu panjang (maks 200)' },
+      });
+    }
+
+    const user = request.jwtUser!;
+    // workspaceId: prefer JWT, fall back to x-workspace-id header (BFF injects)
+    const headerWs = (request.headers['x-workspace-id'] as string | undefined) ?? '';
+    const workspaceId = user.workspaceId ?? headerWs ?? '';
+    if (!workspaceId) {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_FAILED', message: 'workspaceId wajib diisi (login di workspace)' },
+      });
+    }
+
+    // assessmentVersionId: store the assessment reference (compound: asm/question)
+    const assessmentVersionId = (body?.assessmentId ?? '').toString().slice(0, 200);
+    const reporter = user.email || user.userId;
+    const notePayload = (body?.questionId ? `q=${body.questionId}; ` : '') + notes;
+
+    const pool = getPool(db);
+    if (!pool) {
+      return reply.status(500).send({
+        error: { code: 'INTERNAL_ERROR', message: 'Database not available' },
+      });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO admin_quality_reports (workspace_id, assessment_version_id, reporter, reason, status, notes)
+       VALUES ($1, $2, $3, $4, 'open', $5)
+       RETURNING id, reason, status, reporter, notes, workspace_id, created_at`,
+      [workspaceId, assessmentVersionId, reporter, reason, notePayload.slice(0, 1000)],
+    );
+    const row = result.rows[0] as any;
+
+    await auditLog(user.userId, 'quality.create', 'report', row.id, {
+      reason,
+      workspaceId,
+      hasAssessment: Boolean(assessmentVersionId),
+    });
+
+    return reply.status(201).send({
+      data: {
+        id: row.id,
+        reason: row.reason,
+        status: row.status,
+        reporter: row.reporter,
+        notes: row.notes ?? '',
+        workspaceId: row.workspace_id,
+        createdAt: new Date(row.created_at).toISOString(),
+      },
+    });
+  });
+
   app.get('/v1/admin/quality-reports', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const q = request.query as Record<string, string>;
     const pool = getPool(db);
