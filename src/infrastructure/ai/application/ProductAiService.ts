@@ -203,7 +203,8 @@ export class ProductAiService {
           });
           continue;
         }
-        const validation = this.validator.validate(schema, parsed);
+        const normalized = normalizeAliasFields(parsed);
+        const validation = this.validator.validate(schema, normalized);
         if (validation.ok) {
           const latencyMs = this.clock().getTime() - startedAt;
           await this.audit.record({
@@ -503,4 +504,66 @@ export class ProductAiService {
       return 0;
     }
   }
+}
+
+/**
+ * Map common Indonesian/alias field names returned by some models back to the
+ * canonical schema field names. ponytail: keep this list narrow; broaden only
+ * when a real adapter actually emits the new alias.
+ */
+export function normalizeAliasFields(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value;
+  const obj = { ...(value as Record<string, unknown>) };
+
+  const stem = firstString(obj, ['stem', 'soal', 'pertanyaan', 'question', 'question_text']);
+  if (stem) obj.stem = stem;
+
+  const rawOptions = obj.options ?? obj.pilihan ?? obj.choices ?? obj.answer_choices;
+  if (rawOptions && !Array.isArray(rawOptions) && typeof rawOptions === 'object') {
+    const keyed = rawOptions as Record<string, unknown>;
+    obj.options = Object.entries(keyed).map(([key, val]) => ({
+      key: String(key).toUpperCase(),
+      text: typeof val === 'string' ? val : String(val),
+    }));
+  } else if (Array.isArray(rawOptions)) {
+    obj.options = rawOptions.map((opt) => {
+      if (opt && typeof opt === 'object' && !Array.isArray(opt)) {
+        const o = opt as Record<string, unknown>;
+        return {
+          key: firstString(o, ['key', 'id', 'label']) ?? '',
+          text: firstString(o, ['text', 'label', 'value', 'content']) ?? '',
+        };
+      }
+      return opt;
+    });
+  }
+
+  const answer = firstString(obj, ['answer', 'jawaban', 'kunci', 'answer_key', 'correct']);
+  if (answer) obj.answer = answer;
+
+  const explanation = firstString(obj, [
+    'explanation',
+    'pembahasan',
+    'penjelasan',
+    'rationale',
+  ]);
+  if (explanation) obj.explanation = explanation;
+
+  if (!Array.isArray(obj.sourceIds) && Array.isArray(obj.sumber)) {
+    obj.sourceIds = (obj.sumber as unknown[]).map((s) => String(s));
+  }
+  if (!Array.isArray(obj.sourceIds)) obj.sourceIds = [];
+
+  return obj;
+}
+
+function firstString(
+  obj: Record<string, unknown>,
+  keys: readonly string[],
+): string | undefined {
+  for (const key of keys) {
+    const v = obj[key];
+    if (typeof v === 'string' && v.length > 0) return v;
+  }
+  return undefined;
 }
