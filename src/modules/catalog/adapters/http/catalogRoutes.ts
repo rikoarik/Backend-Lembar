@@ -19,6 +19,8 @@ import { randomUUID } from 'node:crypto';
 import type { Database } from '../../../../infrastructure/database/db.js';
 import { getPool } from '../../../../infrastructure/database/db.js';
 import {
+  curricula,
+  curriculumVersions,
   grades,
   subjects,
   materials,
@@ -213,6 +215,35 @@ export async function registerCatalogRoutes(
   const adminGuard = auth ? [auth, superadmin] : [superadmin];
 
   // ── Public read endpoints ──────────────────────────────────────────────────
+
+  app.get('/v1/catalog/curricula', async (_request, reply) => {
+    if (!db) return reply.status(200).send({ data: [] });
+
+    try {
+      const rows = await db
+        .select({
+          id: curriculumVersions.id,
+          curriculumId: curricula.id,
+          label: curricula.title,
+          version: curriculumVersions.version,
+        })
+        .from(curricula)
+        .innerJoin(
+          curriculumVersions,
+          and(
+            eq(curriculumVersions.curriculumId, curricula.id),
+            eq(curriculumVersions.version, curricula.publishedVersion),
+          ),
+        )
+        .where(eq(curricula.active, true));
+
+      return reply.status(200).send({
+        data: rows.map((row) => ({ ...row, curriculumVersionId: row.id, status: 'active' as const })),
+      });
+    } catch {
+      return reply.status(200).send({ data: [] });
+    }
+  });
 
   app.get('/v1/catalog/grades', async (_request, reply) => {
     if (db) {

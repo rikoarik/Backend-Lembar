@@ -304,6 +304,26 @@ paths:
                 $ref: "#/components/schemas/DashboardSummaryResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /v1/catalog/curricula:
+    get:
+      summary: List active published curriculum versions
+      tags: [Catalog]
+      operationId: listCurricula
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Active published curriculum versions for assessment creation
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CatalogCurriculumVersion"
   /v1/catalog/grades:
     get:
       summary: List available grades
@@ -3015,6 +3035,16 @@ components:
         id: { type: string }
         label: { type: string }
         status: { type: string, enum: [active, archived, unavailable] }
+    CatalogCurriculumVersion:
+      type: object
+      required: [id, curriculumVersionId, curriculumId, label, version, status]
+      properties:
+        id: { type: string, format: uuid }
+        curriculumVersionId: { type: string, format: uuid }
+        curriculumId: { type: string, format: uuid }
+        label: { type: string }
+        version: { type: integer, minimum: 1 }
+        status: { type: string, enum: [active] }
     UploadIntentResponse:
       type: object
       required: [data]
