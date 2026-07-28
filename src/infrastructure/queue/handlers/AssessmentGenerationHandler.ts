@@ -76,6 +76,7 @@ export class AssessmentGenerationHandler implements JobHandler {
           maxTotalItems: typedBlueprint.length,
         },
         requestId: jobId,
+        jobId,
       });
 
       const succeeded = result.questions.filter((q) => !result.failures.some((f) => f.blueprintSequence === q.blueprintSequence));

@@ -83,6 +83,8 @@ export interface GenerateQuestionsInput {
     maxTotalItems: number;
   };
   requestId: string;
+  /** Optional queue job id, propagated to AI audit rows for correlation. */
+  jobId?: string;
 }
 
 export interface GenerateQuestionsResult {

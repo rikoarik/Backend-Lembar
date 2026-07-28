@@ -112,6 +112,18 @@ export async function registerJwtMultiRoleRoutes(
     },
   );
 
+  // GET /v1/me/roles — lightweight roles endpoint for RoleSwitcher
+  app.get(
+    '/v1/me/roles',
+    { preHandler: authMiddleware },
+    async (request, reply) => {
+      const token = extractBearerToken(request);
+      if (!token) throwApiError('missing_token', 'Authorization header diperlukan');
+      const user = await service.getCurrentUser(token);
+      return reply.status(200).send({ data: { roles: user.roles } });
+    },
+  );
+
   // GET /v1/dashboard/summary (backward compat — matches OpenAPI spec)
   app.get(
     '/v1/dashboard/summary',

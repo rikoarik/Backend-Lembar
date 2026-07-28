@@ -32,10 +32,15 @@ import { InMemoryAssessmentsStore } from '../../../modules/assessments/persisten
 import { InMemorySourceRetrievalStore } from '../../../modules/sources/persistence/InMemorySourceRetrievalStore.js';
 import { SourceRetrievalService } from '../../../modules/sources/application/SourceRetrievalService.js';
 import { ProductAiService } from '../../ai/application/ProductAiService.js';
-import { InMemoryAiAuditRecorder } from '../../ai/persistence/AiAuditRepository.js';
+import {
+  AiAuditRepository,
+  InMemoryAiAuditRecorder,
+} from '../../ai/persistence/AiAuditRepository.js';
 import { parseAiEnv } from '../../../config/ai.env.js';
 import { MockAiAdapter } from '../../ai/adapters/mock/MockAiAdapter.js';
 import { HermesAdapter } from '../../ai/adapters/hermes/HermesAdapter.js';
+import { createDatabase } from '../../database/db.js';
+import { QUESTION_OUTPUT_SCHEMA } from '../../../modules/assessments/application/QuestionGenerationService.js';
 
 export interface WorkerServiceOptions {
   workerId: string;
@@ -119,11 +124,29 @@ export class WorkerService {
 
     const aiAdapter = this.options.aiAdapter ?? buildAiAdapterFromEnv(aiEnv);
 
+    // Register JSON schemas for every prompt template id the worker may dispatch.
+    // ponytail: schema registry stays in-memory here. Add a Postgres-backed schema
+    // store once the prompt registry leaves spike_jobs and becomes a real entity.
+    const schemas = new Map<string, Record<string, unknown>>([
+      ['question-generation-v1', QUESTION_OUTPUT_SCHEMA],
+    ]);
+
+    // Audit recorder: prefer Postgres when DATABASE_URL is set, else fall back to
+    // in-memory so local smoke / tests stay green without a database.
+    const databaseUrl = process.env.DATABASE_URL;
+    let audit: AiAuditRepository | InMemoryAiAuditRecorder;
+    if (databaseUrl && databaseUrl.length > 0) {
+      const db = createDatabase({ connectionString: databaseUrl });
+      audit = new AiAuditRepository(db);
+    } else {
+      audit = new InMemoryAiAuditRecorder();
+    }
+
     const aiService = new ProductAiService({
       adapter: aiAdapter,
       env: aiEnv,
-      schemas: new Map(),
-      audit: new InMemoryAiAuditRecorder(),
+      schemas,
+      audit,
     });
 
     const uploadsStore = new InMemorySourceUploadsStore();

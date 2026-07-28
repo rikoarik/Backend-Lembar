@@ -104,6 +104,7 @@ export class QuestionGenerationService {
           assessmentVersionId,
           item,
           blueprint,
+          input.jobId,
         );
         questions.push(result.question);
         totalSchemaRepairAttempts += result.schemaRepairAttempts;
@@ -161,6 +162,7 @@ export class QuestionGenerationService {
     assessmentVersionId: string,
     item: BlueprintSnapshotItem,
     blueprint: BlueprintSnapshot,
+    jobId?: string,
   ): Promise<{ question: GeneratedQuestion; schemaRepairAttempts: number }> {
     // Build prompt for this question
     const prompt = this.buildQuestionPrompt(item);
@@ -181,6 +183,7 @@ export class QuestionGenerationService {
               difficulty: item.difficulty,
               sequence: item.sequence,
             },
+            ...(jobId ? { jobId } : {}),
           }
         : (() => {
             throw new Error('Invalid workspace or assessment version');
