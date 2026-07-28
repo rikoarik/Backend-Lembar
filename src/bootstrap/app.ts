@@ -90,6 +90,7 @@ import { PostgresAdminDataStore } from '../modules/admin/persistence/PostgresAdm
 import { NoOpAdminAuditStore } from '../modules/admin/persistence/NoOpAdminAuditStore.js';
 import { registerAdminRoutes } from '../modules/admin/adapters/http/adminRoutes.js';
 import { registerAiPromptRoutes } from '../modules/admin/adapters/http/aiPromptRoutes.js';
+import { registerAiFeedbackRoutes } from '../modules/ai/adapters/http/aiFeedbackRoutes.js';
 
 // School routes
 import { SchoolService } from '../modules/school/application/SchoolService.js';
@@ -443,6 +444,11 @@ export async function buildApp(
     });
     // AI Prompt Management routes
     registerAiPromptRoutes(app, {
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
+    // AI Feedback routes — subscriber-facing, populates the same ai_feedback table
+    registerAiFeedbackRoutes(app, {
       db: managedDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     });
