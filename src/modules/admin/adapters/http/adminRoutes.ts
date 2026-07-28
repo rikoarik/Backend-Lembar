@@ -62,6 +62,7 @@ export async function registerAdminRoutes(
     const jobsFailedRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM spike_jobs WHERE status = $1', ['failed']);
     const qualityRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM admin_quality_reports WHERE status = $1', ['open']);
     const flagsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM admin_flags WHERE enabled = true');
+    await auditLog(request.jwtUser!.userId, 'dashboard.read', 'dashboard', 'overview');
     return reply.status(200).send({
       data: {
         users: Number(usersRes.rows[0]?.count ?? 0),
@@ -91,6 +92,7 @@ export async function registerAdminRoutes(
        GROUP BY 1 ORDER BY 1`,
     );
 
+    await auditLog(request.jwtUser!.userId, 'dashboard.trends.read', 'dashboard', 'trends');
     return reply.status(200).send({
       data: {
         jobs: jobsTrend.rows.map((r) => ({ day: r.day, count: Number(r.count) })),

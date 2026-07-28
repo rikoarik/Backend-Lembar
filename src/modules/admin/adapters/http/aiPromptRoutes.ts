@@ -101,6 +101,7 @@ export async function registerAiPromptRoutes(
     const evalRes = await pool.query('SELECT * FROM ai_prompt_eval_cases WHERE prompt_id = $1 ORDER BY created_at', [id]);
 
     const r = promptRes.rows[0] as any;
+    await auditLog(request.jwtUser!.userId, 'prompt.read', r.id, {});
     return reply.status(200).send({
       data: {
         id: r.id, name: r.name, slug: r.slug, description: r.description,
@@ -203,6 +204,7 @@ export async function registerAiPromptRoutes(
     if (!pool) return reply.status(200).send({ data: [] });
 
     const result = await pool.query('SELECT * FROM ai_prompt_versions WHERE prompt_id = $1 ORDER BY version DESC', [id]);
+    await auditLog(request.jwtUser!.userId, 'prompt.versions.list', id);
     return reply.status(200).send({
       data: result.rows.map((r: any) => ({
         id: r.id, version: r.version, promptText: r.prompt_text,
@@ -267,6 +269,7 @@ export async function registerAiPromptRoutes(
     if (!pool) return reply.status(200).send({ data: [] });
 
     const result = await pool.query('SELECT * FROM ai_prompt_eval_cases WHERE prompt_id = $1 ORDER BY created_at', [id]);
+    await auditLog(request.jwtUser!.userId, 'prompt.eval_cases.list', id);
     return reply.status(200).send({
       data: result.rows.map((r: any) => ({
         id: r.id, label: r.label, promptVersion: r.prompt_version,
@@ -307,6 +310,7 @@ export async function registerAiPromptRoutes(
     if (!pool) return reply.status(200).send({ data: [] });
 
     const result = await pool.query('SELECT id, name, schema_type, version, created_at FROM ai_prompt_schemas ORDER BY created_at');
+    await auditLog(_request.jwtUser!.userId, 'prompt.schemas.list', 'schemas');
     return reply.status(200).send({
       data: result.rows.map((r: any) => ({
         id: r.id, name: r.name, type: r.schema_type, version: r.version, createdAt: r.created_at,
@@ -349,6 +353,7 @@ export async function registerAiPromptRoutes(
     `, [promptName]);
 
     const m = metricsRes.rows[0] as any;
+    await auditLog(request.jwtUser!.userId, 'prompt.metrics.read', id, { promptName });
     return reply.status(200).send({
       data: {
         totalRuns: m?.total_runs ?? 0, succeeded: m?.succeeded ?? 0,
@@ -418,6 +423,7 @@ export async function registerAiPromptRoutes(
     `, [promptName]);
 
     const m = metricsRes.rows[0] as any;
+    await auditLog(request.jwtUser!.userId, 'prompt.feedback.read', id, { promptName });
     return reply.status(200).send({
       data: {
         feedback: feedbackRes.rows.map((r: any) => ({
@@ -440,6 +446,15 @@ export async function registerAiPromptRoutes(
       SELECT prompt_template_id, pattern, frequency, avg_rating, suggested_action FROM ai_learning_signals ORDER BY avg_rating ASC LIMIT 20
     `).catch(() => ({ rows: [] }));
 
-    return reply.status(200).send({ data: result.rows });
+    await auditLog(_request.jwtUser!.userId, 'prompt.learning_signals.read', 'list');
+    return reply.status(200).send({
+      data: result.rows.map((r: any) => ({
+        promptTemplateId: r.prompt_template_id,
+        pattern: r.pattern,
+        frequency: Number(r.frequency ?? 0),
+        avgRating: Number(r.avg_rating ?? 0),
+        suggestedAction: r.suggested_action,
+      })),
+    });
   });
 }
