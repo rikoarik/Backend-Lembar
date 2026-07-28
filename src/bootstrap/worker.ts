@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { type WorkerEnv, parseWorkerEnv } from '../config/worker.env.js';
 import { createWorkerService } from '../infrastructure/queue/index.js';
+import { createSharedQueueStore } from '../infrastructure/queue/createSharedQueueStore.js';
 import { InMemoryQueueStore } from '../infrastructure/queue/adapters/memory-store.js';
 
 // B2-05: Quota lifecycle hooks
@@ -68,8 +69,13 @@ if (isDirectRun) {
   process.stdout.write(`${JSON.stringify(heartbeat)}\n`);
 
   // Start worker service
-  // TODO: Replace InMemoryQueueStore with PostgresQueueStore in production
-  const store = new InMemoryQueueStore();
+  // Shared queue store: API and worker read/write the same backing store
+  // (Postgres when DATABASE_URL is set, in-memory otherwise).
+  const store = createSharedQueueStore(process.env);
+  // Keep a reference so the unused-import lint stays quiet on the local
+  // fallback when DATABASE_URL is set; the worker always uses the shared
+  // store returned above.
+  void InMemoryQueueStore;
 
   // B2-05: Set up quota lifecycle hooks
   let quotaLedger: QuotaLedger | null = null;

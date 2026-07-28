@@ -11,6 +11,7 @@ import { parseDatabaseEnv } from '../config/database.env.js';
 import { parseQueueEnv } from '../config/queue.env.js';
 import { closeDatabase, createDatabase, type Database } from '../infrastructure/database/db.js';
 import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRoutes.js';
+import { createSharedQueueStore } from '../infrastructure/queue/createSharedQueueStore.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
 import { registerJwtMultiRoleRoutes } from '../modules/auth/adapters/http/jwtMultiRoleRoutes.js';
 import { registerPasswordResetRoutes } from '../modules/auth/adapters/http/passwordResetRoutes.js';
@@ -303,7 +304,9 @@ export async function buildApp(
     }
   }
   
-  await app.register(registerJobRoutes);
+  await app.register(registerJobRoutes, {
+    Store: createSharedQueueStore(process.env),
+  });
 
   // B2-05: Wire job status and recovery routes
   const quotaDb = options.quotaDb ?? managedDb;

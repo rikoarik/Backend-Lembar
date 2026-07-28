@@ -38,6 +38,14 @@ export interface QueueStoreIdempotencyRecord {
 
 export interface QueueStore {
   insertJob(job: Omit<QueueStoreJob, 'createdAt' | 'updatedAt'>): Promise<QueueStoreJob>;
+  /** Generate a fresh id. Used by callers that assemble job rows in memory. */
+  newId(): string;
+  /**
+   * Synchronous lookup. Implementations that talk to a network store may
+   * throw if a synchronous read is impossible; tests and call sites that
+   * already have a `QueueStoreJob` should prefer it.
+   */
+  getJobSync(id: string): QueueStoreJob | null;
   getJob(id: string): Promise<QueueStoreJob | null>;
   getIdempotency(scope: {
     workspaceId: string;

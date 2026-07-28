@@ -1,4 +1,6 @@
-import type { QueueStore } from '../queue-store.js';
+import { randomUUID } from 'node:crypto';
+
+import type { QueueStore, QueueStoreJob } from '../queue-store.js';
 
 /** Stub for the rejected D-004 option. Kept only to document the seam. */
 export class BullMqQueueStore implements QueueStore {
@@ -6,55 +8,33 @@ export class BullMqQueueStore implements QueueStore {
     throw new Error('BullMQ/Redis was not selected for B0-06; use the Postgres-only adapter seam.');
   }
 
-  insertJob(): never {
-    throw new Error('unreachable');
+  private unsupported(): never {
+    throw new Error('BullMqQueueStore is a stub seam and is not wired in this build.');
   }
-  getJob(): never {
-    throw new Error('unreachable');
+
+  newId(): string {
+    return randomUUID();
   }
-  getIdempotency(): never {
-    throw new Error('unreachable');
+
+  getJobSync(_id: string): QueueStoreJob | null {
+    return this.unsupported();
   }
-  insertIdempotency(): never {
-    throw new Error('unreachable');
-  }
-  nextClaimable(): never {
-    throw new Error('unreachable');
-  }
-  reserveClaim(): never {
-    throw new Error('unreachable');
-  }
-  releaseClaim(): never {
-    throw new Error('unreachable');
-  }
-  reapExpired(): never {
-    throw new Error('unreachable');
-  }
-  heartbeat(): never {
-    throw new Error('unreachable');
-  }
-  finalizeSuccess(): never {
-    throw new Error('unreachable');
-  }
-  finalizeFailure(): never {
-    throw new Error('unreachable');
-  }
-  rescheduleRetry(): never {
-    throw new Error('unreachable');
-  }
-  markDeadLetter(): never {
-    throw new Error('unreachable');
-  }
-  requestCancel(): never {
-    throw new Error('unreachable');
-  }
-  auditRecover(): never {
-    throw new Error('unreachable');
-  }
-  queueDepth(): never {
-    throw new Error('unreachable');
-  }
-  auditEvents(): never {
-    throw new Error('unreachable');
-  }
+
+  insertJob(): never { return this.unsupported(); }
+  getJob(): never { return this.unsupported(); }
+  getIdempotency(): never { return this.unsupported(); }
+  insertIdempotency(): never { return this.unsupported(); }
+  nextClaimable(): never { return this.unsupported(); }
+  reserveClaim(): never { return this.unsupported(); }
+  releaseClaim(): never { return this.unsupported(); }
+  reapExpired(): never { return this.unsupported(); }
+  heartbeat(): never { return this.unsupported(); }
+  finalizeSuccess(): never { return this.unsupported(); }
+  finalizeFailure(): never { return this.unsupported(); }
+  rescheduleRetry(): never { return this.unsupported(); }
+  markDeadLetter(): never { return this.unsupported(); }
+  requestCancel(): never { return this.unsupported(); }
+  auditRecover(): never { return this.unsupported(); }
+  queueDepth(): never { return this.unsupported(); }
+  auditEvents(): never { return this.unsupported(); }
 }
