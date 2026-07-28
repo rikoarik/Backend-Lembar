@@ -115,7 +115,13 @@ export class MarketingRepository {
        limit 1`,
       [kind, slug, locale],
     );
-    return (result.rows[0] as { version: number; payload: unknown } | undefined) ?? null;
+    const row = result.rows[0] as { version: number; payload: unknown } | undefined;
+    if (!row) return null;
+    // JSONB columns can return as string depending on the driver; requireRecord expects an object.
+    return {
+      version: row.version,
+      payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload,
+    };
   }
 }
 

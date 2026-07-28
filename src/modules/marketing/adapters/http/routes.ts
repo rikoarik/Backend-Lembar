@@ -8,6 +8,8 @@ export interface RegisterMarketingRoutesOptions {
 }
 
 const CACHE_CONTROL = 'public, max-age=60, stale-while-revalidate=300';
+// FE-friendly alias for the marketing site (TTL 30s); keeps the canonical /v1/public route untouched.
+const CACHE_CONTROL_SHORT = 'public, max-age=30, stale-while-revalidate=120';
 
 export async function registerMarketingRoutes(
   app: FastifyInstance,
@@ -39,6 +41,23 @@ export async function registerMarketingRoutes(
     return reply
       .header('ETag', result.etag)
       .header('Cache-Control', CACHE_CONTROL)
+      .status(200)
+      .send({ data: result.data });
+  });
+
+  // FE-friendly alias: /v1/marketing/pages/:slug (TTL 30s) for the marketing site.
+  // ponytail: collapses to a single route + cache header once the legacy /v1/public alias is retired.
+  app.get('/v1/marketing/pages/:slug', async (request, reply) => {
+    const { slug } = request.params as { slug: string };
+    const result = await repo.readPage(
+      slug,
+      request.requestId ?? 'req_unknown',
+      localeOf(request.query),
+    );
+    if (request.headers['if-none-match'] === result.etag) return reply.status(304).send();
+    return reply
+      .header('ETag', result.etag)
+      .header('Cache-Control', CACHE_CONTROL_SHORT)
       .status(200)
       .send({ data: result.data });
   });
