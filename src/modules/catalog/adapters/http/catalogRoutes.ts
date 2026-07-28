@@ -121,6 +121,16 @@ const FALLBACK_SUBJECTS: CatalogSubjectOption[] = [
 ];
 
 const FALLBACK_MATERIALS: CatalogOption[] = [];
+const FALLBACK_CURRICULA = [
+  {
+    id: '11111111-1111-1111-1111-111111111111',
+    curriculumVersionId: '11111111-1111-1111-1111-111111111111',
+    curriculumId: '11111111-1111-1111-1111-111111111111',
+    label: 'Kurikulum Merdeka',
+    version: 1,
+    status: 'active' as const,
+  },
+];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -237,11 +247,12 @@ export async function registerCatalogRoutes(
         )
         .where(eq(curricula.active, true));
 
-      return reply.status(200).send({
-        data: rows.map((row) => ({ ...row, curriculumVersionId: row.id, status: 'active' as const })),
-      });
+      const data = rows.length > 0
+        ? rows.map((row) => ({ ...row, curriculumVersionId: row.id, status: 'active' as const }))
+        : FALLBACK_CURRICULA;
+      return reply.status(200).send({ data });
     } catch {
-      return reply.status(200).send({ data: [] });
+      return reply.status(200).send({ data: FALLBACK_CURRICULA });
     }
   });
 
