@@ -112,6 +112,7 @@ export class HermesAdapter implements ProductAiAdapter {
           ],
           temperature: 0.3,
           max_tokens: 4096,
+          stream: false,
           response_format: { type: 'json_object' },
         }),
         signal: controller.signal,

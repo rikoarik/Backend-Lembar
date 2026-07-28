@@ -217,11 +217,11 @@ export class ProductAiService {
             outcome: 'succeeded',
             schemaRepairAttempts: repairAttempts,
             requestTokenEstimate,
-            responseTokenCount: this.countResponseTokens(parsed),
+            responseTokenCount: this.countResponseTokens(normalized),
             tokensInEstimate: requestTokenEstimate,
             promptFingerprint,
             promptByteLength,
-            responseFingerprint: fingerprint(JSON.stringify(parsed)),
+            responseFingerprint: fingerprint(JSON.stringify(normalized)),
             responseByteLength: Buffer.byteLength(outcome.responseText, 'utf8'),
             redactedError: null,
             latencyMs,
@@ -234,8 +234,8 @@ export class ProductAiService {
             providerModelId: outcome.providerModelId,
             schemaRepairAttempts: repairAttempts,
             requestTokenEstimate,
-            responseTokenCount: this.countResponseTokens(parsed),
-            validated: parsed as Record<string, unknown>,
+            responseTokenCount: this.countResponseTokens(normalized),
+            validated: normalized as Record<string, unknown>,
             latencyMs,
           };
         }
@@ -513,7 +513,14 @@ export class ProductAiService {
  */
 export function normalizeAliasFields(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
-  const obj = { ...(value as Record<string, unknown>) };
+  const root = value as Record<string, unknown>;
+  const nested =
+    root.soal && typeof root.soal === 'object' && !Array.isArray(root.soal)
+      ? (root.soal as Record<string, unknown>)
+      : root.pertanyaan && typeof root.pertanyaan === 'object' && !Array.isArray(root.pertanyaan)
+        ? (root.pertanyaan as Record<string, unknown>)
+        : null;
+  const obj = { ...root, ...(nested ?? {}) };
 
   const stem = firstString(obj, ['stem', 'soal', 'pertanyaan', 'question', 'question_text']);
   if (stem) obj.stem = stem;
@@ -538,7 +545,14 @@ export function normalizeAliasFields(value: unknown): unknown {
     });
   }
 
-  const answer = firstString(obj, ['answer', 'jawaban', 'kunci', 'answer_key', 'correct']);
+  const answer = firstString(obj, [
+    'answer',
+    'jawaban',
+    'jawaban_benar',
+    'kunci',
+    'answer_key',
+    'correct',
+  ]);
   if (answer) obj.answer = answer;
 
   const explanation = firstString(obj, [
