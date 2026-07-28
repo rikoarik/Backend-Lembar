@@ -611,13 +611,16 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
-  /v1/assessments:
+  /v1/workspaces/{workspaceId}/assessments:
     get:
       summary: List assessments in the active workspace
       tags: [Assessments]
       operationId: listAssessments
       parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: workspaceId
+          required: true
+          schema: { type: string, format: uuid }
         - $ref: "#/components/parameters/Cursor"
         - $ref: "#/components/parameters/Limit"
       responses:
@@ -626,7 +629,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AssessmentPage"
+                type: object
+                required: [assessments, count]
+                properties:
+                  assessments:
+                    type: array
+                    items: { $ref: "#/components/schemas/AssessmentSummary" }
+                  count: { type: integer }
         "401":
           $ref: "#/components/responses/Unauthorized"
     post:
@@ -634,7 +643,10 @@ paths:
       tags: [Assessments]
       operationId: createAssessment
       parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: workspaceId
+          required: true
+          schema: { type: string, format: uuid }
         - $ref: "#/components/parameters/IdempotencyKey"
         - $ref: "#/components/parameters/CsrfToken"
       requestBody:
@@ -643,6 +655,18 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/CreateAssessmentRequest"
+            examples:
+              minimal:
+                value:
+                  title: Ulangan Harian Matematika
+                  curriculumVersionId: 9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d
+                  gradeId: ""
+                  subjectId: ""
+                  sourceUploadIds: []
+                  blueprintItems:
+                    - sequence: 1
+                      questionType: multiple_choice
+                      difficulty: easy
       responses:
         "201":
           description: Draft and generation job created
@@ -650,100 +674,67 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [data]
+                required: [assessment, version, blueprintItems, idempotent]
                 properties:
-                  data:
+                  assessment: { $ref: "#/components/schemas/AssessmentSummary" }
+                  version:
                     type: object
-                    required: [assessmentId, jobId, status]
-                    properties:
-                      assessmentId: { type: string }
-                      jobId: { type: string }
-                      status: { $ref: "#/components/schemas/JobStatus" }
+                    additionalProperties: true
+                  blueprintItems:
+                    type: array
+                    items: { $ref: "#/components/schemas/BlueprintSnapshotItem" }
+                  idempotent: { type: boolean }
+        "200":
+          description: Idempotent replay returned the existing draft
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [assessment, version, blueprintItems, idempotent]
+                properties:
+                  assessment: { $ref: "#/components/schemas/AssessmentSummary" }
+                  version:
+                    type: object
+                    additionalProperties: true
+                  blueprintItems:
+                    type: array
+                    items: { $ref: "#/components/schemas/BlueprintSnapshotItem" }
+                  idempotent: { type: boolean, enum: [true] }
         "400":
           $ref: "#/components/responses/ValidationError"
         "409":
           $ref: "#/components/responses/Conflict"
-  /v1/assessments/{assessmentId}:
+  /v1/workspaces/{workspaceId}/assessments/{assessmentId}:
     get:
       summary: Read an assessment
       tags: [Assessments]
       operationId: getAssessment
       parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: workspaceId
+          required: true
+          schema: { type: string, format: uuid }
         - $ref: "#/components/parameters/AssessmentId"
       responses:
         "200":
-          description: Assessment detail
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AssessmentResponse"
-        "404":
-          $ref: "#/components/responses/NotFound"
-  /v1/assessments/{assessmentId}/finalize:
-    post:
-      summary: Finalize the reviewed assessment version
-      tags: [Assessments]
-      operationId: finalizeAssessment
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/AssessmentId"
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/CsrfToken"
-      responses:
-        "200":
-          description: Final version created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AssessmentResponse"
-        "409":
-          $ref: "#/components/responses/Conflict"
-  /v1/assessments/{assessmentId}/exports:
-    post:
-      summary: Create an export job for a final assessment
-      tags: [Outputs]
-      operationId: createAssessmentExport
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/AssessmentId"
-        - $ref: "#/components/parameters/IdempotencyKey"
-        - $ref: "#/components/parameters/CsrfToken"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [format]
-              properties:
-                format: { type: string, enum: [pdf] }
-                includeAnswerKey: { type: boolean, default: true }
-                includeExplanation: { type: boolean, default: false }
-      responses:
-        "202":
-          description: Export job accepted
+          description: Assessment detail (assessment + latest version + blueprint items)
           content:
             application/json:
               schema:
                 type: object
-                required: [data]
-                properties:
-                  data:
-                    type: object
-                    required: [jobId, status]
-                    properties:
-                      jobId: { type: string }
-                      status: { $ref: "#/components/schemas/JobStatus" }
-        "409":
-          $ref: "#/components/responses/Conflict"
+                additionalProperties: true
+        "404":
+          $ref: "#/components/responses/NotFound"
   /v1/workspaces/{workspaceId}/assessments/{assessmentId}/versions/{versionId}/blueprint:
     post:
       summary: Build or retrieve a validated blueprint for an assessment version
       tags: [Assessments]
       operationId: buildBlueprint
       parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: workspaceId
+          required: true
+          schema: { type: string, format: uuid }
         - $ref: "#/components/parameters/AssessmentId"
         - in: path
           name: versionId
@@ -781,7 +772,10 @@ paths:
       tags: [Assessments]
       operationId: getBlueprint
       parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
+        - in: path
+          name: workspaceId
+          required: true
+          schema: { type: string, format: uuid }
         - $ref: "#/components/parameters/AssessmentId"
         - in: path
           name: versionId
@@ -2841,7 +2835,15 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorResponse" }
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/InternalServerError" }
   schemas:
+    UserRole:
+      type: string
+      enum: [superadmin, school_admin, teacher, subscriber]
     HealthResponse:
       type: object
       required: [status, service, version, uptimeSeconds, timestamp]
@@ -3045,35 +3047,35 @@ components:
     CreateAssessmentRequest:
       type: object
       required:
-        - sourceMode
-        - gradeId
+        - title
         - curriculumVersionId
-        - subjectId
-        - materialIds
-        - assessmentType
-        - difficulty
-        - questionCount
-        - reviewMode
+        - blueprintItems
       properties:
-        sourceMode:
-          { type: string, enum: [catalog, own_pdf, catalog_and_own_pdf] }
-        sourceIds:
+        title: { type: string, minLength: 1 }
+        curriculumVersionId: { type: string }
+        gradeId: { type: string }
+        subjectId: { type: string }
+        sourceUploadIds:
           type: array
           items: { type: string }
-        gradeId: { type: string }
-        curriculumVersionId: { type: string }
-        subjectId: { type: string }
-        materialIds:
+        blueprintItems:
           type: array
           minItems: 1
-          items: { type: string }
-        assessmentType:
-          { type: string, enum: [practice, daily, midterm, final, tka] }
-        difficulty: { type: string, enum: [easy, medium, hard, mixed] }
-        questionCount: { type: integer, minimum: 5, maximum: 50, default: 20 }
-        reviewMode: { type: string, enum: [quick, detail] }
-        teacherFocus: { type: string, maxLength: 500 }
-        exampleQuestion: { type: string, maxLength: 3000 }
+          items:
+            type: object
+            required: [sequence, questionType, difficulty]
+            properties:
+              sequence: { type: integer, minimum: 0 }
+              outcomeId: { type: [string, "null"] }
+              questionType:
+                type: string
+                enum: [multiple_choice, short_answer, essay, true_false]
+              difficulty:
+                type: string
+                enum: [easy, medium, hard]
+              cognitiveLevel: { type: [string, "null"] }
+              topicHint: { type: [string, "null"] }
+              sourceUploadId: { type: [string, "null"] }
     BuildBlueprintRequest:
       type: object
       properties:
