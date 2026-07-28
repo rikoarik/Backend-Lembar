@@ -19,6 +19,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import type { SchoolService } from '../../application/SchoolService.js';
 import type { SchoolMember } from '../../domain/types.js';
+import { authenticate } from '../../../../common/middleware/authenticate.js';
 import { createJwtAuthMiddleware } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import { throwApiError } from '../../../../common/errors/apiError.js';
 import { getPool, type Database } from '../../../../infrastructure/database/db.js';
@@ -27,29 +28,16 @@ function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? 'req_unknown';
 }
 
-/** Legacy header-based guard — kept for mutating endpoints (invite, patch, delete). */
+/** Authenticated school-admin guard; role comes from the verified token, not a header. */
 function requireSchoolAdmin(
   request: FastifyRequest,
   reply: FastifyReply,
+  jwtSecret: string,
 ): { tenantId: string; workspaceId: string; requestId: string } | null {
   const requestId = getRequestId(request);
-  const tenantId = (request.headers['x-tenant-id'] as string | undefined) ?? '';
-  const userRole = (request.headers['x-user-role'] as string | undefined) ?? '';
-  const { workspaceId } = request.query as { workspaceId?: string };
+  const user = authenticate(request, { secret: jwtSecret });
 
-  if (!tenantId) {
-    void reply.status(400).send({
-      error: {
-        code: 'VALIDATION_FAILED',
-        message: 'Missing x-tenant-id header',
-        requestId,
-        retryable: false,
-      },
-    });
-    return null;
-  }
-
-  if (userRole !== 'school_admin') {
+  if (!user.roles.includes('school_admin')) {
     void reply.status(403).send({
       error: {
         code: 'PERMISSION_DENIED',
@@ -61,7 +49,7 @@ function requireSchoolAdmin(
     return null;
   }
 
-  if (!workspaceId) {
+  if (!user.workspaceId) {
     void reply.status(400).send({
       error: {
         code: 'VALIDATION_FAILED',
@@ -73,7 +61,7 @@ function requireSchoolAdmin(
     return null;
   }
 
-  return { tenantId, workspaceId, requestId };
+  return { tenantId: user.tenantId, workspaceId: user.workspaceId, requestId };
 }
 
 export interface RegisterMemberRoutesOptions {
@@ -88,7 +76,6 @@ export async function registerMemberRoutes(
 ): Promise<void> {
   const { service, db, jwtSecret } = options;
   const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
-
   // ── GET /v1/school/members ─────────────────────────────────────────────────
   /**
    * List workspace members with server-side search, role filter, and pagination.
@@ -164,16 +151,15 @@ export async function registerMemberRoutes(
    */
   app.get(
     '/v1/school/members/:id',
-    { preHandler: [auth] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const requestId = getRequestId(request);
-      const user = request.jwtUser!;
+      const user = authenticate(request, { secret: jwtSecret });
 
       if (!user.workspaceId) {
         throwApiError('forbidden', 'Akun tidak terhubung ke workspace sekolah');
       }
-      const workspaceId = user.workspaceId!;
-      const tenantId = user.userId;
+      const workspaceId = user.workspaceId;
+      const tenantId = user.tenantId;
 
       const { id: memberId } = request.params as { id: string };
 
@@ -267,19 +253,13 @@ export async function registerMemberRoutes(
    */
   app.post('/v1/school/members/invite', async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = getRequestId(request);
-    const tenantId = (request.headers['x-tenant-id'] as string | undefined) ?? '';
-    const userRole = (request.headers['x-user-role'] as string | undefined) ?? '';
-    const createdByUserId = (request.headers['x-user-id'] as string | undefined) ?? '';
-    const { workspaceId } = request.query as { workspaceId?: string };
+    const user = authenticate(request, { secret: jwtSecret });
+    const tenantId = user.tenantId;
+    const createdByUserId = user.userId;
+    const workspaceId = user.workspaceId;
     const body = request.body as Record<string, unknown> | null | undefined;
 
-    if (!tenantId) {
-      return reply.status(400).send({
-        error: { code: 'VALIDATION_FAILED', message: 'Missing x-tenant-id header', requestId, retryable: false },
-      });
-    }
-
-    if (userRole !== 'school_admin') {
+    if (!user.roles.includes('school_admin')) {
       return reply.status(403).send({
         error: { code: 'PERMISSION_DENIED', message: 'This endpoint requires school_admin role', requestId, retryable: false },
       });
@@ -334,7 +314,7 @@ export async function registerMemberRoutes(
   app.patch(
     '/v1/school/members/:id/role',
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const ctx = requireSchoolAdmin(request, reply);
+      const ctx = requireSchoolAdmin(request, reply, jwtSecret);
       if (!ctx) return;
       const { tenantId, workspaceId, requestId } = ctx;
 
@@ -382,7 +362,7 @@ export async function registerMemberRoutes(
   app.delete(
     '/v1/school/members/:id',
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const ctx = requireSchoolAdmin(request, reply);
+      const ctx = requireSchoolAdmin(request, reply, jwtSecret);
       if (!ctx) return;
       const { tenantId, workspaceId, requestId } = ctx;
 

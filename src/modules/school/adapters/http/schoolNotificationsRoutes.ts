@@ -15,10 +15,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import { getPool, type Database } from '../../../../infrastructure/database/db.js';
-import {
-  createJwtAuthMiddleware,
-  requireRole,
-} from '../../../../common/middleware/jwtMultiRoleAuth.js';
+import { authenticate } from '../../../../common/middleware/authenticate.js';
 import { throwApiError } from '../../../../common/errors/apiError.js';
 
 function getRequestId(req: FastifyRequest): string {
@@ -35,21 +32,21 @@ export async function registerSchoolNotificationsRoutes(
   options: RegisterSchoolNotificationsRoutesOptions,
 ): Promise<void> {
   const { db, jwtSecret } = options;
-  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
-  const adminOnly = requireRole(['school_admin']);
 
   // ── GET /v1/school/notifications ────────────────────────────────────────────
   app.get(
     '/v1/school/notifications',
-    { preHandler: [auth, adminOnly] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const requestId = getRequestId(request);
-      const user = request.jwtUser!;
+      const user = authenticate(request, { secret: jwtSecret });
 
+      if (!user.roles.includes('school_admin')) {
+        throwApiError('forbidden', 'Akses ditolak. Required role: school_admin');
+      }
       if (!user.workspaceId) {
         throwApiError('forbidden', 'Akun tidak terhubung ke workspace sekolah');
       }
-      const workspaceId = user.workspaceId!;
+      const workspaceId = user.workspaceId;
 
       const { page: pageStr, limit: limitStr, status } = request.query as {
         page?: string;
