@@ -116,16 +116,19 @@ export async function registerWebhookRoutes(
     const toPlan = body['toPlan'] as string | undefined;
     const amountCents = body['amountCents'] as number | undefined;
 
-    if (!toPlan || amountCents === undefined) {
+    if (!toPlan) {
       return reply.status(400).send({
         error: {
           code: 'VALIDATION_FAILED',
-          message: 'Body must include toPlan and amountCents',
+          message: 'Body must include toPlan',
           requestId,
           retryable: false,
         },
       });
     }
+    // ponytail: amountCents defaults to 0 (demo/manual-gateway flow); wire BFF-computed
+    // pricing when real provider integrations land. Add when amountCents must be non-zero.
+    const finalAmountCents = amountCents ?? 0;
 
     if (toPlan !== 'pro' && toPlan !== 'free') {
       return reply.status(400).send({
@@ -144,7 +147,7 @@ export async function registerWebhookRoutes(
         workspaceId,
         idempotencyKey,
         toPlan,
-        amountCents,
+        amountCents: finalAmountCents,
         currency: body['currency'] as string | undefined,
       });
 
