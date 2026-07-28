@@ -35,6 +35,7 @@ import { ProductAiService } from '../../ai/application/ProductAiService.js';
 import { InMemoryAiAuditRecorder } from '../../ai/persistence/AiAuditRepository.js';
 import { parseAiEnv } from '../../../config/ai.env.js';
 import { MockAiAdapter } from '../../ai/adapters/mock/MockAiAdapter.js';
+import { HermesAdapter } from '../../ai/adapters/hermes/HermesAdapter.js';
 
 export interface WorkerServiceOptions {
   workerId: string;
@@ -116,7 +117,7 @@ export class WorkerService {
       aiEnv = parseAiEnv({ AI_DRIVER: 'mock' } as any);
     }
 
-    const aiAdapter = this.options.aiAdapter ?? new MockAiAdapter();
+    const aiAdapter = this.options.aiAdapter ?? buildAiAdapterFromEnv(aiEnv);
 
     const aiService = new ProductAiService({
       adapter: aiAdapter,
@@ -229,4 +230,37 @@ export function createWorkerService(
   };
 
   return new WorkerService(store, { ...defaults, ...options });
+}
+
+/**
+ * Build the AI adapter from the parsed env. Mirrors parseAiEnv's driver contract:
+ *   - 'hermes' → HermesAdapter (live calls to configured provider + fallback chain)
+ *   - everything else → MockAiAdapter (safe default, no provider spend)
+ *
+ * Kept as a free function so it stays trivially unit-testable and so the
+ * `new MockAiAdapter()` path remains the single-line fallback for dev/CI.
+ */
+export function buildAiAdapterFromEnv(env: ReturnType<typeof parseAiEnv>) {
+  if (env.driver === 'hermes' && env.hermesApiKey) {
+    return new HermesAdapter({
+      primary: {
+        apiKey: env.hermesApiKey,
+        baseUrl: env.hermesBaseUrl,
+        modelId: env.modelId,
+        timeoutMs: env.timeoutMs,
+      },
+      fallbacks: env.openaiApiKey
+        ? [
+            {
+              apiKey: env.openaiApiKey,
+              baseUrl: env.openaiBaseUrl,
+              modelId: env.openaiModelId,
+              timeoutMs: env.timeoutMs,
+            },
+          ]
+        : [],
+      live: true,
+    });
+  }
+  return new MockAiAdapter();
 }
