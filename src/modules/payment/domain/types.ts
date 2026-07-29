@@ -74,6 +74,60 @@ export interface CreateOrderInput {
 }
 
 
+export interface DuitkuInquiryRequest {
+  merchantOrderId: string;
+  paymentAmount: number;
+  paymentMethod: string;
+  productDetails: string;
+  email: string;
+  customerVaName: string;
+  callbackUrl: string;
+  returnUrl: string;
+}
+
+export interface DuitkuInquiryResponse {
+  merchantCode: string;
+  reference: string;
+  paymentUrl: string;
+  vaNumber: string;
+  amount: string;
+  statusCode: string;
+  statusMessage: string;
+}
+
+export interface DuitkuStatusRequest {
+  merchantOrderId: string;
+}
+
+export interface DuitkuStatusResponse {
+  merchantOrderId: string;
+  reference: string;
+  amount: string;
+  fee: string;
+  statusCode: string;
+  statusMessage: string;
+}
+
+export interface DuitkuWebhookPayload {
+  merchantCode: string;
+  amount: string;
+  merchantOrderId: string;
+  productDetail: string;
+  additionalParam: string;
+  paymentCode: string;
+  resultCode: string;
+  merchantUserId: string;
+  reference: string;
+  signature: string;
+  publisherOrderId: string;
+}
+
+export interface PaymentGateway {
+  createTransaction(request: DuitkuInquiryRequest): Promise<DuitkuInquiryResponse>;
+  getTransactionStatus(request: DuitkuStatusRequest): Promise<DuitkuStatusResponse>;
+  verifyWebhook(payload: DuitkuWebhookPayload): boolean;
+}
+
 export interface CreateOrderResult {
   order: PaymentOrder;
   /** true if a pre-existing idempotent order was returned instead of created */
