@@ -406,6 +406,30 @@ paths:
                       $ref: "#/components/schemas/CatalogOption"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /v1/catalog/phases:
+    get:
+      summary: List official curriculum phases
+      tags: [Catalog]
+      operationId: listPhases
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - in: query
+          name: gradeId
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Official phases, optionally filtered by grade
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CatalogOption"
   /v1/catalog/subjects:
     get:
       summary: List subjects for a grade and curriculum version
@@ -3091,6 +3115,7 @@ components:
     CatalogOption:
       type: object
       required: [id, label, status]
+      additionalProperties: true
       properties:
         id: { type: string }
         label: { type: string }

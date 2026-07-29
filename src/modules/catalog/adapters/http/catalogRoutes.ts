@@ -29,6 +29,12 @@ import {
   createJwtAuthMiddleware,
   requireRole,
 } from '../../../../common/middleware/jwtMultiRoleAuth.js';
+import {
+  OFFICIAL_GRADES,
+  OFFICIAL_PHASES,
+  listOfficialMaterials,
+  listOfficialSubjects,
+} from '../../officialCatalog.js';
 
 export interface CatalogOption {
   id: string;
@@ -56,16 +62,16 @@ type Jenjang = 'sd' | 'smp' | 'sma' | 'smk';
 
 const FALLBACK_GRADES: CatalogGradeOption[] = [
   // SD (Sekolah Dasar) — 6 kelas
-  { id: 'sd-1',  label: 'Kelas 1 SD',  status: 'active', jenjang: 'sd' },
-  { id: 'sd-2',  label: 'Kelas 2 SD',  status: 'active', jenjang: 'sd' },
-  { id: 'sd-3',  label: 'Kelas 3 SD',  status: 'active', jenjang: 'sd' },
-  { id: 'sd-4',  label: 'Kelas 4 SD',  status: 'active', jenjang: 'sd' },
-  { id: 'sd-5',  label: 'Kelas 5 SD',  status: 'active', jenjang: 'sd' },
-  { id: 'sd-6',  label: 'Kelas 6 SD',  status: 'active', jenjang: 'sd' },
+  { id: 'sd-1', label: 'Kelas 1 SD', status: 'active', jenjang: 'sd' },
+  { id: 'sd-2', label: 'Kelas 2 SD', status: 'active', jenjang: 'sd' },
+  { id: 'sd-3', label: 'Kelas 3 SD', status: 'active', jenjang: 'sd' },
+  { id: 'sd-4', label: 'Kelas 4 SD', status: 'active', jenjang: 'sd' },
+  { id: 'sd-5', label: 'Kelas 5 SD', status: 'active', jenjang: 'sd' },
+  { id: 'sd-6', label: 'Kelas 6 SD', status: 'active', jenjang: 'sd' },
   // SMP (Sekolah Menengah Pertama) — 3 kelas
-  { id: 'smp-7',  label: 'Kelas 7 SMP',  status: 'active', jenjang: 'smp' },
-  { id: 'smp-8',  label: 'Kelas 8 SMP',  status: 'active', jenjang: 'smp' },
-  { id: 'smp-9',  label: 'Kelas 9 SMP',  status: 'active', jenjang: 'smp' },
+  { id: 'smp-7', label: 'Kelas 7 SMP', status: 'active', jenjang: 'smp' },
+  { id: 'smp-8', label: 'Kelas 8 SMP', status: 'active', jenjang: 'smp' },
+  { id: 'smp-9', label: 'Kelas 9 SMP', status: 'active', jenjang: 'smp' },
   // SMA (Sekolah Menengah Atas) — 3 kelas
   { id: 'sma-10', label: 'Kelas 10 SMA', status: 'active', jenjang: 'sma' },
   { id: 'sma-11', label: 'Kelas 11 SMA', status: 'active', jenjang: 'sma' },
@@ -78,49 +84,98 @@ const FALLBACK_GRADES: CatalogGradeOption[] = [
 
 const FALLBACK_SUBJECTS: CatalogSubjectOption[] = [
   // ── Lintas jenjang (SD + SMP + SMA + SMK) ──────────────────────────────────
-  { id: 'subject-matematika',        label: 'Matematika',                   status: 'active', jenjangList: ['sd', 'smp', 'sma', 'smk'] },
-  { id: 'subject-bahasa-indonesia',  label: 'Bahasa Indonesia',             status: 'active', jenjangList: ['sd', 'smp', 'sma', 'smk'] },
-  { id: 'subject-ppkn',              label: 'PPKn',                         status: 'active', jenjangList: ['sd', 'smp', 'sma', 'smk'] },
-  { id: 'subject-pjok',              label: 'PJOK',                         status: 'active', jenjangList: ['sd', 'smp', 'sma', 'smk'] },
+  {
+    id: 'subject-matematika',
+    label: 'Matematika',
+    status: 'active',
+    jenjangList: ['sd', 'smp', 'sma', 'smk'],
+  },
+  {
+    id: 'subject-bahasa-indonesia',
+    label: 'Bahasa Indonesia',
+    status: 'active',
+    jenjangList: ['sd', 'smp', 'sma', 'smk'],
+  },
+  { id: 'subject-ppkn', label: 'PPKn', status: 'active', jenjangList: ['sd', 'smp', 'sma', 'smk'] },
+  { id: 'subject-pjok', label: 'PJOK', status: 'active', jenjangList: ['sd', 'smp', 'sma', 'smk'] },
 
   // ── SD saja ────────────────────────────────────────────────────────────────
-  { id: 'subject-ipa',               label: 'IPA',                          status: 'active', jenjangList: ['sd'] },
-  { id: 'subject-ips',               label: 'IPS',                          status: 'active', jenjangList: ['sd'] },
-  { id: 'subject-seni-budaya',       label: 'Seni Budaya',                  status: 'active', jenjangList: ['sd'] },
-  { id: 'subject-prakarya',          label: 'Prakarya',                     status: 'active', jenjangList: ['sd'] },
-  { id: 'subject-pai',               label: 'PAI (Pendidikan Agama Islam)', status: 'active', jenjangList: ['sd'] },
+  { id: 'subject-ipa', label: 'IPA', status: 'active', jenjangList: ['sd'] },
+  { id: 'subject-ips', label: 'IPS', status: 'active', jenjangList: ['sd'] },
+  { id: 'subject-seni-budaya', label: 'Seni Budaya', status: 'active', jenjangList: ['sd'] },
+  { id: 'subject-prakarya', label: 'Prakarya', status: 'active', jenjangList: ['sd'] },
+  {
+    id: 'subject-pai',
+    label: 'PAI (Pendidikan Agama Islam)',
+    status: 'active',
+    jenjangList: ['sd'],
+  },
 
   // ── SMP saja ───────────────────────────────────────────────────────────────
-  { id: 'subject-bahasa-inggris',        label: 'Bahasa Inggris',        status: 'active', jenjangList: ['smp'] },
-  { id: 'subject-ipa-smp',               label: 'IPA',                   status: 'active', jenjangList: ['smp'] },
-  { id: 'subject-ips-smp',               label: 'IPS',                   status: 'active', jenjangList: ['smp'] },
-  { id: 'subject-seni-budaya-smp',       label: 'Seni Budaya',           status: 'active', jenjangList: ['smp'] },
-  { id: 'subject-prakarya-smp',          label: 'Prakarya',              status: 'active', jenjangList: ['smp'] },
-  { id: 'subject-informatika-smp',       label: 'Informatika',           status: 'active', jenjangList: ['smp'] },
-  { id: 'subject-pai-smp',               label: 'PAI (Pendidikan Agama Islam)', status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-bahasa-inggris', label: 'Bahasa Inggris', status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-ipa-smp', label: 'IPA', status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-ips-smp', label: 'IPS', status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-seni-budaya-smp', label: 'Seni Budaya', status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-prakarya-smp', label: 'Prakarya', status: 'active', jenjangList: ['smp'] },
+  { id: 'subject-informatika-smp', label: 'Informatika', status: 'active', jenjangList: ['smp'] },
+  {
+    id: 'subject-pai-smp',
+    label: 'PAI (Pendidikan Agama Islam)',
+    status: 'active',
+    jenjangList: ['smp'],
+  },
 
   // ── SMA saja ───────────────────────────────────────────────────────────────
-  { id: 'subject-bahasa-inggris-sma',    label: 'Bahasa Inggris',        status: 'active', jenjangList: ['sma'] },
-  { id: 'subject-fisika',                label: 'Fisika',                status: 'active', jenjangList: ['sma'] },
-  { id: 'subject-kimia',                 label: 'Kimia',                 status: 'active', jenjangList: ['sma'] },
-  { id: 'subject-biologi',               label: 'Biologi',               status: 'active', jenjangList: ['sma'] },
-  { id: 'subject-ekonomi',               label: 'Ekonomi',               status: 'active', jenjangList: ['sma'] },
-  { id: 'subject-geografi',              label: 'Geografi',              status: 'active', jenjangList: ['sma'] },
-  { id: 'subject-sosiologi',             label: 'Sosiologi',             status: 'active', jenjangList: ['sma'] },
-  { id: 'subject-sejarah-indonesia',     label: 'Sejarah Indonesia',     status: 'active', jenjangList: ['sma'] },
-  { id: 'subject-seni-budaya-sma',       label: 'Seni Budaya',           status: 'active', jenjangList: ['sma'] },
-  { id: 'subject-informatika-sma',       label: 'Informatika',           status: 'active', jenjangList: ['sma'] },
-  { id: 'subject-pai-sma',               label: 'PAI (Pendidikan Agama Islam)', status: 'active', jenjangList: ['sma'] },
-  { id: 'subject-pkwu',                  label: 'PKWU',                  status: 'active', jenjangList: ['sma'] },
+  {
+    id: 'subject-bahasa-inggris-sma',
+    label: 'Bahasa Inggris',
+    status: 'active',
+    jenjangList: ['sma'],
+  },
+  { id: 'subject-fisika', label: 'Fisika', status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-kimia', label: 'Kimia', status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-biologi', label: 'Biologi', status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-ekonomi', label: 'Ekonomi', status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-geografi', label: 'Geografi', status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-sosiologi', label: 'Sosiologi', status: 'active', jenjangList: ['sma'] },
+  {
+    id: 'subject-sejarah-indonesia',
+    label: 'Sejarah Indonesia',
+    status: 'active',
+    jenjangList: ['sma'],
+  },
+  { id: 'subject-seni-budaya-sma', label: 'Seni Budaya', status: 'active', jenjangList: ['sma'] },
+  { id: 'subject-informatika-sma', label: 'Informatika', status: 'active', jenjangList: ['sma'] },
+  {
+    id: 'subject-pai-sma',
+    label: 'PAI (Pendidikan Agama Islam)',
+    status: 'active',
+    jenjangList: ['sma'],
+  },
+  { id: 'subject-pkwu', label: 'PKWU', status: 'active', jenjangList: ['sma'] },
 
   // ── SMK saja ───────────────────────────────────────────────────────────────
-  { id: 'subject-bahasa-inggris-smk',    label: 'Bahasa Inggris',        status: 'active', jenjangList: ['smk'] },
-  { id: 'subject-produktif',             label: 'Produktif',              status: 'active', jenjangList: ['smk'] },
-  { id: 'subject-kompetensi-keahlian',   label: 'Kompetensi Keahlian',    status: 'active', jenjangList: ['smk'] },
-  { id: 'subject-pai-smk',               label: 'PAI (Pendidikan Agama Islam)', status: 'active', jenjangList: ['smk'] },
+  {
+    id: 'subject-bahasa-inggris-smk',
+    label: 'Bahasa Inggris',
+    status: 'active',
+    jenjangList: ['smk'],
+  },
+  { id: 'subject-produktif', label: 'Produktif', status: 'active', jenjangList: ['smk'] },
+  {
+    id: 'subject-kompetensi-keahlian',
+    label: 'Kompetensi Keahlian',
+    status: 'active',
+    jenjangList: ['smk'],
+  },
+  {
+    id: 'subject-pai-smk',
+    label: 'PAI (Pendidikan Agama Islam)',
+    status: 'active',
+    jenjangList: ['smk'],
+  },
 ];
 
-const FALLBACK_MATERIALS: CatalogOption[] = [];
 const FALLBACK_CURRICULA = [
   {
     id: '11111111-1111-1111-1111-111111111111',
@@ -204,7 +259,9 @@ async function auditLog(
        VALUES ($1, $2, $3, $4, $5)`,
       [actorId, action, targetType, targetId, JSON.stringify(metadata)],
     );
-  } catch { /* best-effort */ }
+  } catch {
+    /* best-effort */
+  }
 }
 
 // ── Route registration ────────────────────────────────────────────────────────
@@ -247,9 +304,12 @@ export async function registerCatalogRoutes(
         )
         .where(eq(curricula.active, true));
 
-      const data = rows.length > 0
-        ? rows.map((row) => ({ ...row, curriculumVersionId: row.id, status: 'active' as const }))
-        : FALLBACK_CURRICULA;
+      const data = [
+        ...FALLBACK_CURRICULA,
+        ...rows
+          .filter((row) => row.id !== FALLBACK_CURRICULA[0]?.id)
+          .map((row) => ({ ...row, curriculumVersionId: row.id, status: 'active' as const })),
+      ];
       return reply.status(200).send({ data });
     } catch {
       return reply.status(200).send({ data: FALLBACK_CURRICULA });
@@ -270,11 +330,16 @@ export async function registerCatalogRoutes(
 
         if (rows.length > 0) {
           return reply.status(200).send({
-            data: rows.map((r) => ({
-              id: r.id,
-              label: r.label,
-              status: 'active' as const,
-            })),
+            data: [
+              ...OFFICIAL_GRADES,
+              ...rows
+                .filter((r) => !OFFICIAL_GRADES.some((grade) => grade.id === r.id))
+                .map((r) => ({
+                  id: r.id,
+                  label: r.label,
+                  status: 'active' as const,
+                })),
+            ],
           });
         }
       } catch {
@@ -282,7 +347,15 @@ export async function registerCatalogRoutes(
       }
     }
 
-    return reply.status(200).send({ data: FALLBACK_GRADES });
+    return reply.status(200).send({ data: OFFICIAL_GRADES });
+  });
+
+  app.get('/v1/catalog/phases', async (request, reply) => {
+    const { gradeId } = request.query as { gradeId?: string };
+    const data = gradeId
+      ? OFFICIAL_PHASES.filter((phase) => phase.gradeIds.includes(gradeId))
+      : OFFICIAL_PHASES;
+    return reply.status(200).send({ data });
   });
 
   app.get('/v1/catalog/subjects', async (request, reply) => {
@@ -319,7 +392,10 @@ export async function registerCatalogRoutes(
       }
     }
 
-    // Fallback: filter subjects by jenjang from gradeId
+    const official = listOfficialSubjects(q.gradeId);
+    if (official.length > 0) return reply.status(200).send({ data: official });
+
+    // Legacy fallback: filter subjects by jenjang from gradeId
     const jenjang = jenjangFromGradeId(q.gradeId);
     const filtered = jenjang
       ? FALLBACK_SUBJECTS.filter((s) => s.jenjangList.includes(jenjang))
@@ -382,7 +458,9 @@ export async function registerCatalogRoutes(
       }
     }
 
-    return reply.status(200).send({ data: FALLBACK_MATERIALS });
+    return reply.status(200).send({
+      data: listOfficialMaterials(q.gradeId, q.subjectId),
+    });
   });
 
   // ── Admin CRUD endpoints (superadmin only) ────────────────────────────────
@@ -415,11 +493,10 @@ export async function registerCatalogRoutes(
         const pool = getPool(db);
         if (pool) {
           try {
-            await pool.query(
-              `UPDATE grades SET updated_at = now() WHERE id = $1`,
-              [id],
-            );
-          } catch { /* best-effort */ }
+            await pool.query(`UPDATE grades SET updated_at = now() WHERE id = $1`, [id]);
+          } catch {
+            /* best-effort */
+          }
         }
       }
 
@@ -457,122 +534,117 @@ export async function registerCatalogRoutes(
         const pool = getPool(db);
         if (pool) {
           try {
-            await pool.query(
-              `UPDATE subjects SET updated_at = now() WHERE id = $1`,
-              [id],
-            );
-          } catch { /* best-effort */ }
+            await pool.query(`UPDATE subjects SET updated_at = now() WHERE id = $1`, [id]);
+          } catch {
+            /* best-effort */
+          }
         }
       }
 
-      await auditLog(db, actor?.id ?? 'unknown', 'catalog.subject.status', 'subject', id, { status });
+      await auditLog(db, actor?.id ?? 'unknown', 'catalog.subject.status', 'subject', id, {
+        status,
+      });
 
       return reply.status(200).send({ data: { id, status } });
     },
   );
 
   // POST /v1/admin/catalog/grades
-  app.post(
-    '/v1/admin/catalog/grades',
-    { preHandler: adminGuard },
-    async (request, reply) => {
-      const body = request.body as { label?: unknown; status?: unknown };
-      const requestId = getRequestId(request);
-      const actor = (request as unknown as { user?: { id?: string } }).user;
+  app.post('/v1/admin/catalog/grades', { preHandler: adminGuard }, async (request, reply) => {
+    const body = request.body as { label?: unknown; status?: unknown };
+    const requestId = getRequestId(request);
+    const actor = (request as unknown as { user?: { id?: string } }).user;
 
-      if (typeof body.label !== 'string' || !body.label.trim()) {
-        return validationError(reply, 'label wajib diisi (string).', requestId);
-      }
+    if (typeof body.label !== 'string' || !body.label.trim()) {
+      return validationError(reply, 'label wajib diisi (string).', requestId);
+    }
 
-      const label = body.label.trim();
-      const status: CatalogStatus =
-        body.status === 'archived' ? 'archived' : 'active';
-      const id = `grade-${labelToSlug(label)}-${randomUUID().slice(0, 8)}`;
+    const label = body.label.trim();
+    const status: CatalogStatus = body.status === 'archived' ? 'archived' : 'active';
+    const id = `grade-${labelToSlug(label)}-${randomUUID().slice(0, 8)}`;
 
-      const newItem: CatalogGradeOption = {
-        id,
-        label,
-        status,
-        jenjang: 'sd', // default; admin can update later
-      };
-      FALLBACK_GRADES.push(newItem);
+    const newItem: CatalogGradeOption = {
+      id,
+      label,
+      status,
+      jenjang: 'sd', // default; admin can update later
+    };
+    FALLBACK_GRADES.push(newItem);
 
-      // Insert ke DB jika tersedia (best-effort, pakai raw SQL karena
-      // kolom status tidak ada di schema Drizzle — disimpan sebagai metadata)
-      if (db) {
-        const pool = getPool(db);
-        if (pool) {
-          try {
-            await pool.query(
-              `INSERT INTO grades (id, curriculum_id, tenant_id, code, label, ordering)
+    // Insert ke DB jika tersedia (best-effort, pakai raw SQL karena
+    // kolom status tidak ada di schema Drizzle — disimpan sebagai metadata)
+    if (db) {
+      const pool = getPool(db);
+      if (pool) {
+        try {
+          await pool.query(
+            `INSERT INTO grades (id, curriculum_id, tenant_id, code, label, ordering)
                VALUES ($1, '00000000-0000-0000-0000-000000000000',
                        '00000000-0000-0000-0000-000000000000', $2, $3, 999)
                ON CONFLICT DO NOTHING`,
-              [randomUUID(), id, label],
-            );
-          } catch { /* best-effort */ }
+            [randomUUID(), id, label],
+          );
+        } catch {
+          /* best-effort */
         }
       }
+    }
 
-      await auditLog(db, actor?.id ?? 'unknown', 'catalog.grade.create', 'grade', id, { label, status });
+    await auditLog(db, actor?.id ?? 'unknown', 'catalog.grade.create', 'grade', id, {
+      label,
+      status,
+    });
 
-      return reply.status(201).send({ data: newItem });
-    },
-  );
+    return reply.status(201).send({ data: newItem });
+  });
 
   // POST /v1/admin/catalog/subjects
-  app.post(
-    '/v1/admin/catalog/subjects',
-    { preHandler: adminGuard },
-    async (request, reply) => {
-      const body = request.body as { label?: unknown; status?: unknown };
-      const requestId = getRequestId(request);
-      const actor = (request as unknown as { user?: { id?: string } }).user;
+  app.post('/v1/admin/catalog/subjects', { preHandler: adminGuard }, async (request, reply) => {
+    const body = request.body as { label?: unknown; status?: unknown };
+    const requestId = getRequestId(request);
+    const actor = (request as unknown as { user?: { id?: string } }).user;
 
-      if (typeof body.label !== 'string' || !body.label.trim()) {
-        return validationError(reply, 'label wajib diisi (string).', requestId);
-      }
+    if (typeof body.label !== 'string' || !body.label.trim()) {
+      return validationError(reply, 'label wajib diisi (string).', requestId);
+    }
 
-      const label = body.label.trim();
-      const status: CatalogStatus =
-        body.status === 'archived' ? 'archived' : 'active';
-      const id = `subject-${labelToSlug(label)}-${randomUUID().slice(0, 8)}`;
+    const label = body.label.trim();
+    const status: CatalogStatus = body.status === 'archived' ? 'archived' : 'active';
+    const id = `subject-${labelToSlug(label)}-${randomUUID().slice(0, 8)}`;
 
-      const newItem: CatalogSubjectOption = {
-        id,
-        label,
-        status,
-        jenjangList: ['sd', 'smp', 'sma', 'smk'], // default: lintas jenjang
-      };
-      FALLBACK_SUBJECTS.push(newItem);
+    const newItem: CatalogSubjectOption = {
+      id,
+      label,
+      status,
+      jenjangList: ['sd', 'smp', 'sma', 'smk'], // default: lintas jenjang
+    };
+    FALLBACK_SUBJECTS.push(newItem);
 
-      await auditLog(db, actor?.id ?? 'unknown', 'catalog.subject.create', 'subject', id, { label, status });
+    await auditLog(db, actor?.id ?? 'unknown', 'catalog.subject.create', 'subject', id, {
+      label,
+      status,
+    });
 
-      return reply.status(201).send({ data: newItem });
-    },
-  );
+    return reply.status(201).send({ data: newItem });
+  });
 
   // DELETE /v1/admin/catalog/grades/:id  (soft delete → archived)
-  app.delete(
-    '/v1/admin/catalog/grades/:id',
-    { preHandler: adminGuard },
-    async (request, reply) => {
-      const { id } = request.params as { id: string };
-      const requestId = getRequestId(request);
-      const actor = (request as unknown as { user?: { id?: string } }).user;
+  app.delete('/v1/admin/catalog/grades/:id', { preHandler: adminGuard }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const requestId = getRequestId(request);
+    const actor = (request as unknown as { user?: { id?: string } }).user;
 
-      const item = FALLBACK_GRADES.find((g) => g.id === id);
-      if (!item) {
-        return notFoundError(reply, `Grade '${id}' tidak ditemukan.`, requestId);
-      }
+    const item = FALLBACK_GRADES.find((g) => g.id === id);
+    if (!item) {
+      return notFoundError(reply, `Grade '${id}' tidak ditemukan.`, requestId);
+    }
 
-      item.status = 'archived';
+    item.status = 'archived';
 
-      await auditLog(db, actor?.id ?? 'unknown', 'catalog.grade.delete', 'grade', id, {});
+    await auditLog(db, actor?.id ?? 'unknown', 'catalog.grade.delete', 'grade', id, {});
 
-      return reply.status(200).send({ data: { id, archived: true } });
-    },
-  );
+    return reply.status(200).send({ data: { id, archived: true } });
+  });
 
   // DELETE /v1/admin/catalog/subjects/:id  (soft delete → archived)
   app.delete(
