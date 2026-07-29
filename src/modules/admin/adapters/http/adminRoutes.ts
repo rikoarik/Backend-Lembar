@@ -60,7 +60,9 @@ export async function registerAdminRoutes(
     const tenantsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM tenants');
     const jobsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM spike_jobs WHERE status IN ($1, $2)', ['running', 'queued']);
     const jobsFailedRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM spike_jobs WHERE status = $1', ['failed']);
-    const qualityRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM admin_quality_reports WHERE status = $1', ['open']);
+    const qualityRes = await pool.query<{ count: string }>(
+      "SELECT count(*)::text as count FROM admin_quality_reports WHERE status IN ('open', 'triaged')",
+    );
     const flagsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM admin_flags WHERE enabled = true');
     await auditLog(request.jwtUser!.userId, 'dashboard.read', 'dashboard', 'overview');
     return reply.status(200).send({
