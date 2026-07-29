@@ -94,6 +94,21 @@ export async function registerQuestionReviewRoutes(
   const BASE =
     '/v1/workspaces/:workspaceId/assessments/:assessmentId/versions/:versionId/questions';
 
+  // ── LIST questions for the review workspace ───────────────────────────────
+  app.get(`${BASE}`, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { workspaceId, versionId } = request.params as {
+      workspaceId: string;
+      assessmentId: string;
+      versionId: string;
+    };
+    try {
+      const questions = await reviewService.listQuestions(workspaceId, versionId);
+      return reply.status(200).send({ data: { questions } });
+    } catch (err) {
+      handleError(err, request, reply);
+    }
+  });
+
   // ── GET question + ETag header (B4-01, B4-03) ─────────────────────────────
   app.get(`${BASE}/:qId`, async (request: FastifyRequest, reply: FastifyReply) => {
     const { workspaceId, qId } = request.params as {
