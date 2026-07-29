@@ -9,7 +9,7 @@ import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/er
 import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
 import { parseDatabaseEnv } from '../config/database.env.js';
 import { parseQueueEnv } from '../config/queue.env.js';
-import { closeDatabase, createDatabase, type Database } from '../infrastructure/database/db.js';
+import { closeDatabase, createDatabase, getPool, type Database } from '../infrastructure/database/db.js';
 import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRoutes.js';
 import { createSharedQueueStore } from '../infrastructure/queue/createSharedQueueStore.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
@@ -43,12 +43,14 @@ import { registerSubscriptionRoutes } from '../modules/payment/adapters/http/sub
 // B2-03: Assessment routes + full core product flow
 import { AssessmentService } from '../modules/assessments/application/AssessmentService.js';
 import { InMemoryAssessmentsStore } from '../modules/assessments/persistence/InMemoryAssessmentsStore.js';
+import { PostgresAssessmentsStore } from '../modules/assessments/persistence/PostgresAssessmentsStore.js';
 import { registerAssessmentRoutes } from '../modules/assessments/adapters/http/routes.js';
 import { InMemorySourceUploadsStore } from '../modules/uploads/persistence/InMemorySourceUploadsStore.js';
 import { InMemorySourceExtractionJobsStore } from '../modules/sources/persistence/InMemorySourceExtractionStores.js';
 // B5-04: History + bank soal
 import { HistoryService } from '../modules/assessments/application/HistoryService.js';
 import { InMemoryQuestionGenerationStore } from '../modules/assessments/persistence/InMemoryQuestionGenerationStore.js';
+import { PostgresQuestionGenerationStore } from '../modules/assessments/persistence/PostgresQuestionGenerationStore.js';
 import { registerHistoryRoutes } from '../modules/assessments/adapters/http/historyRoutes.js';
 // B5-03: Share links
 import { ShareLinkService } from '../modules/assessments/application/ShareLinkService.js';
@@ -57,6 +59,7 @@ import { registerShareRoutes } from '../modules/assessments/adapters/http/shareR
 // B4-01: Question review + finalization
 import { QuestionReviewService } from '../modules/assessments/application/QuestionReviewService.js';
 import { InMemoryQuestionReviewStore } from '../modules/assessments/persistence/InMemoryQuestionReviewStore.js';
+import { PostgresQuestionReviewStore } from '../modules/assessments/persistence/PostgresQuestionReviewStore.js';
 import { FinalizationService } from '../modules/assessments/application/FinalizationService.js';
 import { registerQuestionReviewRoutes } from '../modules/assessments/adapters/http/questionReviewRoutes.js';
 // B3-02: Blueprint pipeline
@@ -75,7 +78,6 @@ import { registerArtifactRoutes } from '../modules/assessments/adapters/http/art
 import { InMemoryAdapter } from '../infrastructure/storage/InMemoryAdapter.js';
 
 // B2-05: Job status and recovery routes
-import { InMemoryQueueStore } from '../infrastructure/queue/adapters/memory-store.js';
 import { QueueJobStatusAdapter } from '../modules/jobs/adapters/QueueJobStatusAdapter.js';
 import { JobStatusService } from '../modules/jobs/application/JobStatusService.js';
 import { registerJobStatusRoutes } from '../modules/jobs/adapters/http/routes.js';
@@ -108,6 +110,7 @@ import { registerSettingsRoutes } from '../modules/school/adapters/http/settings
 import { registerUsageRoutes } from '../modules/school/adapters/http/usageRoutes.js';
 import { registerSuspendRoutes } from '../modules/school/adapters/http/suspendRoutes.js';
 import { registerSchoolNotificationsRoutes } from '../modules/school/adapters/http/schoolNotificationsRoutes.js';
+import { registerClassRoutes } from '../modules/classes/adapters/http/classRoutes.js';
 
 // Swagger
 import swagger from '@fastify/swagger';
@@ -312,7 +315,7 @@ export async function buildApp(
   const quotaDb = options.quotaDb ?? managedDb;
   if (quotaDb) {
     const queueEnv = parseQueueEnv(process.env);
-    const jobStore = new InMemoryQueueStore();
+    const jobStore = createSharedQueueStore(process.env);
     const quotaRepo = new QuotaReservationRepository(quotaDb);
     const quotaLedger = new QuotaLedger(quotaRepo);
     const jobStatusAdapter = new QueueJobStatusAdapter(jobStore, {
@@ -363,13 +366,20 @@ export async function buildApp(
     await registerSubscriptionRoutes(app, { paymentService });
   }
 
-// B2-03: Assessment routes (InMemory stores)
+// B2-03: Assessment routes (Postgres when configured; in-memory for local smoke)
   {
-    const assessmentStore = new InMemoryAssessmentsStore();
+    const pool = managedDb ? getPool(managedDb) : undefined;
+    const assessmentStore = managedDb
+      ? new PostgresAssessmentsStore(managedDb)
+      : new InMemoryAssessmentsStore();
     const uploadsStore = new InMemorySourceUploadsStore();
     const extractionJobsStore = new InMemorySourceExtractionJobsStore();
-    const questionGenStore = new InMemoryQuestionGenerationStore();
-    const questionReviewStore = new InMemoryQuestionReviewStore();
+    const questionGenStore = pool
+      ? new PostgresQuestionGenerationStore(pool)
+      : new InMemoryQuestionGenerationStore();
+    const questionReviewStore = managedDb
+      ? new PostgresQuestionReviewStore(managedDb)
+      : new InMemoryQuestionReviewStore();
     const blueprintStore = new InMemoryBlueprintPipelineStore();
     const shareLinkStore = new InMemoryShareLinkStore();
     const printArtifactStore = new InMemoryPrintArtifactStore();
@@ -510,6 +520,11 @@ export async function buildApp(
 
     // School notifications (recent outbox entries for school_admin)
     registerSchoolNotificationsRoutes(app, {
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
+
+    await registerClassRoutes(app, {
       db: managedDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     });
