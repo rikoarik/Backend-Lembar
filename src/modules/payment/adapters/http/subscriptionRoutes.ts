@@ -7,6 +7,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import type { PaymentService } from '../../application/PaymentService.js';
+import type { Database } from '../../../../infrastructure/database/db.js';
+import { createJwtAuthMiddleware } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import { InvalidPlanTransitionError, OrderNotFoundError } from '../../domain/errors.js';
 
 function getRequestId(req: FastifyRequest): string {
@@ -34,6 +36,8 @@ function handleError(err: unknown, req: FastifyRequest, reply: FastifyReply): vo
 
 export interface RegisterSubscriptionRoutesOptions {
   paymentService: PaymentService;
+  db: Database;
+  jwtSecret: string;
 }
 
 export async function registerSubscriptionRoutes(
@@ -41,6 +45,7 @@ export async function registerSubscriptionRoutes(
   options: RegisterSubscriptionRoutesOptions,
 ): Promise<void> {
   const { paymentService } = options;
+  const auth = createJwtAuthMiddleware({ secret: options.jwtSecret, db: options.db });
 
   /**
    * POST /v1/me/plan/upgrade
@@ -50,11 +55,11 @@ export async function registerSubscriptionRoutes(
    * Headers: x-tenant-id, x-workspace-id, x-actor-id
    * Body: { orderId?: string }
    */
-  app.post('/v1/me/plan/upgrade', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/v1/me/plan/upgrade', { preHandler: [auth] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = getRequestId(request);
-    const tenantId = request.headers['x-tenant-id'] as string | undefined;
-    const workspaceId = request.headers['x-workspace-id'] as string | undefined;
-    const actorId = (request.headers['x-actor-id'] as string | undefined) ?? 'unknown';
+    const workspaceId = request.jwtUser?.workspaceId;
+    const tenantId = workspaceId;
+    const actorId = request.jwtUser?.userId ?? 'unknown';
 
     if (!tenantId || !workspaceId) {
       return reply.status(400).send({
@@ -91,11 +96,11 @@ export async function registerSubscriptionRoutes(
    *
    * Headers: x-tenant-id, x-workspace-id, x-actor-id
    */
-  app.post('/v1/me/plan/downgrade', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/v1/me/plan/downgrade', { preHandler: [auth] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = getRequestId(request);
-    const tenantId = request.headers['x-tenant-id'] as string | undefined;
-    const workspaceId = request.headers['x-workspace-id'] as string | undefined;
-    const actorId = (request.headers['x-actor-id'] as string | undefined) ?? 'unknown';
+    const workspaceId = request.jwtUser?.workspaceId;
+    const tenantId = workspaceId;
+    const actorId = request.jwtUser?.userId ?? 'unknown';
 
     if (!tenantId || !workspaceId) {
       return reply.status(400).send({

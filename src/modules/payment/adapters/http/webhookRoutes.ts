@@ -9,6 +9,8 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import type { PaymentService } from '../../application/PaymentService.js';
+import type { Database } from '../../../../infrastructure/database/db.js';
+import { createJwtAuthMiddleware } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import {
   OrderNotFoundError,
   InvalidOrderTransitionError,
@@ -47,6 +49,8 @@ function handleError(err: unknown, req: FastifyRequest, reply: FastifyReply): vo
 
 export interface RegisterWebhookRoutesOptions {
   paymentService: PaymentService;
+  db: Database;
+  jwtSecret: string;
 }
 
 export async function registerWebhookRoutes(
@@ -54,6 +58,7 @@ export async function registerWebhookRoutes(
   options: RegisterWebhookRoutesOptions,
 ): Promise<void> {
   const { paymentService } = options;
+  const auth = createJwtAuthMiddleware({ secret: options.jwtSecret, db: options.db });
 
   /**
    * POST /v1/payment/webhook
@@ -67,20 +72,20 @@ export async function registerWebhookRoutes(
    *   stripe-signature   — Stripe signature header (optional)
    */
   app.post('/v1/payment/webhook', async (request: FastifyRequest, reply: FastifyReply) => {
-    const gateway = (request.headers['x-gateway'] as string | undefined) ?? 'manual';
-    if (gateway === 'manual' && process.env['NODE_ENV'] === 'production') {
-      return reply.status(403).send({
-        error: {
-          code: 'PAYMENT_GATEWAY_DISABLED',
-          message: 'Manual payment confirmation is disabled in production.',
-          requestId: getRequestId(request),
-          retryable: false,
-        },
-      });
+    const gateway = request.headers['x-gateway'] as string | undefined;
+    if (gateway !== 'midtrans' && gateway !== 'stripe') {
+      return reply.status(400).send({ error: { code: 'PAYMENT_GATEWAY_INVALID', message: 'Gateway tidak didukung.', requestId: getRequestId(request), retryable: false } });
+    }
+    if (
+      (gateway === 'midtrans' && !process.env['MIDTRANS_SERVER_KEY']) ||
+      (gateway === 'stripe' && !process.env['STRIPE_WEBHOOK_SECRET'])
+    ) {
+      return reply.status(503).send({ error: { code: 'PAYMENT_NOT_CONFIGURED', message: 'Gateway pembayaran belum dikonfigurasi.', requestId: getRequestId(request), retryable: false } });
     }
     const signature =
       (request.headers['stripe-signature'] as string | undefined) ??
-      (request.headers['x-hub-signature'] as string | undefined);
+      (request.headers['x-hub-signature'] as string | undefined) ??
+      ((request.body as Record<string, unknown> | null)?.['signature_key'] as string | undefined);
     const rawBody = JSON.stringify(request.body);
     const parsed = (request.body as Record<string, unknown>) ?? {};
 
@@ -105,10 +110,10 @@ export async function registerWebhookRoutes(
    * Headers: x-tenant-id, x-workspace-id, x-idempotency-key
    * Body: { toPlan: 'pro', amountCents: number, currency?: string }
    */
-  app.post('/v1/payment/orders', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/v1/payment/orders', { preHandler: [auth] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = getRequestId(request);
-    const tenantId = request.headers['x-tenant-id'] as string | undefined;
-    const workspaceId = request.headers['x-workspace-id'] as string | undefined;
+    const workspaceId = request.jwtUser?.workspaceId;
+    const tenantId = workspaceId;
     const idempotencyKey = request.headers['x-idempotency-key'] as string | undefined;
 
     if (!tenantId || !workspaceId || !idempotencyKey) {
@@ -121,10 +126,13 @@ export async function registerWebhookRoutes(
         },
       });
     }
+    if (!/^[A-Za-z0-9_-]{16,100}$/.test(idempotencyKey)) {
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'x-idempotency-key tidak valid.', requestId, retryable: false } });
+    }
 
     const body = request.body as Record<string, unknown>;
     const toPlan = body['toPlan'] as string | undefined;
-    const amountCents = body['amountCents'] as number | undefined;
+    const amountCents = Number(process.env['PAYMENT_PRO_PRICE_CENTS']);
 
     if (!toPlan) {
       return reply.status(400).send({
@@ -136,11 +144,11 @@ export async function registerWebhookRoutes(
         },
       });
     }
-    if (!Number.isInteger(amountCents) || (amountCents ?? 0) <= 0) {
-      return reply.status(400).send({
+    if (!Number.isInteger(amountCents) || amountCents <= 0) {
+      return reply.status(503).send({
         error: {
-          code: 'VALIDATION_FAILED',
-          message: 'amountCents must be a positive integer',
+          code: 'PAYMENT_NOT_CONFIGURED',
+          message: 'Harga pembayaran belum dikonfigurasi di server.',
           requestId,
           retryable: false,
         },
@@ -148,11 +156,11 @@ export async function registerWebhookRoutes(
     }
     const finalAmountCents = amountCents!;
 
-    if (toPlan !== 'pro' && toPlan !== 'free') {
+    if (toPlan !== 'pro') {
       return reply.status(400).send({
         error: {
           code: 'VALIDATION_FAILED',
-          message: 'toPlan must be "pro" or "free"',
+          message: 'toPlan harus "pro"',
           requestId,
           retryable: false,
         },
@@ -163,10 +171,10 @@ export async function registerWebhookRoutes(
       const result = await paymentService.createOrder({
         tenantId,
         workspaceId,
-        idempotencyKey,
+        idempotencyKey: `${workspaceId}:${idempotencyKey}`,
         toPlan,
         amountCents: finalAmountCents,
-        currency: body['currency'] as string | undefined,
+        currency: 'IDR',
       });
 
       const status = result.idempotent ? 200 : 201;
@@ -182,10 +190,10 @@ export async function registerWebhookRoutes(
    * List all payment orders for a workspace (reconciliation).
    * Headers: x-tenant-id, x-workspace-id
    */
-  app.get('/v1/payment/orders', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/v1/payment/orders', { preHandler: [auth] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = getRequestId(request);
-    const tenantId = request.headers['x-tenant-id'] as string | undefined;
-    const workspaceId = request.headers['x-workspace-id'] as string | undefined;
+    const workspaceId = request.jwtUser?.workspaceId;
+    const tenantId = workspaceId;
 
     if (!tenantId || !workspaceId) {
       return reply.status(400).send({
@@ -211,12 +219,14 @@ export async function registerWebhookRoutes(
    *
    * Immutable audit log for a specific order.
    */
-  app.get('/v1/payment/orders/:id/events', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/v1/payment/orders/:id/events', { preHandler: [auth] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const params = request.params as { id: string };
     const orderId = params.id;
+    const workspaceId = request.jwtUser?.workspaceId;
+    if (!workspaceId) return reply.status(403).send({ error: { code: 'PERMISSION_DENIED', message: 'Workspace aktif diperlukan.', requestId: getRequestId(request), retryable: false } });
 
     try {
-      const events = await paymentService.getOrderEvents(orderId);
+      const events = await paymentService.getOrderEventsForWorkspace(orderId, workspaceId, workspaceId);
       return reply.status(200).send({ data: events });
     } catch (err) {
       handleError(err, request, reply);

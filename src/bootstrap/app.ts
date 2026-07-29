@@ -166,6 +166,7 @@ export async function buildApp(
   options: BuildAppOptions = {},
 ): Promise<FastifyInstance<Server, IncomingMessage, ServerResponse>> {
   const app: FastifyInstance<Server, IncomingMessage, ServerResponse> = Fastify({
+    trustProxy: '127.0.0.1',
     logger:
       options.logger === false
         ? false
@@ -363,8 +364,13 @@ export async function buildApp(
     if (midtransKey !== undefined) paymentOpts.midtransServerKey = midtransKey;
     if (stripeSecret !== undefined) paymentOpts.stripeWebhookSecret = stripeSecret;
     const paymentService = new PaymentService(paymentRepo, planRepo, paymentOpts);
-    await registerWebhookRoutes(app, { paymentService });
-    await registerSubscriptionRoutes(app, { paymentService });
+    const paymentRouteOptions = {
+      paymentService,
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    };
+    await registerWebhookRoutes(app, paymentRouteOptions);
+    await registerSubscriptionRoutes(app, paymentRouteOptions);
   }
 
 // B2-03: Assessment routes (Postgres when configured; in-memory for local smoke)

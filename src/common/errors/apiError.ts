@@ -30,6 +30,9 @@ export function throwApiError(
     unauthorized: 'AUTH_REQUIRED',
     forbidden: 'PERMISSION_DENIED',
     invalid_input: 'VALIDATION_FAILED',
+    rate_limited: 'RATE_LIMITED',
+    captcha_required: 'VALIDATION_FAILED',
+    captcha_invalid: 'VALIDATION_FAILED',
   };
 
   const stableCode = codeMap[code] || 'INTERNAL_ERROR';

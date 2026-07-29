@@ -8,7 +8,7 @@
  *   - Plan upgrade/downgrade flow coordinated with PlanService
  *   - Reconciliation: list orders + events for a workspace
  */
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 import type { PaymentRepository } from '../persistence/repository.js';
 import type { WorkspacePlanRepository } from '../../plans/persistence/repository.js';
@@ -146,6 +146,21 @@ export class PaymentService {
     }
     if (!row) {
       throw new OrderNotFoundError(`external:${externalOrderId}`);
+    }
+
+    if (payload.gateway === 'midtrans' && this.opts.midtransServerKey) {
+      const amount = Number(parsed['gross_amount']);
+      if (!Number.isFinite(amount) || amount !== row.amountCents || row.currency !== 'IDR') {
+        throw new WebhookSignatureError('midtrans-amount');
+      }
+    }
+    if (payload.gateway === 'stripe' && this.opts.stripeWebhookSecret) {
+      const object = (parsed['data'] as { object?: Record<string, unknown> } | undefined)?.object;
+      const amount = Number(object?.['amount_received']);
+      const currency = String(object?.['currency'] ?? '').toUpperCase();
+      if (!Number.isInteger(amount) || amount !== row.amountCents || currency !== row.currency) {
+        throw new WebhookSignatureError('stripe-amount');
+      }
     }
 
     const currentStatus = row.status as PaymentOrderStatus;
@@ -295,6 +310,14 @@ export class PaymentService {
     return this.paymentRepo.listEventsByOrder(orderId);
   }
 
+  async getOrderEventsForWorkspace(orderId: string, tenantId: string, workspaceId: string) {
+    const order = await this.paymentRepo.findById(orderId);
+    if (!order || order.tenantId !== tenantId || order.workspaceId !== workspaceId) {
+      throw new OrderNotFoundError(orderId);
+    }
+    return this.paymentRepo.listEventsByOrder(orderId);
+  }
+
   // ── Signature verification ────────────────────────────────────────────────
 
   private verifySignature(payload: WebhookPayload): void {
@@ -302,7 +325,7 @@ export class PaymentService {
 
     if (payload.gateway === 'midtrans') {
       const secret = this.opts.midtransServerKey;
-      if (!secret) return; // not configured — skip
+      if (!secret) return;
       if (!sig) throw new WebhookSignatureError('midtrans');
 
       // Midtrans: SHA512(order_id + status_code + gross_amount + server_key)
@@ -310,7 +333,7 @@ export class PaymentService {
       const orderId = (parsed['order_id'] as string) ?? '';
       const statusCode = (parsed['status_code'] as string) ?? '';
       const grossAmount = (parsed['gross_amount'] as string) ?? '';
-      const expected = createHmac('sha512', secret)
+      const expected = createHash('sha512')
         .update(`${orderId}${statusCode}${grossAmount}${secret}`)
         .digest('hex');
       const expectedBuf = Buffer.from(expected, 'utf8');
@@ -323,7 +346,7 @@ export class PaymentService {
 
     if (payload.gateway === 'stripe') {
       const secret = this.opts.stripeWebhookSecret;
-      if (!secret) return; // not configured — skip
+      if (!secret) return;
       if (!sig) throw new WebhookSignatureError('stripe');
 
       // Stripe: t=timestamp,v1=hmac — simplified verification
@@ -332,6 +355,10 @@ export class PaymentService {
       const v1Part = parts.find((p) => p.startsWith('v1='));
       if (!tPart || !v1Part) throw new WebhookSignatureError('stripe');
       const timestamp = tPart.slice(2);
+      const timestampSeconds = Number(timestamp);
+      if (!Number.isFinite(timestampSeconds) || Math.abs(Date.now() / 1000 - timestampSeconds) > 300) {
+        throw new WebhookSignatureError('stripe');
+      }
       const receivedSig = v1Part.slice(3);
       const expected = createHmac('sha256', secret)
         .update(`${timestamp}.${payload.rawBody}`)
@@ -344,7 +371,7 @@ export class PaymentService {
       return;
     }
 
-    // gateway === 'manual' or unknown — no verification
+    // `manual` is retained only for service-level tests; the HTTP route rejects it.
   }
 
   private resolveWebhookStatus(

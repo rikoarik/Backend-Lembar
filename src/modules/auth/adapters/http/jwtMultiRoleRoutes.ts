@@ -3,6 +3,7 @@ import { throwApiError } from '../../../../common/errors/apiError.js';
 import type { Database } from '../../../../infrastructure/database/db.js';
 import { JwtMultiRoleAuthService } from '../../application/JwtMultiRoleAuthService.js';
 import { createJwtAuthMiddleware, requireRole } from '../../../../common/middleware/jwtMultiRoleAuth.js';
+import { clearRateLimit, opaque, rateLimit, verifyTurnstile } from '../../../../common/security/rateLimit.js';
 
 export interface RegisterJwtMultiRoleRoutesOptions {
   db: Database;
@@ -30,7 +31,11 @@ export async function registerJwtMultiRoleRoutes(
       username?: string;
       phone?: string;
       roles?: string[] | undefined;
+      captchaToken?: string;
     };
+
+    rateLimit(request, reply, 'register', 5, 60 * 60 * 1000);
+    await verifyTurnstile(request, body?.captchaToken);
 
     const name = (body.name ?? body.username ?? '').trim();
     if (!body.email || !body.password || !name) {
@@ -54,13 +59,20 @@ export async function registerJwtMultiRoleRoutes(
       email?: string;
       identifier?: string;
       password: string;
+      captchaToken?: string;
     };
 
     if ((!body.email && !body.identifier) || !body.password) {
       throwApiError('missing_fields', 'Email/username/telepon dan password diperlukan');
     }
 
+    const identifier = body.identifier ?? body.email ?? '';
+    rateLimit(request, reply, 'login-ip', 60, 15 * 60 * 1000);
+    const accountScope = `login-account:${opaque(identifier)}`;
+    rateLimit(request, reply, accountScope, 8, 15 * 60 * 1000);
+    await verifyTurnstile(request, body?.captchaToken);
     const result = await service.login(body);
+    clearRateLimit(request, accountScope);
     return reply.status(200).send(result);
   });
 
