@@ -215,6 +215,23 @@ export class PaymentService {
     if (input.targetPlan === 'free') {
       throw new InvalidPlanTransitionError('any', 'free', 'use downgradePlan instead');
     }
+    const current = await this.planRepo.findOrCreate(input.tenantId, input.workspaceId);
+    if (current.plan === input.targetPlan) return this.transitionPlan(input);
+    if (!input.orderId) {
+      throw new InvalidPlanTransitionError('free', input.targetPlan, 'a paid order is required');
+    }
+    const order = await this.paymentRepo.findById(input.orderId);
+    if (!order) throw new OrderNotFoundError(input.orderId);
+    if (
+      order.tenantId !== input.tenantId ||
+      order.workspaceId !== input.workspaceId ||
+      order.toPlan !== input.targetPlan
+    ) {
+      throw new InvalidPlanTransitionError('free', input.targetPlan, 'order does not belong to this plan and workspace');
+    }
+    if (order.status !== 'paid') {
+      throw new InvalidPlanTransitionError('free', input.targetPlan, `order is ${order.status}, not paid`);
+    }
     return this.transitionPlan(input);
   }
 

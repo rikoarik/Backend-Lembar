@@ -7,7 +7,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import type { PaymentService } from '../../application/PaymentService.js';
-import { InvalidPlanTransitionError } from '../../domain/errors.js';
+import { InvalidPlanTransitionError, OrderNotFoundError } from '../../domain/errors.js';
 
 function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? 'req_unknown';
@@ -18,6 +18,12 @@ function handleError(err: unknown, req: FastifyRequest, reply: FastifyReply): vo
   if (err instanceof InvalidPlanTransitionError) {
     void reply.status(409).send({
       error: { code: 'INVALID_PLAN_TRANSITION', message: err.message, requestId, retryable: false },
+    });
+    return;
+  }
+  if (err instanceof OrderNotFoundError) {
+    void reply.status(404).send({
+      error: { code: 'ORDER_NOT_FOUND', message: err.message, requestId, retryable: false },
     });
     return;
   }

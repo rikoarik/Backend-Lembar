@@ -263,12 +263,11 @@ describe('PaymentService — handleWebhook (Midtrans)', () => {
 });
 
 describe('PaymentService — upgradePlan', () => {
-  it('transitions free → pro', async () => {
-    const { svc, plans } = makeService();
-    const result = await svc.upgradePlan({ tenantId: 'tenant-1', workspaceId: 'ws-1', actorId: 'admin', targetPlan: 'pro' });
-    expect(result.previousPlan).toBe('free');
-    expect(result.newPlan).toBe('pro');
-    expect(plans.get('tenant-1:ws-1')).toBe('pro');
+  it('rejects upgrade without a paid order', async () => {
+    const { svc } = makeService();
+    await expect(
+      svc.upgradePlan({ tenantId: 'tenant-1', workspaceId: 'ws-1', actorId: 'admin', targetPlan: 'pro' }),
+    ).rejects.toBeInstanceOf(InvalidPlanTransitionError);
   });
 
   it('is no-op when already on pro', async () => {

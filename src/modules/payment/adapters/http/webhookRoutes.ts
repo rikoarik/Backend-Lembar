@@ -68,6 +68,16 @@ export async function registerWebhookRoutes(
    */
   app.post('/v1/payment/webhook', async (request: FastifyRequest, reply: FastifyReply) => {
     const gateway = (request.headers['x-gateway'] as string | undefined) ?? 'manual';
+    if (gateway === 'manual' && process.env['NODE_ENV'] === 'production') {
+      return reply.status(403).send({
+        error: {
+          code: 'PAYMENT_GATEWAY_DISABLED',
+          message: 'Manual payment confirmation is disabled in production.',
+          requestId: getRequestId(request),
+          retryable: false,
+        },
+      });
+    }
     const signature =
       (request.headers['stripe-signature'] as string | undefined) ??
       (request.headers['x-hub-signature'] as string | undefined);
@@ -126,9 +136,17 @@ export async function registerWebhookRoutes(
         },
       });
     }
-    // ponytail: amountCents defaults to 0 (demo/manual-gateway flow); wire BFF-computed
-    // pricing when real provider integrations land. Add when amountCents must be non-zero.
-    const finalAmountCents = amountCents ?? 0;
+    if (!Number.isInteger(amountCents) || (amountCents ?? 0) <= 0) {
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: 'amountCents must be a positive integer',
+          requestId,
+          retryable: false,
+        },
+      });
+    }
+    const finalAmountCents = amountCents!;
 
     if (toPlan !== 'pro' && toPlan !== 'free') {
       return reply.status(400).send({
