@@ -1,85 +1,120 @@
-/**
- * Plan HTTP routes (B6-01).
- *
- * GET /v1/me/plan — returns current workspace plan + usage
- */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-
-import type { PlanService } from '../../application/PlanService.js';
 import { ApiError } from '../../../../common/errors/envelope.js';
+import { authenticate } from '../../../../common/middleware/authenticate.js';
+import { rateLimit } from '../../../../common/security/rateLimit.js';
+import type { PlanService } from '../../application/PlanService.js';
+import { TrialEligibilityError, type TrialService } from '../../application/TrialService.js';
+import { TrialConflictError } from '../../persistence/trialRepository.js';
 
-function getRequestId(req: FastifyRequest): string {
+export interface PlanRouteOptions {
+  trials: TrialService;
+  jwtSecret: string;
+}
+
+function requestId(req: FastifyRequest) {
   return (req.headers['x-request-id'] as string | undefined) ?? 'req_unknown';
 }
 
-function getWorkspaceId(req: FastifyRequest, reply: FastifyReply): string | null {
-  const wsId =
-    (req.headers['x-workspace-id'] as string | undefined) ??
-    (req.query as Record<string, string>)['workspaceId'];
-  if (!wsId) {
-    void reply.status(400).send({
-      error: {
-        code: 'VALIDATION_FAILED',
-        message: 'Missing x-workspace-id header or workspaceId query param',
-        requestId: getRequestId(req),
-        retryable: false,
-      },
-    });
-    return null;
-  }
-  return wsId;
+function sendError(
+  reply: FastifyReply,
+  req: FastifyRequest,
+  status: number,
+  code: string,
+  message: string,
+) {
+  return reply
+    .status(status)
+    .send({ error: { code, message, requestId: requestId(req), retryable: false } });
 }
 
-function getTenantId(req: FastifyRequest, reply: FastifyReply): string | null {
-  const tenantId = (req.headers['x-tenant-id'] as string | undefined);
-  if (!tenantId) {
-    void reply.status(400).send({
-      error: {
-        code: 'VALIDATION_FAILED',
-        message: 'Missing x-tenant-id header',
-        requestId: getRequestId(req),
-        retryable: false,
-      },
-    });
+function authContext(req: FastifyRequest, reply: FastifyReply, secret: string) {
+  const auth = authenticate(req, { secret });
+  if (!auth.workspaceId) {
+    sendError(reply, req, 409, 'TRIAL_WORKSPACE_REQUIRED', 'Workspace aktif diperlukan.');
     return null;
   }
-  return tenantId;
+  return auth;
 }
 
-function handleError(err: unknown, req: FastifyRequest, reply: FastifyReply): void {
-  if (err instanceof ApiError) {
-    void reply.status(err.status).send(err.toEnvelope());
-    return;
+function handleError(err: unknown, req: FastifyRequest, reply: FastifyReply) {
+  if (err instanceof ApiError) return reply.status(err.status).send(err.toEnvelope());
+  if (err instanceof TrialConflictError || err instanceof TrialEligibilityError) {
+    if (err.code === 'TRIAL_DEVICE_REQUIRED' || err.code === 'TRIAL_PROFILE_INCOMPLETE') {
+      return sendError(reply, req, 400, err.code, 'Email dan nomor telepon wajib dilengkapi.');
+    }
+    return sendError(
+      reply,
+      req,
+      409,
+      err.code,
+      'Trial tidak tersedia untuk akun atau perangkat ini.',
+    );
   }
-  void reply.status(500).send({
-    error: {
-      code: 'INTERNAL_ERROR',
-      message: 'An unexpected error occurred',
-      requestId: getRequestId(req),
-      retryable: false,
-    },
-  });
+  return sendError(reply, req, 500, 'INTERNAL_ERROR', 'Terjadi kesalahan internal.');
 }
 
 export async function registerPlanRoutes(
   app: FastifyInstance,
   service: PlanService,
-): Promise<void> {
-  /**
-   * GET /v1/me/plan
-   * Returns the current plan and usage for the authenticated workspace.
-   */
-  app.get('/v1/me/plan', async (request: FastifyRequest, reply: FastifyReply) => {
-    const workspaceId = getWorkspaceId(request, reply);
-    if (!workspaceId) return;
-    const tenantId = getTenantId(request, reply);
-    if (!tenantId) return;
-
+  options?: PlanRouteOptions,
+) {
+  app.get('/v1/me/plan', async (request, reply) => {
+    if (!options) return sendError(reply, request, 500, 'INTERNAL_ERROR', 'Plan auth unavailable');
     try {
-      const summary = await service.getPlanSummary(tenantId, workspaceId);
-      return reply.status(200).send({ data: summary });
-    } catch (err) {
-      handleError(err, request, reply);
+      const auth = authContext(request, reply, options.jwtSecret);
+      if (!auth) return;
+      const deviceToken = request.headers['x-trial-device-token'];
+      return reply.status(200).send({
+        data: await service.getPlanSummary(
+          auth.tenantId,
+          auth.workspaceId!,
+          typeof deviceToken === 'string' ? deviceToken : undefined,
+        ),
+      });
+    } catch (error) {
+      return handleError(error, request, reply);
+    }
+  });
+
+  app.post('/v1/me/plan/trial/claim', async (request, reply) => {
+    if (!options) return sendError(reply, request, 500, 'INTERNAL_ERROR', 'Trial unavailable');
+    try {
+      rateLimit(request, reply, 'trial-claim', 5, 24 * 60 * 60 * 1000);
+      const auth = authContext(request, reply, options.jwtSecret);
+      if (!auth) return;
+      if (
+        auth.roles.includes('superadmin') ||
+        auth.roles.includes('school_admin') ||
+        !auth.roles.some((role) => role === 'teacher' || role === 'subscriber')
+      ) {
+        return sendError(
+          reply,
+          request,
+          403,
+          'TRIAL_NOT_ELIGIBLE',
+          'Role ini tidak memenuhi syarat trial.',
+        );
+      }
+      const deviceToken = (request.body as { deviceToken?: unknown } | null)?.deviceToken;
+      if (typeof deviceToken !== 'string' || deviceToken.length < 16 || deviceToken.length > 512) {
+        return sendError(
+          reply,
+          request,
+          400,
+          'TRIAL_DEVICE_REQUIRED',
+          'Identitas perangkat tidak valid.',
+        );
+      }
+      await options.trials.claim({
+        userId: auth.userId,
+        workspaceId: auth.workspaceId!,
+        deviceToken,
+        ip: request.ip,
+      });
+      const summary = await service.getPlanSummary(auth.tenantId, auth.workspaceId!, deviceToken);
+      return reply.status(201).send({ data: summary });
+    } catch (error) {
+      return handleError(error, request, reply);
     }
   });
 }

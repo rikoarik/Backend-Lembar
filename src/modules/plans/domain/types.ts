@@ -1,22 +1,27 @@
-/**
- * Plan domain types (B6-01).
- */
+/** Plan domain types. */
 import type { PlanType } from '../persistence/schema.js';
 
 export interface WorkspacePlanSummary {
   workspaceId: string;
   plan: PlanType;
+  entitlementSource: 'free' | 'paid' | 'trial';
   generationsUsedThisMonth: number;
-  /** null = unlimited (pro plan) */
   monthlyLimit: number | null;
   billingCycleStartedAt: string;
+  trial: {
+    eligible: boolean;
+    claimed: boolean;
+    activeOnThisDevice: boolean;
+    startsAt: string | null;
+    endsAt: string | null;
+    remainingDays: number | null;
+  };
 }
 
 export interface PlanTransitionInput {
   tenantId: string;
   workspaceId: string;
   newPlan: PlanType;
-  /** Actor performing the transition (admin user id or system) */
   actorId: string;
 }
 

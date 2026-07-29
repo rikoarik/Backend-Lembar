@@ -32,6 +32,8 @@ import { registerOpsRoutes } from '../modules/ops/adapters/http/opsRoutes.js';
 // B6-01: Plan routes
 import { PlanService } from '../modules/plans/application/PlanService.js';
 import { WorkspacePlanRepository } from '../modules/plans/persistence/repository.js';
+import { TrialRepository } from '../modules/plans/persistence/trialRepository.js';
+import { TrialService } from '../modules/plans/application/TrialService.js';
 import { registerPlanRoutes } from '../modules/plans/adapters/http/planRoutes.js';
 
 // B6-02: Payment integration
@@ -309,8 +311,18 @@ export async function buildApp(
     }
   }
   
+  const generationPlanRepo = managedDb ? new WorkspacePlanRepository(managedDb) : null;
+  const generationTrialRepo = managedDb ? new TrialRepository(managedDb) : null;
+  const generationPlanService = generationPlanRepo && generationTrialRepo
+    ? new PlanService(generationPlanRepo, generationTrialRepo)
+    : null;
   await app.register(registerJobRoutes, {
     Store: createSharedQueueStore(process.env),
+    jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+    ...(generationPlanService ? { generationAccess: {
+      assertGenerationAllowed: async (input) => generationPlanService.assertQuota(input.tenantId, input.workspaceId, input.deviceToken),
+      recordGeneration: async (input) => generationPlanService.recordGeneration(input.tenantId, input.workspaceId, input.idempotencyKey),
+    } } : {}),
   });
 
   // B2-05: Wire job status and recovery routes
@@ -350,8 +362,12 @@ export async function buildApp(
   // B6-01: Plan routes
   if (managedDb) {
     const planRepo = new WorkspacePlanRepository(managedDb);
-    const planService = new PlanService(planRepo);
-    registerPlanRoutes(app, planService);
+    const trialRepo = new TrialRepository(managedDb);
+    const planService = new PlanService(planRepo, trialRepo);
+    registerPlanRoutes(app, planService, {
+      trials: new TrialService(trialRepo, process.env.TRIAL_IDENTITY_PEPPER ?? process.env.JWT_SECRET ?? 'dev-secret-change-in-production'),
+      jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+    });
   }
 
   // B6-02: Payment integration routes (webhook + subscription upgrade/downgrade)

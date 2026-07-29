@@ -5,7 +5,7 @@
  */
 import { and, eq, sql } from 'drizzle-orm';
 
-import type { Database } from '../../../infrastructure/database/db.js';
+import { getPool, type Database } from '../../../infrastructure/database/db.js';
 import type { PlanType, WorkspacePlan } from './schema.js';
 import { workspacePlans } from './schema.js';
 import { FREE_MONTHLY_LIMIT } from './schema.js';
@@ -22,7 +22,9 @@ export class WorkspacePlanRepository {
       const existing = await this.db
         .select()
         .from(workspacePlans)
-        .where(and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)))
+        .where(
+          and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)),
+        )
         .limit(1);
 
       if (existing[0]) return existing[0];
@@ -39,7 +41,9 @@ export class WorkspacePlanRepository {
       const [fetched] = await this.db
         .select()
         .from(workspacePlans)
-        .where(and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)))
+        .where(
+          and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)),
+        )
         .limit(1);
 
       if (!fetched) throw new Error(`Failed to find or create plan for workspace ${workspaceId}`);
@@ -64,7 +68,9 @@ export class WorkspacePlanRepository {
     const [row] = await this.db
       .select()
       .from(workspacePlans)
-      .where(and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)))
+      .where(
+        and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)),
+      )
       .limit(1);
     return row ?? null;
   }
@@ -99,11 +105,44 @@ export class WorkspacePlanRepository {
         generationsUsedThisMonth: sql`${workspacePlans.generationsUsedThisMonth} + 1`,
         updatedAt: now,
       })
-      .where(and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)))
+      .where(
+        and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)),
+      )
       .returning();
 
     if (!updated) throw new Error(`Plan not found for workspace ${workspaceId}`);
     return updated;
+  }
+
+  async incrementUsageOnce(
+    tenantId: string,
+    workspaceId: string,
+    idempotencyKey: string,
+  ): Promise<void> {
+    const pool = getPool(this.db);
+    if (!pool) throw new Error('Database pool unavailable');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const inserted = await client.query(
+        `INSERT INTO plan_generation_usage (tenant_id, workspace_id, idempotency_key)
+         VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING 1`,
+        [tenantId, workspaceId, idempotencyKey],
+      );
+      if (inserted.rowCount) {
+        await client.query(
+          `UPDATE workspace_plans SET generations_used_this_month=generations_used_this_month+1, updated_at=now()
+           WHERE tenant_id=$1 AND workspace_id=$2`,
+          [tenantId, workspaceId],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async setPlan(tenantId: string, workspaceId: string, plan: PlanType): Promise<WorkspacePlan> {
@@ -114,7 +153,9 @@ export class WorkspacePlanRepository {
     const [updated] = await this.db
       .update(workspacePlans)
       .set({ plan, updatedAt: now })
-      .where(and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)))
+      .where(
+        and(eq(workspacePlans.tenantId, tenantId), eq(workspacePlans.workspaceId, workspaceId)),
+      )
       .returning();
 
     if (!updated) throw new Error(`Failed to update plan for workspace ${workspaceId}`);

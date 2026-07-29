@@ -56,6 +56,66 @@ paths:
                 $ref: "#/components/schemas/HealthResponse"
         "400":
           $ref: "#/components/responses/ValidationError"
+  /v1/me/plan:
+    get:
+      summary: Read the authenticated workspace plan and trial status
+      tags: [Identity]
+      operationId: getMyPlan
+      responses:
+        "200":
+          description: Effective plan, usage, and trial status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [workspaceId, plan, trial]
+                    properties:
+                      workspaceId: { type: string, format: uuid }
+                      plan: { type: string, enum: [free, pro] }
+                      trial:
+                        type: object
+                        required: [claimed, active, startsAt, endsAt]
+                        properties:
+                          claimed: { type: boolean }
+                          active: { type: boolean }
+                          startsAt: { type: [string, "null"], format: date-time }
+                          endsAt: { type: [string, "null"], format: date-time }
+        "401":
+          description: Authentication required
+  /v1/me/plan/trial/claim:
+    post:
+      summary: Claim the authenticated workspace's one-time 60-day Pro trial
+      tags: [Identity]
+      operationId: claimMyPlanTrial
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceToken]
+              additionalProperties: false
+              properties:
+                deviceToken: { type: string, minLength: 1, maxLength: 512 }
+      responses:
+        "201":
+          description: Trial claimed
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          description: Authentication required
+        "403":
+          description: Superadmin is not eligible
+        "409":
+          description: Trial eligibility or uniqueness conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/auth/register:
     post:
       summary: Register a new user account

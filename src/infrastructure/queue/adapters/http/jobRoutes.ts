@@ -8,12 +8,11 @@ import { REQUEST_ID_HEADER } from '../../../../common/middleware/request-id.js';
 import { InMemoryQueueStore } from '../memory-store.js';
 import { QueueSpike } from '../../application/QueueSpike.js';
 import type { SubmitInput } from '../../application/QueueSpike.js';
-import type {
-  QueueStore,
-  QueueStoreJob,
-} from '../queue-store.js';
+import type { QueueStore, QueueStoreJob } from '../queue-store.js';
 import type { JobStatus } from '../../persistence/schema.js';
 import { IdempotencyKeyReusedError } from '../../domain/errors.js';
+import { authenticate } from '../../../../common/middleware/authenticate.js';
+import { QuotaExceededError } from '../../../../modules/plans/domain/errors.js';
 
 interface SubmitBody {
   workspaceId?: string;
@@ -42,6 +41,22 @@ export interface RegisterJobRoutesOptions {
    * claims see each other across processes.
    */
   store?: QueueStore;
+}
+
+export interface GenerationAccess {
+  assertGenerationAllowed(input: {
+    tenantId: string;
+    workspaceId: string;
+    userId: string;
+    deviceToken?: string;
+  }): Promise<void>;
+  recordGeneration(input: {
+    tenantId: string;
+    workspaceId: string;
+    userId: string;
+    jobId: string;
+    idempotencyKey: string;
+  }): Promise<void>;
 }
 
 interface SubmitViaStoreInput {
@@ -143,12 +158,15 @@ function stableFingerprint(value: unknown): string {
   return `{${keys.map((key) => `${key}=${stableFingerprint(obj[key])}`).join('|')}}`;
 }
 
-export const registerJobRoutes: FastifyPluginAsync<{ Store?: QueueStore }> = async (
-  app: FastifyInstance,
-  options,
-) => {
+export const registerJobRoutes: FastifyPluginAsync<{
+  Store?: QueueStore;
+  jwtSecret?: string;
+  generationAccess?: GenerationAccess;
+}> = async (app: FastifyInstance, options) => {
   const queueEnv = parseQueueEnv(process.env);
   const sharedStore: QueueStore | null = options?.Store ?? null;
+  const jwtSecret =
+    options.jwtSecret ?? process.env.JWT_SECRET ?? 'dev-secret-change-in-production';
   const spike = new QueueSpike(new InMemoryQueueStore(), {
     leaseTtlMs: queueEnv.leaseTtlMs,
     leaseSafetyMarginMs: queueEnv.leaseSafetyMarginMs,
@@ -164,9 +182,25 @@ export const registerJobRoutes: FastifyPluginAsync<{ Store?: QueueStore }> = asy
   app.post('/v1/jobs', async (req, reply) => {
     const body = (req.body ?? {}) as SubmitBody;
     const requestId = req.requestId ?? 'req_unknown';
+    let auth: ReturnType<typeof authenticate>;
+    try {
+      auth = authenticate(req, { secret: jwtSecret });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const envelope = new ApiError({
+          code: err.code,
+          message: err.message,
+          requestId,
+          status: err.status,
+        }).toEnvelope();
+        void reply.header(REQUEST_ID_HEADER, requestId).status(err.status).send(envelope);
+        return;
+      }
+      throw err;
+    }
+
     const fieldErrors: Record<string, string[]> = {};
-    if (!body.workspaceId) fieldErrors['workspaceId'] = ['required'];
-    if (!body.actorId) fieldErrors['actorId'] = ['required'];
+    if (!auth.workspaceId) fieldErrors['workspaceId'] = ['JWT workspace diperlukan'];
     if (!body.operation) fieldErrors['operation'] = ['required'];
     if (!body.idempotencyKey) fieldErrors['idempotencyKey'] = ['required'];
     if (Object.keys(fieldErrors).length > 0) {
@@ -179,24 +213,69 @@ export const registerJobRoutes: FastifyPluginAsync<{ Store?: QueueStore }> = asy
       void reply.header(REQUEST_ID_HEADER, requestId).status(400).send(envelope);
       return;
     }
+    if (body.workspaceId && body.workspaceId !== auth.workspaceId) {
+      const envelope = new ApiError({
+        code: 'PERMISSION_DENIED',
+        message: 'Workspace permintaan tidak sesuai dengan workspace akun.',
+        requestId,
+        status: 403,
+      }).toEnvelope();
+      void reply.header(REQUEST_ID_HEADER, requestId).status(403).send(envelope);
+      return;
+    }
+
+    const workspaceId = auth.workspaceId!;
+    const actorId = auth.userId;
     try {
+      if (body.operation === 'assessment_generation') {
+        if (!options.generationAccess)
+          throw new Error('generation access service is not configured');
+        const existing = sharedStore
+          ? await sharedStore.getIdempotency({
+              workspaceId,
+              operation: body.operation,
+              key: body.idempotencyKey!,
+            })
+          : null;
+        if (!existing) {
+          const deviceToken = req.headers['x-trial-device-token'];
+          await options.generationAccess.assertGenerationAllowed({
+            tenantId: workspaceId,
+            workspaceId,
+            userId: actorId,
+            ...(typeof deviceToken === 'string' ? { deviceToken } : {}),
+          });
+        }
+      }
+
       const result = sharedStore
         ? await submitToSharedStore(sharedStore, {
-            workspaceId: body.workspaceId!,
-            actorId: body.actorId!,
+            workspaceId,
+            actorId,
             operation: body.operation!,
             idempotencyKey: body.idempotencyKey!,
             payload: (body.payload ?? {}) as Record<string, unknown>,
             quotaUnits: body.quotaUnits ?? 1,
           })
         : await spike.submit({
-            workspaceId: body.workspaceId!,
-            actorId: body.actorId!,
+            workspaceId,
+            actorId,
             operation: body.operation!,
             idempotencyKey: body.idempotencyKey!,
             fingerprint: body.payload ?? {},
             quotaUnits: body.quotaUnits ?? 1,
           });
+      if (body.operation === 'assessment_generation') {
+        // Must be idempotent by workspace + idempotencyKey: retrying closes the
+        // job-created/usage-recorded gap and concurrent submissions cannot double count.
+        await options.generationAccess!.recordGeneration({
+          tenantId: workspaceId,
+          workspaceId,
+          userId: actorId,
+          jobId: result.jobId,
+          idempotencyKey: body.idempotencyKey!,
+        });
+      }
       const status = result.duplicate ? 200 : 202;
       void reply.header(REQUEST_ID_HEADER, requestId).status(status).send(result);
     } catch (err) {
@@ -208,6 +287,16 @@ export const registerJobRoutes: FastifyPluginAsync<{ Store?: QueueStore }> = asy
           status: 409,
         }).toEnvelope();
         void reply.header(REQUEST_ID_HEADER, requestId).status(409).send(envelope);
+        return;
+      }
+      if (err instanceof QuotaExceededError) {
+        const envelope = new ApiError({
+          code: 'RATE_LIMITED',
+          message: `Kuota pembuatan soal bulanan habis (${err.used}/${err.limit}). Tingkatkan ke Pro untuk melanjutkan.`,
+          requestId,
+          status: 429,
+        }).toEnvelope();
+        void reply.header(REQUEST_ID_HEADER, requestId).status(429).send(envelope);
         return;
       }
       throw err;
