@@ -1,13 +1,13 @@
 /**
  * Admin ops schema — feature flags, prompts, quality reports, audit trail, billing.
  */
-import { jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, jsonb, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 export const adminFlags = pgTable('admin_flags', {
   id: uuid('id').primaryKey().defaultRandom(),
   key: text('key').notNull().unique(),
   description: text('description').notNull().default(''),
-  enabled: text('enabled').notNull().default('false'),
+  enabled: boolean('enabled').notNull().default(false),
   scope: text('scope').notNull().default('global'),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' }).notNull().default(new Date()),
   updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull().default(new Date()),

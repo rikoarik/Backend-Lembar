@@ -841,11 +841,11 @@ export async function registerAdminRoutes(
     const [flag] = await db.select().from(adminFlags).where(eq(adminFlags.key, key)).limit(1);
     if (!flag) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
 
-    const newEnabled = flag.enabled === 'true' ? 'false' : 'true';
+    const newEnabled = !flag.enabled;
     await db.update(adminFlags).set({ enabled: newEnabled, updatedAt: new Date() }).where(eq(adminFlags.id, flag.id));
     await auditLog(user.userId, 'flag.toggle', 'flag', key, { enabled: newEnabled });
 
-    return reply.status(200).send({ data: { key, enabled: newEnabled === 'true' } });
+    return reply.status(200).send({ data: { key, enabled: newEnabled } });
   });
 
   app.post('/v1/admin/flags', { preHandler: [auth, superadmin] }, async (request, reply) => {
