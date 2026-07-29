@@ -183,8 +183,16 @@ export class JobStatusService {
   }
 
   private toStatusView(job: QueueStoreJob): JobStatusView {
+    const payload = job.payload as Record<string, unknown>;
+    const assessmentId = typeof payload['assessmentId'] === 'string' ? payload['assessmentId'] : undefined;
+    const compositionId =
+      typeof payload['assessmentVersionId'] === 'string' ? payload['assessmentVersionId'] : undefined;
+    const reviewMode = payload['reviewMode'] === 'detail' ? 'detail' : payload['reviewMode'] === 'quick' ? 'quick' : undefined;
     return {
       id: job.id,
+      ...(assessmentId ? { assessmentId } : {}),
+      ...(compositionId ? { compositionId } : {}),
+      ...(reviewMode ? { reviewMode } : {}),
       kind: job.kind,
       status: toNeutralStatus(job.status),
       stage: toNeutralStage(job.status, job.kind),

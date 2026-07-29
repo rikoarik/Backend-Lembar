@@ -22,6 +22,9 @@ export type NeutralJobStatus = (typeof NEUTRAL_STATUSES)[number];
 
 export interface JobStatusView {
   id: string;
+  assessmentId?: string;
+  compositionId?: string;
+  reviewMode?: 'quick' | 'detail';
   kind: string;
   status: NeutralJobStatus;
   stage: string;
