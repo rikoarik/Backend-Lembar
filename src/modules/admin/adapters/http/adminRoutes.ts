@@ -132,11 +132,11 @@ export async function registerAdminRoutes(
       idx++;
     }
     if (status === 'ditangguhkan') {
-      whereClauses.push(`ab.state = 'blocked'`);
+      whereClauses.push(`jw.suspended_at IS NOT NULL`);
     } else if (status === 'baru') {
-      whereClauses.push(`jw.created_at > now() - interval '7 days' AND (ab.state IS NULL OR ab.state != 'blocked')`);
+      whereClauses.push(`jw.created_at > now() - interval '7 days' AND jw.suspended_at IS NULL`);
     } else if (status === 'aktif') {
-      whereClauses.push(`jw.created_at <= now() - interval '7 days' AND (ab.state IS NULL OR ab.state != 'blocked')`);
+      whereClauses.push(`jw.created_at <= now() - interval '7 days' AND jw.suspended_at IS NULL`);
     }
 
     const where = whereClauses.join(' AND ');
@@ -154,7 +154,7 @@ export async function registerAdminRoutes(
     const dataRes = await pool.query(
       `SELECT jw.id, jw.email, jw.name, jw.username, jw.roles,
          jw.workspace_id, t.name as school_name, jw.created_at,
-         CASE WHEN ab.state = 'blocked' THEN 'ditangguhkan'
+         CASE WHEN jw.suspended_at IS NOT NULL THEN 'ditangguhkan'
               WHEN jw.created_at > now() - interval '7 days' THEN 'baru'
               ELSE 'aktif' END as status
        FROM jwt_users jw
@@ -201,7 +201,7 @@ export async function registerAdminRoutes(
         t.name as school_name, t.slug as school_slug,
         ab.state as billing_state, ab.plan as billing_plan,
         ab.seats as billing_seats, ab.renews_at as billing_renews_at,
-        CASE WHEN ab.state = 'blocked' THEN 'ditangguhkan'
+        CASE WHEN jw.suspended_at IS NOT NULL THEN 'ditangguhkan'
              WHEN jw.created_at > now() - interval '7 days' THEN 'baru'
              ELSE 'aktif' END as status,
         (SELECT COUNT(*) FROM ai_jobs_audit WHERE workspace_id = jw.workspace_id::text) as jobs_total,
