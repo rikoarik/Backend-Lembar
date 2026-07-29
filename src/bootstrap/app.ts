@@ -114,6 +114,7 @@ import { registerSuspendRoutes } from '../modules/school/adapters/http/suspendRo
 import { registerSchoolNotificationsRoutes } from '../modules/school/adapters/http/schoolNotificationsRoutes.js';
 import { registerClassRoutes } from '../modules/classes/adapters/http/classRoutes.js';
 import { registerTemplateRoutes } from '../modules/templates/adapters/http/templateRoutes.js';
+import { registerPublicSupportRoutes } from '../modules/support/publicSupport.js';
 
 // Swagger
 import swagger from '@fastify/swagger';
@@ -276,6 +277,8 @@ export async function buildApp(
       timestamp: new Date().toISOString(),
     };
   });
+
+  await registerPublicSupportRoutes(app);
 
   // Session-based auth disabled — using JWT auth only
   // const authRouteOptions: Parameters<typeof registerAuthRoutes>[1] = {};
