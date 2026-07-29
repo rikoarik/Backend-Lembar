@@ -111,6 +111,7 @@ import { registerUsageRoutes } from '../modules/school/adapters/http/usageRoutes
 import { registerSuspendRoutes } from '../modules/school/adapters/http/suspendRoutes.js';
 import { registerSchoolNotificationsRoutes } from '../modules/school/adapters/http/schoolNotificationsRoutes.js';
 import { registerClassRoutes } from '../modules/classes/adapters/http/classRoutes.js';
+import { registerTemplateRoutes } from '../modules/templates/adapters/http/templateRoutes.js';
 
 // Swagger
 import swagger from '@fastify/swagger';
@@ -525,6 +526,10 @@ export async function buildApp(
     });
 
     await registerClassRoutes(app, {
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
+    await registerTemplateRoutes(app, {
       db: managedDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     });
