@@ -1,7 +1,7 @@
 /**
  * B4-04 — Tests: Immutable finalization.
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import { InMemoryQuestionReviewStore } from '../../../src/modules/assessments/persistence/InMemoryQuestionReviewStore.js';
 import {
@@ -45,6 +45,17 @@ describe('B4-04: FinalizationService', () => {
     store = new InMemoryQuestionReviewStore();
     reviewService = new QuestionReviewService({ store });
     finalizationService = new FinalizationService({ store, reviewService });
+  });
+
+  it('rejects an empty assessment version before finalization writes', async () => {
+    const markAllFinalized = vi.spyOn(reviewService, 'markAllFinalized');
+    const saveFinalization = vi.spyOn(store, 'saveFinalization');
+
+    await expect(
+      finalizationService.finalizeAssessmentVersion('ws-001', 'av-001', 'user-1'),
+    ).rejects.toThrow(QuestionsPendingError);
+    expect(markAllFinalized).not.toHaveBeenCalled();
+    expect(saveFinalization).not.toHaveBeenCalled();
   });
 
   it('throws QuestionsPendingError if not all questions are accepted', async () => {

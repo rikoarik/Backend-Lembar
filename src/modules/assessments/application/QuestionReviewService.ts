@@ -511,6 +511,9 @@ export class QuestionReviewService {
       workspaceId,
       assessmentVersionId,
     );
+    if (questions.length === 0) {
+      throw new QuestionsPendingError(assessmentVersionId, 0);
+    }
     const pending = questions.filter((q) => q.status !== 'accepted');
     if (pending.length > 0) {
       throw new QuestionsPendingError(assessmentVersionId, pending.length);
