@@ -94,6 +94,14 @@ export class AttemptService {
     if (!existing) {
       throw new Error(`Attempt not found: ${id}`);
     }
+    if (existing.submittedAt) {
+      throw new ApiError({
+        code: 'STATE_CONFLICT',
+        message: 'Attempt sudah pernah disubmit.',
+        requestId: 'unknown',
+        status: 409,
+      });
+    }
     const update: GuestAttempt = { ...existing, answers, submittedAt: new Date().toISOString() };
     if (questions !== undefined) {
       update.gradingResult = this.gradeAttempt(answers, questions);
@@ -118,7 +126,40 @@ export class AttemptService {
       // essay | short_answer
       return { questionId: q.questionId, given, correct: 'needs_review' };
     });
-    return { gradedAnswers, totalScore };
+    const maxScore = questions.filter(
+      (q) => q.type === 'multiple_choice' || q.type === 'true_false',
+    ).length;
+    return { gradedAnswers, totalScore, maxScore };
+  }
+
+  // ---- LMS-F: score dashboard ----
+
+  async getScoreDashboard(assessmentId: string): Promise<
+    {
+      attemptId: string;
+      guestName: string;
+      guestClass?: string;
+      totalScore: number;
+      maxScore: number;
+      submittedAt: string;
+    }[]
+  > {
+    const attempts = await this.guestStore.findByAssessment(assessmentId);
+    return attempts
+      .filter((a) => a.submittedAt !== undefined && a.gradingResult !== undefined)
+      .map((a) => ({
+        attemptId: a.id,
+        guestName: a.guestName,
+        ...(a.guestClass !== undefined && { guestClass: a.guestClass }),
+        totalScore: a.gradingResult!.totalScore,
+        maxScore: a.gradingResult!.maxScore,
+        submittedAt: a.submittedAt!,
+      }))
+      .sort((a, b) =>
+        b.totalScore !== a.totalScore
+          ? b.totalScore - a.totalScore
+          : a.submittedAt.localeCompare(b.submittedAt),
+      );
   }
 
   // ---- LMS-B: member attempts ----
@@ -174,5 +215,31 @@ export class AttemptService {
       });
     }
     return this.memberStore.save({ ...attempt, answers, submittedAt: new Date().toISOString() });
+  }
+
+  // ---- LMS-E: essay review queue ----
+
+  /** Returns all guest attempts that have at least one needs_review graded answer. */
+  async getPendingEssayReviews(workspaceId?: string): Promise<GuestAttempt[]> {
+    const all = await this.guestStore.findAll(workspaceId);
+    return all.filter((a) =>
+      a.gradingResult?.gradedAnswers.some((ga) => ga.correct === 'needs_review'),
+    );
+  }
+
+  /** Manually grades a single answer; updates score + correct on the GradedAnswer and persists. */
+  async manualGradeAnswer(
+    attemptId: string,
+    questionId: string,
+    score: number,
+    correct: boolean,
+  ): Promise<GuestAttempt> {
+    const attempt = await this.guestStore.findById(attemptId);
+    if (!attempt) throw new Error(`Attempt not found: ${attemptId}`);
+    const ga = attempt.gradingResult?.gradedAnswers.find((a) => a.questionId === questionId);
+    if (!ga) throw new Error(`Question not found in attempt: ${questionId}`);
+    ga.score = score;
+    ga.correct = correct;
+    return this.guestStore.save(attempt);
   }
 }

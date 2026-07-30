@@ -31,6 +31,8 @@ export interface GradingResult {
   gradedAnswers: GradedAnswer[];
   /** Sum of scores for auto-graded questions only (needs_review excluded). */
   totalScore: number;
+  /** Count of auto-gradeable questions (multiple_choice + true_false). */
+  maxScore: number;
 }
 
 // ---- LMS-A: attempt types ----
@@ -52,4 +54,6 @@ export interface AttemptStore {
   save(attempt: GuestAttempt): Promise<GuestAttempt>;
   findById(id: string): Promise<GuestAttempt | null>;
   findByAssessment(assessmentId: string): Promise<GuestAttempt[]>;
+  /** LMS-E: return all attempts, optionally scoped by workspaceId (future). */
+  findAll(workspaceId?: string): Promise<GuestAttempt[]>;
 }

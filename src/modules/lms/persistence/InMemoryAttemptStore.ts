@@ -24,4 +24,9 @@ export class InMemoryAttemptStore implements AttemptStore {
   async findByAssessment(assessmentId: string): Promise<GuestAttempt[]> {
     return [...this.store.values()].filter((a) => a.assessmentId === assessmentId);
   }
+
+  async findAll(_workspaceId?: string): Promise<GuestAttempt[]> {
+    // ponytail: workspaceId filtering when GuestAttempt gains a workspaceId field
+    return [...this.store.values()];
+  }
 }
