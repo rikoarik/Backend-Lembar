@@ -19,6 +19,12 @@ import type { QuestionOption } from './QuestionGeneration.js';
 
 export type QuestionReviewStatus = 'pending' | 'accepted' | 'rejected';
 
+export interface RubricCriterion {
+  id: string;
+  description: string;
+  maxScore: number;
+}
+
 // ---- Reviewed question ----
 
 export interface ReviewedQuestion {
@@ -34,6 +40,7 @@ export interface ReviewedQuestion {
   options: QuestionOption[];
   answer: string;
   explanation: string;
+  rubric?: RubricCriterion[];
   /** Original source IDs from GeneratedQuestion — preserved for integrity */
   sourceIds: string[];
   status: QuestionReviewStatus;

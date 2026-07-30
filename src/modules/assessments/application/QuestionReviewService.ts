@@ -26,6 +26,7 @@ import type {
   QuestionReviewStatus,
   QuestionReviewStore,
   ReviewedQuestion,
+  RubricCriterion,
 } from '../domain/QuestionReview.js';
 
 // ---- Domain errors ----
@@ -564,6 +565,24 @@ export class QuestionReviewService {
     if (pending.length > 0) {
       throw new QuestionsPendingError(assessmentVersionId, pending.length);
     }
+  }
+
+  /**
+   * P1-K — Set (or clear) the rubric for a reviewed question.
+   * Passing an empty array clears the rubric.
+   */
+  async updateRubric(
+    workspaceId: string,
+    _assessmentVersionId: string,
+    reviewedQuestionId: string,
+    rubric: RubricCriterion[],
+  ): Promise<ReviewedQuestion> {
+    const existing = await this.options.store.findById(workspaceId, reviewedQuestionId);
+    if (!existing) {
+      throw new QuestionNotFoundError(reviewedQuestionId);
+    }
+    const updated: ReviewedQuestion = { ...existing, rubric: [...rubric] };
+    return this.options.store.save(updated);
   }
 
   /**
