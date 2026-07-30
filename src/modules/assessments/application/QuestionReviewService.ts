@@ -325,8 +325,16 @@ export class QuestionReviewService {
         continue;
       }
 
-      await this.setStatus(workspaceId, id, 'accepted', actorUserId);
-      result.updated.push(id);
+      try {
+        await this.setStatus(workspaceId, id, 'accepted', actorUserId);
+        result.updated.push(id);
+      } catch {
+        for (const updatedId of result.updated) {
+          await this.setStatus(workspaceId, updatedId, 'pending', actorUserId);
+        }
+        result.updated = [];
+        return result;
+      }
     }
 
     return result;
