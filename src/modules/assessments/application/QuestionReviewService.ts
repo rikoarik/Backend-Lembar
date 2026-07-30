@@ -97,6 +97,13 @@ export interface QuestionReviewServiceOptions {
   id?: () => string;
 }
 
+export interface BulkAcceptResult {
+  requested: number;
+  updated: string[];
+  conflicted: string[];
+  skipped: string[];
+}
+
 export class QuestionReviewService {
   private readonly clock: () => Date;
   private readonly id: () => string;
@@ -292,6 +299,37 @@ export class QuestionReviewService {
     assessmentVersionId: string,
   ): Promise<ReviewedQuestion[]> {
     return this.options.store.listByAssessmentVersion(workspaceId, assessmentVersionId);
+  }
+
+  async bulkAccept(
+    workspaceId: string,
+    assessmentVersionId: string,
+    questionIds: string[],
+    actorUserId: string,
+  ): Promise<BulkAcceptResult> {
+    const result: BulkAcceptResult = {
+      requested: questionIds.length,
+      updated: [],
+      conflicted: [],
+      skipped: [],
+    };
+
+    for (const id of questionIds) {
+      const question = await this.options.store.findById(workspaceId, id);
+      if (!question || question.assessmentVersionId !== assessmentVersionId) {
+        result.conflicted.push(id);
+        continue;
+      }
+      if (question.status === 'accepted') {
+        result.skipped.push(id);
+        continue;
+      }
+
+      await this.setStatus(workspaceId, id, 'accepted', actorUserId);
+      result.updated.push(id);
+    }
+
+    return result;
   }
 
   /**

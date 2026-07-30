@@ -86,6 +86,10 @@ interface RegenerateBody {
   idempotencyKey?: string;
 }
 
+interface BulkAcceptBody {
+  questionIds?: unknown;
+}
+
 export async function registerQuestionReviewRoutes(
   app: FastifyInstance,
   reviewService: QuestionReviewService,
@@ -93,6 +97,42 @@ export async function registerQuestionReviewRoutes(
 ): Promise<void> {
   const BASE =
     '/v1/workspaces/:workspaceId/assessments/:assessmentId/versions/:versionId/questions';
+
+  app.post(
+    '/v1/workspaces/:workspaceId/assessments/:assessmentId/versions/:versionId/bulk-accept',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { workspaceId, versionId } = request.params as {
+        workspaceId: string;
+        assessmentId: string;
+        versionId: string;
+      };
+      const body = (request.body ?? {}) as BulkAcceptBody;
+      const actorUserId = (request.headers['x-actor-user-id'] as string | undefined) ?? 'system';
+
+      try {
+        if (
+          !Array.isArray(body.questionIds) ||
+          body.questionIds.some((id) => typeof id !== 'string')
+        ) {
+          throw new ApiError({
+            code: 'VALIDATION_FAILED',
+            message: 'questionIds must be an array of strings',
+            requestId: getRequestId(request),
+          });
+        }
+
+        const result = await reviewService.bulkAccept(
+          workspaceId,
+          versionId,
+          body.questionIds,
+          actorUserId,
+        );
+        return reply.status(200).send(result);
+      } catch (err) {
+        handleError(err, request, reply);
+      }
+    },
+  );
 
   // ── LIST questions for the review workspace ───────────────────────────────
   app.get(`${BASE}`, async (request: FastifyRequest, reply: FastifyReply) => {
