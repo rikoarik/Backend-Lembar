@@ -68,7 +68,9 @@ export interface AssessmentConfigSnapshot {
   title: string;
   curriculumVersionId: string;
   gradeId: string;
+  gradeLabel?: string;
   subjectId: string;
+  subjectLabel?: string;
   sourceUploadIds: string[];
   blueprintItems: BlueprintItemConfig[];
 }

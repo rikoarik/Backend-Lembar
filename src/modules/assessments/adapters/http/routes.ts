@@ -25,6 +25,8 @@ interface CreateAssessmentBody {
   curriculumVersionId: string;
   gradeId: string;
   subjectId: string;
+  subjectLabel?: string;
+  gradeLabel?: string;
   sourceUploadIds: string[];
   blueprintItems: Array<{
     sequence: number;
@@ -146,6 +148,8 @@ export async function registerAssessmentRoutes(
           curriculumVersionId: body.curriculumVersionId,
           gradeId: body.gradeId ?? '',
           subjectId: body.subjectId ?? '',
+          subjectLabel: body.subjectLabel ?? null,
+          gradeLabel: body.gradeLabel ?? null,
           sourceUploadIds: Array.isArray(body.sourceUploadIds) ? body.sourceUploadIds : [],
           blueprintItems: body.blueprintItems.map((item) => ({
             sequence: item.sequence,

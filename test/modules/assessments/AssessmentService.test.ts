@@ -346,6 +346,45 @@ describe('AssessmentService', () => {
     });
   });
 
+  describe('createConfig — subjectLabel and gradeLabel', () => {
+    it('persists subjectLabel and gradeLabel in configSnapshot when provided', async () => {
+      const { service } = makeService();
+
+      const result = await service.createConfig({
+        ...BASE_INPUT,
+        subjectLabel: 'Matematika',
+        gradeLabel: 'Kelas 7',
+      });
+
+      expect(result.version.configSnapshot.subjectLabel).toBe('Matematika');
+      expect(result.version.configSnapshot.gradeLabel).toBe('Kelas 7');
+    });
+
+    it('stores undefined subjectLabel and gradeLabel as absent when not provided', async () => {
+      const { service } = makeService();
+
+      const result = await service.createConfig(BASE_INPUT);
+
+      expect(result.version.configSnapshot.subjectLabel).toBeUndefined();
+      expect(result.version.configSnapshot.gradeLabel).toBeUndefined();
+    });
+
+    it('snapshot immutably retains labels on re-read from store', async () => {
+      const { service, store } = makeService();
+
+      await service.createConfig({
+        ...BASE_INPUT,
+        subjectLabel: 'Bahasa Indonesia',
+        gradeLabel: 'Kelas 10',
+      });
+
+      const assessments = await store.listAssessments(WORKSPACE_ID, { limit: 1 });
+      const version = await store.getVersionByNumber(WORKSPACE_ID, assessments[0]!.id, 1);
+      expect(version!.configSnapshot.subjectLabel).toBe('Bahasa Indonesia');
+      expect(version!.configSnapshot.gradeLabel).toBe('Kelas 10');
+    });
+  });
+
   describe('listAssessments', () => {
     it('returns assessments for workspace', async () => {
       const { service } = makeService();

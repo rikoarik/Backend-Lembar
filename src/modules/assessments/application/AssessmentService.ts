@@ -46,6 +46,9 @@ export interface CreateAssessmentConfigInput {
   curriculumVersionId: string;
   gradeId: string;
   subjectId: string;
+  /** Optional human-readable labels captured at submission time. */
+  subjectLabel?: string | null;
+  gradeLabel?: string | null;
   /** Upload IDs that must be in 'verified' or 'ready' state. */
   sourceUploadIds: string[];
   blueprintItems: BlueprintItemRequest[];
@@ -230,7 +233,9 @@ export class AssessmentService {
       title: input.title,
       curriculumVersionId: input.curriculumVersionId,
       gradeId: input.gradeId,
+      ...(input.gradeLabel != null ? { gradeLabel: input.gradeLabel } : {}),
       subjectId: input.subjectId,
+      ...(input.subjectLabel != null ? { subjectLabel: input.subjectLabel } : {}),
       sourceUploadIds: [...input.sourceUploadIds],
       blueprintItems: blueprintItemConfigs,
       _fingerprint: fingerprint,
