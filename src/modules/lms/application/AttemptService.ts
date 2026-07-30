@@ -11,7 +11,13 @@
 import { randomUUID } from 'node:crypto';
 
 import { ApiError } from '../../../common/errors/envelope.js';
-import type { AttemptStore, GuestAttempt } from '../domain/Attempt.js';
+import type {
+  AttemptStore,
+  GradedAnswer,
+  GradingQuestion,
+  GradingResult,
+  GuestAttempt,
+} from '../domain/Attempt.js';
 import type { MemberAttempt, MemberAttemptStore } from '../domain/MemberAttempt.js';
 
 /** LMS-A only (guest) */
@@ -79,12 +85,40 @@ export class AttemptService {
     return this.guestStore.save(base);
   }
 
-  async submitAttempt(id: string, answers: Record<string, string>): Promise<GuestAttempt> {
+  async submitAttempt(
+    id: string,
+    answers: Record<string, string>,
+    questions?: GradingQuestion[],
+  ): Promise<GuestAttempt> {
     const existing = await this.guestStore.findById(id);
     if (!existing) {
       throw new Error(`Attempt not found: ${id}`);
     }
-    return this.guestStore.save({ ...existing, answers, submittedAt: new Date().toISOString() });
+    const update: GuestAttempt = { ...existing, answers, submittedAt: new Date().toISOString() };
+    if (questions !== undefined) {
+      update.gradingResult = this.gradeAttempt(answers, questions);
+    }
+    return this.guestStore.save(update);
+  }
+
+  /** LMS-D: grade answers against question keys. MC/true_false are auto-graded; essay/short_answer → needs_review. */
+  private gradeAttempt(
+    answers: Record<string, string>,
+    questions: GradingQuestion[],
+  ): GradingResult {
+    let totalScore = 0;
+    const gradedAnswers: GradedAnswer[] = questions.map((q) => {
+      const given = answers[q.questionId] ?? '';
+      if (q.type === 'multiple_choice' || q.type === 'true_false') {
+        const correct = given === (q.answerKey ?? '');
+        const score = correct ? 1 : 0;
+        totalScore += score;
+        return { questionId: q.questionId, given, correct, score };
+      }
+      // essay | short_answer
+      return { questionId: q.questionId, given, correct: 'needs_review' };
+    });
+    return { gradedAnswers, totalScore };
   }
 
   // ---- LMS-B: member attempts ----
