@@ -2,6 +2,7 @@
  * LMS-A — Guest attempt HTTP routes. No auth required (guest access).
  * LMS-G — Per-IP rate limit: max 5 starts per assessment per 10 min.
  *         Duplicate submit blocked: returns 409 STATE_CONFLICT.
+ * LMS-H — GET /v1/assessments/:assessmentId/scores/export → text/csv
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
@@ -38,6 +39,27 @@ export async function registerAttemptRoutes(
   app: FastifyInstance,
   service: AttemptService,
 ): Promise<void> {
+  // GET /v1/assessments/:assessmentId/scores/export — LMS-H: CSV export
+  app.get(
+    '/v1/assessments/:assessmentId/scores/export',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { assessmentId } = request.params as { assessmentId: string };
+      const rows = await service.getScoreDashboard(assessmentId);
+      const header = 'nama,kelas,skor,maks,persen,waktu_submit';
+      const body =
+        rows.length === 0
+          ? header
+          : [
+              header,
+              ...rows.map((r) => {
+                const persen = r.maxScore === 0 ? '0.00' : ((r.totalScore / r.maxScore) * 100).toFixed(2);
+                return [r.guestName, r.guestClass ?? '', r.totalScore, r.maxScore, persen, r.submittedAt].join(',');
+              }),
+            ].join('\n');
+      return reply.status(200).header('Content-Type', 'text/csv; charset=utf-8').send(body);
+    },
+  );
+
   // POST /v1/assessments/:assessmentId/attempts — start a guest attempt
   app.post(
     '/v1/assessments/:assessmentId/attempts',
