@@ -56,6 +56,7 @@ import { PostgresQuestionGenerationStore } from '../modules/assessments/persiste
 import { registerHistoryRoutes } from '../modules/assessments/adapters/http/historyRoutes.js';
 // B5-03: Share links
 import { ShareLinkService } from '../modules/assessments/application/ShareLinkService.js';
+import { PostgresShareLinkStore } from '../modules/assessments/persistence/PostgresShareLinkStore.js';
 import { InMemoryShareLinkStore } from '../modules/assessments/persistence/InMemoryShareLinkStore.js';
 import { registerShareRoutes } from '../modules/assessments/adapters/http/shareRoutes.js';
 // B4-01: Question review + finalization
@@ -407,7 +408,7 @@ export async function buildApp(
       ? new PostgresQuestionReviewStore(managedDb)
       : new InMemoryQuestionReviewStore();
     const blueprintStore = new InMemoryBlueprintPipelineStore();
-    const shareLinkStore = new InMemoryShareLinkStore();
+    const shareLinkStore = managedDb ? new PostgresShareLinkStore(managedDb) : new InMemoryShareLinkStore();
     const printArtifactStore = new InMemoryPrintArtifactStore();
 
     const assessmentService = new AssessmentService({
