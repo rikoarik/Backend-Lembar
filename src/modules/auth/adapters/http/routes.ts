@@ -33,16 +33,23 @@ export async function registerAuthRoutes(
 
   app.post('/v1/auth/register', async (request, reply) => {
     const body = bodyOf<{ email: string; password: string }>(request);
-    const result = await auth.register(body);
-    if (result.status === 'created') {
-      const login = await auth.login(body);
-      setSessionCookies(reply, login.session.id, login.session.csrfToken);
+    try {
+      const result = await auth.register(body);
+      if (result.status === 'created') {
+        const login = await auth.login(body);
+        setSessionCookies(reply, login.session.id, login.session.csrfToken);
+      }
+      return reply.status(result.status === 'created' ? 201 : 202).send({
+        message: result.message,
+        userId: result.userId,
+        workspaceId: result.workspaceId,
+      });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        return reply.status(err.status).send(err.toEnvelope());
+      }
+      throw err;
     }
-    return reply.status(result.status === 'created' ? 201 : 202).send({
-      message: result.message,
-      userId: result.userId,
-      workspaceId: result.workspaceId,
-    });
   });
 
   app.post('/v1/auth/login', async (request, reply) => {
