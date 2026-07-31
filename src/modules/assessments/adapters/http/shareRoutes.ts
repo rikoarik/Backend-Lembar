@@ -2,6 +2,7 @@
  * B5-03 — HTTP routes for controlled share links.
  *
  * Endpoints:
+ *   GET    /v1/shares                    — list share links by assessmentId (tenant-scoped)
  *   POST   /v1/shares                    — create share link (tenant-scoped)
  *   GET    /v1/shares/:token             — public access, validate token + expiry
  *   DELETE /v1/shares/:token/revoke      — revoke share link (owner only)
@@ -56,6 +57,43 @@ export async function registerShareRoutes(
   app: FastifyInstance,
   service: ShareLinkService,
 ): Promise<void> {
+  /**
+   * GET /v1/shares?assessmentId=<id>
+   * List all share links for an assessment (tenant-scoped).
+   * Requires x-workspace-id header.
+   */
+  app.get('/v1/shares', async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = getWorkspaceId(request, reply);
+    if (!workspaceId) return;
+
+    const { assessmentId } = request.query as { assessmentId?: string };
+    if (!assessmentId) {
+      return reply.status(400).send(
+        buildErrorEnvelope({
+          code: 'VALIDATION_FAILED',
+          message: 'assessmentId query param is required',
+          requestId: getRequestId(request),
+        }),
+      );
+    }
+
+    try {
+      const links = await service.listByAssessment(workspaceId, assessmentId);
+      return reply.status(200).send({
+        data: links.map((l) => ({
+          id: l.id,
+          token: l.token,
+          assessmentId: l.assessmentId,
+          expiresAt: l.expiresAt,
+          revokedAt: l.revokedAt ?? null,
+          createdAt: l.createdAt,
+        })),
+      });
+    } catch (err) {
+      handleError(err, request, reply);
+    }
+  });
+
   /**
    * POST /v1/shares
    * Create share link with expiry TTL and high-entropy token.
