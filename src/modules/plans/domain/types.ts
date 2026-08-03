@@ -1,10 +1,13 @@
 /** Plan domain types. */
 import type { PlanType } from '../persistence/schema.js';
 
+export type EntitlementState = 'active' | 'expired' | 'blocked' | 'free';
+
 export interface WorkspacePlanSummary {
   workspaceId: string;
   plan: PlanType;
   entitlementSource: 'free' | 'paid' | 'trial';
+  entitlementState: EntitlementState;
   generationsUsedThisMonth: number;
   monthlyLimit: number | null;
   billingCycleStartedAt: string;

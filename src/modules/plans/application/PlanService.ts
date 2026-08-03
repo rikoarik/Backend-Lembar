@@ -1,7 +1,7 @@
 /** Plan queries, quota checks, and transitions. */
 import { FREE_MONTHLY_LIMIT } from '../persistence/schema.js';
 import { WorkspacePlanRepository } from '../persistence/repository.js';
-import type { WorkspacePlanSummary, PlanTransitionInput } from '../domain/types.js';
+import type { WorkspacePlanSummary, PlanTransitionInput, EntitlementState } from '../domain/types.js';
 import { QuotaExceededError } from '../domain/errors.js';
 import { hashDeviceToken } from './TrialService.js';
 
@@ -37,10 +37,19 @@ export class PlanService {
     const remainingDays = trial
       ? Math.max(0, Math.ceil((trial.endsAt.getTime() - current.getTime()) / 86_400_000))
       : null;
+    const quotaBlocked =
+      !paid && !deviceMatches && plan.generationsUsedThisMonth >= FREE_MONTHLY_LIMIT;
+    const trialExpired = Boolean(trial && !dateActive);
+    const entitlementState: EntitlementState =
+      paid || deviceMatches ? 'active'
+      : quotaBlocked ? 'blocked'
+      : trialExpired ? 'expired'
+      : 'free';
     return {
       workspaceId,
       plan: effectivePlan,
       entitlementSource: paid ? 'paid' : deviceMatches ? 'trial' : 'free',
+      entitlementState,
       generationsUsedThisMonth: plan.generationsUsedThisMonth,
       monthlyLimit: effectivePlan === 'pro' ? null : FREE_MONTHLY_LIMIT,
       billingCycleStartedAt: plan.billingCycleStartedAt.toISOString(),
@@ -91,6 +100,7 @@ export class PlanService {
       workspaceId: input.workspaceId,
       plan: updated.plan,
       entitlementSource: updated.plan === 'pro' ? 'paid' : 'free',
+      entitlementState: updated.plan === 'pro' ? 'active' : 'free',
       generationsUsedThisMonth: updated.generationsUsedThisMonth,
       monthlyLimit: updated.plan === 'pro' ? null : FREE_MONTHLY_LIMIT,
       billingCycleStartedAt: updated.billingCycleStartedAt.toISOString(),
