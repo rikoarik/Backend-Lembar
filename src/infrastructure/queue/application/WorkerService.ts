@@ -181,7 +181,7 @@ export class WorkerService {
     });
 
     this.registry.register(
-      new AssessmentGenerationHandler({ questionGenerationService, questionReviewService }),
+      new AssessmentGenerationHandler({ questionGenerationService, questionReviewService, assessmentsStore }),
     );
     this.registry.register(new QuestionRegenerationHandler({ questionGenerationService }));
     this.registry.register(new ExportPdfHandler());

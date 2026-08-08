@@ -3,25 +3,35 @@
  *
  * Wires QuestionGenerationService → BlueprintPipelineService → ProductAiService (HermesAdapter).
  * Falls back gracefully: if AI call fails, returns partial result so the job doesn't hang.
+ *
+ * B1 fix: after generation completes, update assessment status to 'ready' (success) or 'failed'
+ * (total failure) via assessmentsStore.
  */
 import type { JobHandler, JobContext, JobResult } from '../domain/JobHandler.js';
 import type { QuestionGenerationService } from '../../../modules/assessments/application/QuestionGenerationService.js';
 import type { QuestionReviewService } from '../../../modules/assessments/application/QuestionReviewService.js';
-import type { QuestionType, Difficulty } from '../../../modules/assessments/domain/Assessment.js';
+import type {
+  QuestionType,
+  Difficulty,
+  AssessmentsStore,
+} from '../../../modules/assessments/domain/Assessment.js';
 
 export interface AssessmentGenerationHandlerOptions {
   questionGenerationService: QuestionGenerationService;
   questionReviewService?: QuestionReviewService;
+  assessmentsStore?: AssessmentsStore;
 }
 
 export class AssessmentGenerationHandler implements JobHandler {
   readonly kind = 'assessment_generation' as const;
   private readonly questionGenerationService: QuestionGenerationService;
   private readonly questionReviewService: QuestionReviewService | undefined;
+  private readonly assessmentsStore: AssessmentsStore | undefined;
 
   constructor(options: AssessmentGenerationHandlerOptions) {
     this.questionGenerationService = options.questionGenerationService;
     this.questionReviewService = options.questionReviewService;
+    this.assessmentsStore = options.assessmentsStore;
   }
 
   async handle(context: JobContext): Promise<JobResult> {
@@ -30,6 +40,9 @@ export class AssessmentGenerationHandler implements JobHandler {
     console.log(
       `[AssessmentGenerationHandler] Processing job ${jobId} for workspace ${workspaceId}`,
     );
+
+    // assessmentId is the parent assessment to update status on (separate from assessmentVersionId)
+    const assessmentId = String(payload.assessmentId ?? '');
 
     try {
       // Extract blueprint from payload
@@ -93,13 +106,34 @@ export class AssessmentGenerationHandler implements JobHandler {
         );
       }
       const failed = result.failures.length;
+      const isSuccess = failed < typedBlueprint.length;
 
       console.log(
         `[AssessmentGenerationHandler] Job ${jobId}: generated=${result.questions.length}, failed=${failed}`,
       );
 
+      // B1: Update assessment status to 'ready' on success, 'failed' on total failure
+      if (assessmentId && this.assessmentsStore) {
+        try {
+          await this.assessmentsStore.updateAssessment({
+            id: assessmentId,
+            workspaceId,
+            status: isSuccess ? 'ready' : 'failed',
+          });
+          console.log(
+            `[AssessmentGenerationHandler] Assessment ${assessmentId} status → ${isSuccess ? 'ready' : 'failed'}`,
+          );
+        } catch (updateErr) {
+          // Non-fatal: log but don't fail the job result over a status update error
+          console.error(
+            `[AssessmentGenerationHandler] Failed to update assessment ${assessmentId} status:`,
+            updateErr,
+          );
+        }
+      }
+
       return {
-        status: failed < typedBlueprint.length ? 'success' : 'failure',
+        status: isSuccess ? 'success' : 'failure',
         output: {
           assessmentVersionId,
           questionsGenerated: result.questions.length,
@@ -114,6 +148,18 @@ export class AssessmentGenerationHandler implements JobHandler {
         return { status: 'failure', error: { code: 'CANCELLED', message: 'Job was cancelled' } };
       }
       console.error(`[AssessmentGenerationHandler] Error in job ${jobId}:`, err);
+
+      // B1: Mark assessment failed on exception too
+      if (assessmentId && this.assessmentsStore) {
+        try {
+          await this.assessmentsStore.updateAssessment({
+            id: assessmentId,
+            workspaceId,
+            status: 'failed',
+          });
+        } catch { /* best-effort */ }
+      }
+
       return {
         status: 'failure',
         error: {

@@ -652,7 +652,10 @@ export async function registerAdminRoutes(
     if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
     const res = await pool.query('SELECT id, status FROM spike_jobs WHERE id = $1', [id]);
     if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
-    if ((res.rows[0] as any).status !== 'failed') return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Only failed jobs can be retried' } });
+    const jobStatus = (res.rows[0] as any).status;
+    if (jobStatus !== 'failed' && jobStatus !== 'dead_letter') {
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Only failed or dead_letter jobs can be retried' } });
+    }
     await pool.query('UPDATE spike_jobs SET status = $1, attempt = attempt + 1 WHERE id = $2', ['queued', id]);
     const user = request.jwtUser!;
     await auditLog(user.userId, 'job.retry', 'job', id, {});

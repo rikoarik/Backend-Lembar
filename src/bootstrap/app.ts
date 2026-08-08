@@ -461,7 +461,10 @@ export async function buildApp(
     // Register all routes
     registerAssessmentRoutes(app, assessmentService);
     await registerHistoryRoutes(app, historyService);
-    await registerShareRoutes(app, shareLinkService);
+    await registerShareRoutes(app, shareLinkService, {
+      assessmentsStore: assessmentStore,
+      questionStore: questionGenStore,
+    });
     await registerQuestionReviewRoutes(app, questionReviewService, finalizationService);
     await registerBlueprintPipelineRoutes(app, blueprintService);
     await registerPrintRoutes(app, printService);

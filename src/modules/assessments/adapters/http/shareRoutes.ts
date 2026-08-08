@@ -4,16 +4,18 @@
  * Endpoints:
  *   GET    /v1/shares                    — list share links by assessmentId (tenant-scoped)
  *   POST   /v1/shares                    — create share link (tenant-scoped)
- *   GET    /v1/shares/:token             — public access, validate token + expiry
+ *   GET    /v1/shares/:token             — public access, validate token + expiry + title + questions (B4 fix)
  *   DELETE /v1/shares/:token/revoke      — revoke share link (owner only)
  *
  * Tenant isolation: workspaceId from x-workspace-id header.
- * Public endpoint (GET) does not require workspace header.
+ * Public endpoint (GET /:token) does not require workspace header.
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import { ApiError, buildErrorEnvelope } from '../../../../common/errors/envelope.js';
 import type { ShareLinkService } from '../../application/ShareLinkService.js';
+import type { AssessmentsStore } from '../../domain/Assessment.js';
+import type { QuestionGenerationStore } from '../../domain/QuestionGeneration.js';
 
 function getRequestId(request: FastifyRequest): string {
   return (request.headers['x-request-id'] as string | undefined) ?? 'unknown';
@@ -53,10 +55,18 @@ interface CreateShareBody {
   ttlSeconds?: number;
 }
 
+export interface RegisterShareRoutesOptions {
+  assessmentsStore?: AssessmentsStore;
+  questionStore?: QuestionGenerationStore;
+}
+
 export async function registerShareRoutes(
   app: FastifyInstance,
   service: ShareLinkService,
+  options: RegisterShareRoutesOptions = {},
 ): Promise<void> {
+  const { assessmentsStore, questionStore } = options;
+
   /**
    * GET /v1/shares?assessmentId=<id>
    * List all share links for an assessment (tenant-scoped).
@@ -137,7 +147,8 @@ export async function registerShareRoutes(
 
   /**
    * GET /v1/shares/:token
-   * Public access: validate token + expiry. Returns assessment info.
+   * Public access: validate token + expiry.
+   * B4 fix: returns assessment title + questions in addition to assessmentId.
    * No workspace header required (public endpoint).
    */
   app.get('/v1/shares/:token', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -145,10 +156,55 @@ export async function registerShareRoutes(
 
     try {
       const link = await service.validateToken(token, getRequestId(request));
+
+      // B4: Fetch assessment title and questions
+      let title: string | null = null;
+      let questions: unknown[] = [];
+
+      if (assessmentsStore) {
+        try {
+          const assessment = await assessmentsStore.getAssessmentById(
+            link.workspaceId,
+            link.assessmentId,
+          );
+          if (assessment) {
+            title = assessment.title;
+
+            if (questionStore) {
+              const latestVersion = await assessmentsStore.getLatestVersion(
+                link.workspaceId,
+                link.assessmentId,
+              );
+              if (latestVersion) {
+                const rawQuestions = await questionStore.getQuestionsByAssessmentVersionId(
+                  link.workspaceId,
+                  latestVersion.id,
+                );
+                questions = rawQuestions.map((q) => ({
+                  id: q.id,
+                  blueprintSequence: q.blueprintSequence,
+                  questionType: q.questionType,
+                  difficulty: q.difficulty,
+                  stem: q.stem,
+                  options: q.options,
+                  answer: q.answer,
+                  explanation: q.explanation,
+                }));
+              }
+            }
+          }
+        } catch (fetchErr) {
+          // Non-fatal: assessment/questions fetch failure still returns valid token response
+          console.error('[shareRoutes] Failed to fetch assessment data for share:', fetchErr);
+        }
+      }
+
       return reply.status(200).send({
         data: {
           assessmentId: link.assessmentId,
+          title,
           expiresAt: link.expiresAt,
+          questions,
         },
       });
     } catch (err) {
