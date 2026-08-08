@@ -96,6 +96,7 @@ import { PostgresAdminDataStore } from '../modules/admin/persistence/PostgresAdm
 import { NoOpAdminAuditStore } from '../modules/admin/persistence/NoOpAdminAuditStore.js';
 import { registerAdminRoutes } from '../modules/admin/adapters/http/adminRoutes.js';
 import { registerAiPromptRoutes } from '../modules/admin/adapters/http/aiPromptRoutes.js';
+import { registerAiProviderRoutes } from '../modules/admin/adapters/http/aiProviderRoutes.js';
 import { registerAiFeedbackRoutes } from '../modules/ai/adapters/http/aiFeedbackRoutes.js';
 
 // School routes
@@ -485,6 +486,11 @@ export async function buildApp(
     });
     // AI Prompt Management routes
     registerAiPromptRoutes(app, {
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
+    // AI Provider config routes — superadmin only
+    registerAiProviderRoutes(app, {
       db: managedDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     });
