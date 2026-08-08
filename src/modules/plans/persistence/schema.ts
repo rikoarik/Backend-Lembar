@@ -27,7 +27,7 @@ import { tenants } from '../../../infrastructure/database/schema.js';
 export const PLAN_TYPES = ['free', 'pro'] as const;
 export type PlanType = (typeof PLAN_TYPES)[number];
 
-export const FREE_MONTHLY_LIMIT = 10;
+export const FREE_MONTHLY_LIMIT = 3;
 
 export const workspacePlans = pgTable(
   'workspace_plans',

@@ -83,11 +83,12 @@ export class WorkspacePlanRepository {
     const now = new Date();
 
     // Reset counter if billing cycle has rolled over (new calendar month)
+    // For free plans, billingCycleStartedAt resets to the 1st of the current month
     await this.db
       .update(workspacePlans)
       .set({
         generationsUsedThisMonth: 0,
-        billingCycleStartedAt: now,
+        billingCycleStartedAt: sql`date_trunc('month', now())`,
         updatedAt: now,
       })
       .where(
