@@ -103,6 +103,7 @@ import { SchoolService } from '../modules/school/application/SchoolService.js';
 import { SchoolDashboardService } from '../modules/school/application/SchoolDashboardService.js';
 import { InMemorySchoolWorkspaceStore, InMemorySchoolInvitationStore } from '../modules/school/persistence/InMemorySchoolStores.js';
 import { PostgresSchoolWorkspaceStore } from '../modules/school/persistence/PostgresSchoolStores.js';
+import { PostgresSchoolInvitationStore } from '../modules/school/persistence/PostgresSchoolStores.js';
 import { registerSchoolRoutes } from '../modules/school/adapters/http/schoolRoutes.js';
 import { registerDashboardRoutes } from '../modules/school/adapters/http/dashboardRoutes.js';
 import { registerMemberRoutes } from '../modules/school/adapters/http/memberRoutes.js';
@@ -113,6 +114,8 @@ import { registerSettingsRoutes } from '../modules/school/adapters/http/settings
 import { registerUsageRoutes } from '../modules/school/adapters/http/usageRoutes.js';
 import { registerSuspendRoutes } from '../modules/school/adapters/http/suspendRoutes.js';
 import { registerSchoolNotificationsRoutes } from '../modules/school/adapters/http/schoolNotificationsRoutes.js';
+import { registerBillingRoutes } from '../modules/school/adapters/http/billingRoutes.js';
+import { SchoolBillingService } from '../modules/school/application/SchoolBillingService.js';
 import { registerClassRoutes } from '../modules/classes/adapters/http/classRoutes.js';
 import { registerTemplateRoutes } from '../modules/templates/adapters/http/templateRoutes.js';
 import { registerPublicSupportRoutes } from '../modules/support/publicSupport.js';
@@ -220,9 +223,7 @@ export async function buildApp(
     // Helpful message for known-but-unregistered routes
     const hints: Record<string, string> = {
       '/v1/admin': 'Module admin belum di-register. Butuh AdminDataStore implementation.',
-      '/v1/school': 'Module school belum di-register. Butuh SchoolWorkspaceStore implementation.',
       '/v1/catalog': 'Module catalog belum di-register. Endpoint ada di OpenAPI spec tapi belum ada backend implementation.',
-      '/v1/invitations': 'Module school belum di-register. Butuh SchoolInvitationStore implementation.',
     };
 
     const hintKey = Object.keys(hints).find((k) => url.startsWith(k));
@@ -497,7 +498,7 @@ export async function buildApp(
   // School routes (Postgres-backed stores)
   if (managedDb) {
     const schoolWorkspaceStore = new PostgresSchoolWorkspaceStore(managedDb);
-    const schoolInvitationStore = new InMemorySchoolInvitationStore();
+    const schoolInvitationStore = new PostgresSchoolInvitationStore(managedDb);
     const schoolService = new SchoolService(schoolWorkspaceStore, schoolInvitationStore);
     registerSchoolRoutes(app, { service: schoolService });
 
@@ -550,6 +551,13 @@ export async function buildApp(
       db: managedDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     });
+
+    // School billing snapshot (seat count, plan tier, usage — school_admin only)
+    const schoolBillingService = new SchoolBillingService(
+      schoolWorkspaceStore,
+      new WorkspacePlanRepository(managedDb),
+    );
+    registerBillingRoutes(app, { billingService: schoolBillingService });
 
     await registerClassRoutes(app, {
       db: managedDb,
