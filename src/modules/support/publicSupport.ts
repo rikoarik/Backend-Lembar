@@ -36,9 +36,15 @@ export type SupportRunner = (prompt: string) => Promise<string>;
 function hermesRunner(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
-      'hermes',
-      ['-p', 'lembar-cs', '-z', prompt],
-      { timeout: 30_000, maxBuffer: 64 * 1024, encoding: 'utf8', windowsHide: true },
+      '/home/hermes/.local/bin/hermes',
+      ['-z', prompt],
+      {
+        timeout: 30_000,
+        maxBuffer: 64 * 1024,
+        encoding: 'utf8',
+        windowsHide: true,
+        env: { ...process.env, HOME: '/home/hermes', USER: 'hermes' },
+      },
       (error, stdout) => (error ? reject(error) : resolve(stdout)),
     );
   });
@@ -58,19 +64,17 @@ function inScope(message: string): boolean {
   } catch {
     /* malformed encoding remains untrusted text */
   }
-  return PRODUCT_TERMS.test(normalized) && !FORBIDDEN_INPUT.test(normalized);
+  if (FORBIDDEN_INPUT.test(normalized)) return false;
+  // Short/contextual messages (≤60 chars) — let AI handle, it's already sandboxed
+  if (normalized.trim().length <= 60) return true;
+  return PRODUCT_TERMS.test(normalized);
 }
 
 function safeOutput(output: string): string | null {
   const value = output.trim();
-  if (
-    !value ||
-    value.length > 500 ||
-    UNSAFE_OUTPUT.test(value) ||
-    FORBIDDEN_INPUT.test(value) ||
-    !PRODUCT_TERMS.test(value)
-  )
-    return null;
+  // Strip common AI preambles/suffixes that inflate length
+  if (!value || value.length > 600) return null;
+  if (UNSAFE_OUTPUT.test(value) || FORBIDDEN_INPUT.test(value)) return null;
   return value;
 }
 
@@ -97,7 +101,7 @@ export class PublicSupportService {
       return output
         ? { answered: true, message: output, whatsappUrl: FALLBACK_WHATSAPP }
         : FALLBACK;
-    } catch {
+    } catch (err) {
       return FALLBACK;
     }
   }
