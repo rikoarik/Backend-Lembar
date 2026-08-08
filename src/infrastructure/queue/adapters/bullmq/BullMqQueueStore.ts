@@ -34,6 +34,7 @@ export class BullMqQueueStore implements QueueStore {
   rescheduleRetry(): never { return this.unsupported(); }
   markDeadLetter(): never { return this.unsupported(); }
   requestCancel(): never { return this.unsupported(); }
+  updateJobProgress(): never { return this.unsupported(); }
   auditRecover(): never { return this.unsupported(); }
   queueDepth(): never { return this.unsupported(); }
   auditEvents(): never { return this.unsupported(); }

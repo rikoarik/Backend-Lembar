@@ -1120,6 +1120,18 @@ tasks:
       - pnpm build (TypeScript clean)
       - npx vitest run test/modules/jobs/ (16 passed)
 
+  - id: B2-06
+    repository: Backend-Lembar
+    sprint: B2
+    title: Assessment Postgres seam integration and release gate
+    status: BLOCKED
+    depends_on: [B2-03, B4-01, B4-05]
+    decisions: []
+    outcome: Merge the current assessment Postgres seam WIP into dev cleanly, commit it, and re-run contract/runtime verification before release.
+    evidence: [working-tree-clean, typecheck, lint, build, test, openapi-validate, openapi-breaking, db-smoke, worker-smoke]
+    branch: dev
+    next_action: "Finish the current assessment seam integration in the dev worktree, then verify and clear the dirty tree before release."
+
   - id: B3-01
     repository: Backend-Lembar
     sprint: B3

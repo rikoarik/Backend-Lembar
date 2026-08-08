@@ -85,6 +85,8 @@ export interface GenerateQuestionsInput {
   requestId: string;
   /** Optional queue job id, propagated to AI audit rows for correlation. */
   jobId?: string;
+  /** Optional per-question progress callback. Called after each question is generated. */
+  onProgress?: (current: number, total: number) => Promise<void>;
 }
 
 export interface GenerateQuestionsResult {

@@ -356,6 +356,23 @@ export class PostgresQueueStore implements QueueStore {
     return row ? snakeToJob(row) : null;
   }
 
+  async updateJobProgress(
+    id: string,
+    progressCurrent: number,
+    progressTotal: number,
+    now: Date,
+  ): Promise<QueueStoreJob | null> {
+    const result = await this.db.execute<JobRowSnake>(sql`
+      UPDATE "spike_jobs"
+         SET "payload"    = "payload" || ${JSON.stringify({ progressCurrent, progressTotal })}::jsonb,
+             "updated_at" = ${now}
+       WHERE "id" = ${id}::uuid
+         AND "status" = 'running'
+       RETURNING *`);
+    const row = result.rows[0];
+    return row ? snakeToJob(row) : null;
+  }
+
   async auditRecover(
     id: string,
     now: Date,

@@ -26,6 +26,10 @@ import { createStorageAdapter } from '../../storage/createStorageAdapter.js';
 // AI generate deps
 import { QuestionGenerationService } from '../../../modules/assessments/application/QuestionGenerationService.js';
 import { InMemoryQuestionGenerationStore } from '../../../modules/assessments/persistence/InMemoryQuestionGenerationStore.js';
+import { PostgresQuestionGenerationStore } from '../../../modules/assessments/persistence/PostgresQuestionGenerationStore.js';
+import { QuestionReviewService } from '../../../modules/assessments/application/QuestionReviewService.js';
+import { InMemoryQuestionReviewStore } from '../../../modules/assessments/persistence/InMemoryQuestionReviewStore.js';
+import { PostgresQuestionReviewStore } from '../../../modules/assessments/persistence/PostgresQuestionReviewStore.js';
 import { BlueprintPipelineService } from '../../../modules/assessments/application/BlueprintPipelineService.js';
 import { InMemoryBlueprintPipelineStore } from '../../../modules/assessments/persistence/InMemoryBlueprintPipelineStore.js';
 import { InMemoryAssessmentsStore } from '../../../modules/assessments/persistence/InMemoryAssessmentsStore.js';
@@ -39,7 +43,7 @@ import {
 import { parseAiEnv } from '../../../config/ai.env.js';
 import { MockAiAdapter } from '../../ai/adapters/mock/MockAiAdapter.js';
 import { HermesAdapter } from '../../ai/adapters/hermes/HermesAdapter.js';
-import { createDatabase } from '../../database/db.js';
+import { closeDatabase, createDatabase, getPool, type Database } from '../../database/db.js';
 import { QUESTION_OUTPUT_SCHEMA } from '../../../modules/assessments/application/QuestionGenerationService.js';
 
 export interface WorkerServiceOptions {
@@ -74,6 +78,7 @@ export class WorkerService {
   private readonly startTime: Date;
   private lastPollAt: Date | null = null;
   private errors: string[] = [];
+  private managedDb: Database | null = null;
 
   constructor(store: QueueStore, options: WorkerServiceOptions) {
     this.store = store;
@@ -136,8 +141,8 @@ export class WorkerService {
     const databaseUrl = process.env.DATABASE_URL;
     let audit: AiAuditRepository | InMemoryAiAuditRecorder;
     if (databaseUrl && databaseUrl.length > 0) {
-      const db = createDatabase({ connectionString: databaseUrl });
-      audit = new AiAuditRepository(db);
+      this.managedDb = createDatabase({ connectionString: databaseUrl });
+      audit = new AiAuditRepository(this.managedDb);
     } else {
       audit = new InMemoryAiAuditRecorder();
     }
@@ -160,7 +165,14 @@ export class WorkerService {
       retrievalService: sourceRetrievalService,
     });
 
-    const questionGenStore = new InMemoryQuestionGenerationStore();
+    const pool = this.managedDb ? getPool(this.managedDb) : undefined;
+    const questionGenStore = pool
+      ? new PostgresQuestionGenerationStore(pool)
+      : new InMemoryQuestionGenerationStore();
+    const questionReviewStore = this.managedDb
+      ? new PostgresQuestionReviewStore(this.managedDb)
+      : new InMemoryQuestionReviewStore();
+    const questionReviewService = new QuestionReviewService({ store: questionReviewStore });
     const questionGenerationService = new QuestionGenerationService({
       store: questionGenStore,
       blueprintService,
@@ -168,7 +180,9 @@ export class WorkerService {
       env: aiEnv,
     });
 
-    this.registry.register(new AssessmentGenerationHandler({ questionGenerationService }));
+    this.registry.register(
+      new AssessmentGenerationHandler({ questionGenerationService, questionReviewService }),
+    );
     this.registry.register(new QuestionRegenerationHandler({ questionGenerationService }));
     this.registry.register(new ExportPdfHandler());
   }
@@ -194,6 +208,7 @@ export class WorkerService {
     console.log(`[WorkerService] Shutting down worker ${this.options.workerId}`);
     try {
       await this.executor.shutdown();
+      if (this.managedDb) await closeDatabase(this.managedDb);
       console.log(`[WorkerService] Worker shut down successfully`);
     } catch (err) {
       const error = `Failed to shutdown cleanly: ${err instanceof Error ? err.message : String(err)}`;

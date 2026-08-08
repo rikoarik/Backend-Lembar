@@ -6,18 +6,22 @@
  */
 import type { JobHandler, JobContext, JobResult } from '../domain/JobHandler.js';
 import type { QuestionGenerationService } from '../../../modules/assessments/application/QuestionGenerationService.js';
+import type { QuestionReviewService } from '../../../modules/assessments/application/QuestionReviewService.js';
 import type { QuestionType, Difficulty } from '../../../modules/assessments/domain/Assessment.js';
 
 export interface AssessmentGenerationHandlerOptions {
   questionGenerationService: QuestionGenerationService;
+  questionReviewService?: QuestionReviewService;
 }
 
 export class AssessmentGenerationHandler implements JobHandler {
   readonly kind = 'assessment_generation' as const;
   private readonly questionGenerationService: QuestionGenerationService;
+  private readonly questionReviewService: QuestionReviewService | undefined;
 
   constructor(options: AssessmentGenerationHandlerOptions) {
     this.questionGenerationService = options.questionGenerationService;
+    this.questionReviewService = options.questionReviewService;
   }
 
   async handle(context: JobContext): Promise<JobResult> {
@@ -77,9 +81,17 @@ export class AssessmentGenerationHandler implements JobHandler {
         },
         requestId: jobId,
         jobId,
+        ...(context.reportProgress ? { onProgress: context.reportProgress } : {}),
       });
 
       const succeeded = result.questions.filter((q) => !result.failures.some((f) => f.blueprintSequence === q.blueprintSequence));
+      if (this.questionReviewService) {
+        await Promise.all(
+          succeeded.map((question) =>
+            this.questionReviewService!.importQuestion(question, context.actorId),
+          ),
+        );
+      }
       const failed = result.failures.length;
 
       console.log(

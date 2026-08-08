@@ -89,6 +89,13 @@ export interface QueueStore {
     error: unknown,
   ): Promise<QueueStoreJob | null>;
   requestCancel(id: string, now: Date): Promise<QueueStoreJob | null>;
+  /** Update progress counters for a running job (no-op if not running). */
+  updateJobProgress(
+    id: string,
+    progressCurrent: number,
+    progressTotal: number,
+    now: Date,
+  ): Promise<QueueStoreJob | null>;
   auditRecover(
     id: string,
     now: Date,

@@ -172,6 +172,9 @@ export class WorkerExecutor {
         attempt: job.attempt,
         payload: job.payload,
         signal: controller.signal,
+        reportProgress: async (current: number, total: number) => {
+          await this.store.updateJobProgress(job.id, current, total, new Date());
+        },
       };
 
       const result = await handler.handle(context);

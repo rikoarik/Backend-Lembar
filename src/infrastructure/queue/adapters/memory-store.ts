@@ -230,6 +230,23 @@ export class InMemoryQueueStore implements QueueStore {
     return cancelled;
   }
 
+  async updateJobProgress(
+    id: string,
+    progressCurrent: number,
+    progressTotal: number,
+    now: Date,
+  ): Promise<QueueStoreJob | null> {
+    const job = this.jobs.get(id);
+    if (!job || job.status !== 'running') return null;
+    const updated: QueueStoreJob = {
+      ...job,
+      payload: { ...job.payload, progressCurrent, progressTotal },
+      updatedAt: now,
+    };
+    this.jobs.set(id, updated);
+    return updated;
+  }
+
   async auditRecover(
     id: string,
     now: Date,

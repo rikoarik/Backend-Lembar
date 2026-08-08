@@ -11,3 +11,4 @@ coverage/
 .impeccable/
 .claude/settings.local.json
 agent-orchestrator.yaml
+.worktrees/

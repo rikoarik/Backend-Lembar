@@ -137,6 +137,7 @@ export class QuestionGenerationService {
     const questions: GeneratedQuestion[] = [];
     const failures: QuestionGenerationFailure[] = [];
     let totalSchemaRepairAttempts = 0;
+    const total = blueprint.items.length;
 
     for (const item of blueprint.items) {
       try {
@@ -170,6 +171,11 @@ export class QuestionGenerationService {
             message: err instanceof Error ? err.message : 'Unknown error',
           });
         }
+      }
+      // Report progress after each item (success or failure)
+      if (input.onProgress) {
+        const done = questions.length + failures.length;
+        await input.onProgress(done, total).catch(() => { /* progress errors are non-fatal */ });
       }
     }
 

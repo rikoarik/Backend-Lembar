@@ -13,6 +13,8 @@ export interface JobContext {
   attempt: number;
   payload: Record<string, unknown>;
   signal: AbortSignal;
+  /** Report incremental progress. current=0 and total=0 means indeterminate. */
+  reportProgress?: (current: number, total: number) => Promise<void>;
 }
 
 export interface JobResult {
