@@ -87,7 +87,7 @@ describeDb('PostgresQueueStore contract parity', () => {
 
   it('nextClaimable returns oldest queued job not in exclude list', async () => {
     const existing = await db.execute<{ workspace_id: string }>(
-      "SELECT DISTINCT workspace_id FROM spike_jobs WHERE status = 'queued'",
+      "SELECT DISTINCT workspace_id FROM spike_jobs WHERE status IN ('queued', 'retry_wait')",
     );
     await seedJob({ id: '00000000-0000-4000-8000-00000000000a', workspaceId: 'pgstore-ws-A' });
     await seedJob({ id: '00000000-0000-4000-8000-00000000000b', workspaceId: 'pgstore-ws-B' });
@@ -100,7 +100,7 @@ describeDb('PostgresQueueStore contract parity', () => {
 
   it('nextClaimable respects excludeWorkspaceIds', async () => {
     const existing = await db.execute<{ workspace_id: string }>(
-      "SELECT DISTINCT workspace_id FROM spike_jobs WHERE status = 'queued'",
+      "SELECT DISTINCT workspace_id FROM spike_jobs WHERE status IN ('queued', 'retry_wait')",
     );
     await seedJob({ id: '00000000-0000-4000-8000-00000000000c', workspaceId: 'pgstore-ws-X' });
     const claim = await store.nextClaimable(
@@ -108,6 +108,28 @@ describeDb('PostgresQueueStore contract parity', () => {
       [...existing.rows.map((row) => row.workspace_id), 'pgstore-ws-X'],
     );
     expect(claim).toBeNull();
+  });
+
+  it('reclaims an overdue retry_wait job', async () => {
+    const id = '00000000-0000-4000-8000-000000000011';
+    await seedJob({
+      id,
+      workspaceId: 'pgstore-ws-retry',
+      status: 'retry_wait',
+      attempt: 1,
+      nextAttemptAt: new Date(Date.now() - 1000),
+    });
+
+    const existing = await db.execute<{ workspace_id: string }>(
+      "SELECT DISTINCT workspace_id FROM spike_jobs WHERE status IN ('queued', 'retry_wait') AND workspace_id <> 'pgstore-ws-retry'",
+    );
+    expect((await store.nextClaimable(
+      new Date(),
+      existing.rows.map((row) => row.workspace_id),
+    ))?.id).toBe(id);
+    const reserved = await store.reserveClaim(id, 'worker-x', new Date(), 5000);
+    expect(reserved?.status).toBe('running');
+    expect(reserved?.attempt).toBe(2);
   });
 
   it('reserveClaim flips queued -> running and stores lease', async () => {

@@ -178,7 +178,7 @@ export class PostgresQueueStore implements QueueStore {
         )})`;
     const result = await this.db.execute<JobRowSnake>(sql`
       SELECT * FROM ${jobs}
-       WHERE ${jobs.status} = 'queued'
+       WHERE ${jobs.status} IN ('queued', 'retry_wait')
          AND (${jobs.nextAttemptAt} IS NULL OR ${jobs.nextAttemptAt} <= ${now})
          ${excludeClause}
        ORDER BY ${jobs.createdAt} ASC
@@ -205,7 +205,7 @@ export class PostgresQueueStore implements QueueStore {
              "next_attempt_at"  = NULL,
              "updated_at"       = ${now}
        WHERE "id" = ${id}::uuid
-         AND "status" = 'queued'
+         AND "status" IN ('queued', 'retry_wait')
          AND ("next_attempt_at" IS NULL OR "next_attempt_at" <= ${now})
        RETURNING *`);
     const row = result.rows[0];
