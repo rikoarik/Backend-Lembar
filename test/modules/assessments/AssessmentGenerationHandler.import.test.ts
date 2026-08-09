@@ -54,6 +54,32 @@ function makeQuestionGenerationService() {
 }
 
 describe('AssessmentGenerationHandler importQuestion wiring', () => {
+  it('marks the persisted assessment failed when every question fails', async () => {
+    const updateAssessment = vi.fn(async () => undefined);
+    const questionGenerationService = makeQuestionGenerationService();
+    questionGenerationService.generateQuestions.mockResolvedValue({
+      questions: [],
+      totalSchemaRepairAttempts: 0,
+      hasFailures: true,
+      failures: [{ blueprintSequence: 0, reason: 'provider_error', message: 'forced' }],
+    });
+    const handler = new AssessmentGenerationHandler({
+      questionGenerationService: questionGenerationService as never,
+      assessmentsStore: { updateAssessment } as never,
+    });
+
+    const result = await handler.handle(makeContext({
+      assessmentId: 'assessment-1',
+      assessmentVersionId: 'version-1',
+      blueprintItems: [{ sequence: 0, questionType: 'multiple_choice', difficulty: 'medium' }],
+    }));
+
+    expect(result.status).toBe('failure');
+    expect(updateAssessment).toHaveBeenCalledWith({
+      id: 'assessment-1', workspaceId: 'ws-import-test', status: 'failed',
+    });
+  });
+
   it('imports every successful generated question into the review store', async () => {
     const reviewStore = new InMemoryQuestionReviewStore();
     const reviewService = new QuestionReviewService({ store: reviewStore });

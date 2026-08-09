@@ -33,6 +33,7 @@ import { PostgresQuestionReviewStore } from '../../../modules/assessments/persis
 import { BlueprintPipelineService } from '../../../modules/assessments/application/BlueprintPipelineService.js';
 import { InMemoryBlueprintPipelineStore } from '../../../modules/assessments/persistence/InMemoryBlueprintPipelineStore.js';
 import { InMemoryAssessmentsStore } from '../../../modules/assessments/persistence/InMemoryAssessmentsStore.js';
+import { PostgresAssessmentsStore } from '../../../modules/assessments/persistence/PostgresAssessmentsStore.js';
 import { InMemorySourceRetrievalStore } from '../../../modules/sources/persistence/InMemorySourceRetrievalStore.js';
 import { SourceRetrievalService } from '../../../modules/sources/application/SourceRetrievalService.js';
 import { ProductAiService } from '../../ai/application/ProductAiService.js';
@@ -157,7 +158,9 @@ export class WorkerService {
     const uploadsStore = new InMemorySourceUploadsStore();
     const retrievalStore = new InMemorySourceRetrievalStore({ passagesStore, uploadsStore });
     const sourceRetrievalService = new SourceRetrievalService({ retrievalStore: retrievalStore });
-    const assessmentsStore = new InMemoryAssessmentsStore();
+    const assessmentsStore = this.managedDb
+      ? new PostgresAssessmentsStore(this.managedDb)
+      : new InMemoryAssessmentsStore();
     const blueprintStore = new InMemoryBlueprintPipelineStore();
     const blueprintService = new BlueprintPipelineService({
       store: blueprintStore,
