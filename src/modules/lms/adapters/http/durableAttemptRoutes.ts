@@ -28,7 +28,7 @@ async function context(o: Options, token: string, requestId: string) {
     link.assessmentId,
   );
   const version = await o.assessmentsStore.getLatestVersion(link.workspaceId, link.assessmentId);
-  if (!assessment || assessment.status !== 'ready' || !version || version.status !== 'ready')
+  if (!assessment || assessment.status !== 'ready' || !version)
     throw new ApiError({
       code: 'RESOURCE_NOT_FOUND',
       message: 'Assessment tidak tersedia.',

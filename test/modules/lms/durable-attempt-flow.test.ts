@@ -74,6 +74,27 @@ describe('durable public assessment contract', () => {
     });
   });
 
+  it('serves the finalized assessment even when its generated version remains draft', async () => {
+    const app = Fastify();
+    await registerDurableAttemptRoutes(app, {
+      service: {} as never,
+      shareService: {
+        validateToken: async () => ({ workspaceId: 'w', assessmentId: 'a', expiresAt: '' }),
+      } as never,
+      assessmentsStore: {
+        getAssessmentById: async () => ({ title: 'Final', status: 'ready' }),
+        getLatestVersion: async () => ({ id: 'v', status: 'draft' }),
+      } as never,
+      questionStore: { getQuestionsByAssessmentVersionId: async () => questions } as never,
+      jwtSecret: 'test-secret',
+    });
+
+    const response = await app.inject({ method: 'GET', url: '/v1/public/shares/token' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.questions).toHaveLength(2);
+    await app.close();
+  });
+
   it('teacher results reject a public caller', async () => {
     const app = Fastify();
     await registerDurableAttemptRoutes(app, {
