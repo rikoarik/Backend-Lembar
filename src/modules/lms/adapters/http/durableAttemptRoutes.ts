@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { buildErrorEnvelope } from '../../../../common/errors/envelope.js';
+import { ApiError, buildErrorEnvelope } from '../../../../common/errors/envelope.js';
 import {
   assessmentPrivateAuth,
   jwtWorkspace,
@@ -28,9 +28,17 @@ async function context(o: Options, token: string, requestId: string) {
     link.assessmentId,
   );
   const version = await o.assessmentsStore.getLatestVersion(link.workspaceId, link.assessmentId);
-  const questions = version
-    ? await o.questionStore.getQuestionsByAssessmentVersionId(link.workspaceId, version.id)
-    : [];
+  if (!assessment || assessment.status !== 'ready' || !version || version.status !== 'ready')
+    throw new ApiError({
+      code: 'RESOURCE_NOT_FOUND',
+      message: 'Assessment tidak tersedia.',
+      requestId,
+      status: 404,
+    });
+  const questions = await o.questionStore.getQuestionsByAssessmentVersionId(
+    link.workspaceId,
+    version.id,
+  );
   return { link, assessment, questions: questions as AuthoritativeQuestion[] };
 }
 function validAnswers(v: unknown): v is Record<string, string> {
@@ -61,29 +69,25 @@ export async function registerDurableAttemptRoutes(app: FastifyInstance, o: Opti
     const name = body?.guestName?.trim(),
       klass = body?.guestClass?.trim();
     if (!name || name.length > 120 || (klass?.length ?? 0) > 80)
-      return reply
-        .code(400)
-        .send(
-          buildErrorEnvelope({
-            code: 'VALIDATION_FAILED',
-            message: 'Data peserta tidak valid.',
-            requestId: rid(r),
-          }),
-        );
+      return reply.code(400).send(
+        buildErrorEnvelope({
+          code: 'VALIDATION_FAILED',
+          message: 'Data peserta tidak valid.',
+          requestId: rid(r),
+        }),
+      );
     const key = `${r.ip}:${token}`,
       now = Date.now(),
       hits = (starts.get(key) ?? []).filter((x) => x > now - 600000);
     if (hits.length >= 5)
-      return reply
-        .code(429)
-        .send(
-          buildErrorEnvelope({
-            code: 'RATE_LIMITED',
-            message: 'Terlalu banyak percobaan.',
-            requestId: rid(r),
-            retryable: true,
-          }),
-        );
+      return reply.code(429).send(
+        buildErrorEnvelope({
+          code: 'RATE_LIMITED',
+          message: 'Terlalu banyak percobaan.',
+          requestId: rid(r),
+          retryable: true,
+        }),
+      );
     hits.push(now);
     starts.set(key, hits);
     const c = await context(o, token, rid(r));
@@ -94,16 +98,21 @@ export async function registerDurableAttemptRoutes(app: FastifyInstance, o: Opti
     const c = await context(o, token, rid(r));
     const a = (r.body as { answers?: unknown })?.answers;
     if (!validAnswers(a))
-      return reply
-        .code(400)
-        .send(
-          buildErrorEnvelope({
-            code: 'VALIDATION_FAILED',
-            message: 'answers tidak valid.',
-            requestId: rid(r),
-          }),
-        );
-    return reply.send({ data: await o.service.autosave(id, a, c.link.id) });
+      return reply.code(400).send(
+        buildErrorEnvelope({
+          code: 'VALIDATION_FAILED',
+          message: 'answers tidak valid.',
+          requestId: rid(r),
+        }),
+      );
+    return reply.send({
+      data: await o.service.autosave(
+        id,
+        a,
+        c.link.id,
+        c.questions.map((question) => question.id),
+      ),
+    });
   });
   app.post('/v1/public/shares/:token/attempts/:id/submit', async (r, reply) => {
     const { token, id } = r.params as { token: string; id: string };
@@ -111,16 +120,19 @@ export async function registerDurableAttemptRoutes(app: FastifyInstance, o: Opti
     const a = (r.body as { answers?: unknown })?.answers;
     if (a !== undefined) {
       if (!validAnswers(a))
-        return reply
-          .code(400)
-          .send(
-            buildErrorEnvelope({
-              code: 'VALIDATION_FAILED',
-              message: 'answers tidak valid.',
-              requestId: rid(r),
-            }),
-          );
-      await o.service.autosave(id, a, c.link.id);
+        return reply.code(400).send(
+          buildErrorEnvelope({
+            code: 'VALIDATION_FAILED',
+            message: 'answers tidak valid.',
+            requestId: rid(r),
+          }),
+        );
+      await o.service.autosave(
+        id,
+        a,
+        c.link.id,
+        c.questions.map((question) => question.id),
+      );
     }
     return reply.send({ data: await o.service.submit(id, c.questions, c.link.id) });
   });

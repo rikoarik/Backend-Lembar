@@ -26,6 +26,34 @@ const questions = [
 ];
 
 describe('durable public assessment contract', () => {
+  it('legacy public share route never returns answer or explanation', async () => {
+    const app = Fastify();
+    const { registerShareRoutes } =
+      await import('../../../src/modules/assessments/adapters/http/shareRoutes.js');
+    await registerShareRoutes(
+      app,
+      {
+        validateToken: async () => ({ workspaceId: 'w', assessmentId: 'a', expiresAt: '' }),
+      } as never,
+      {
+        jwtSecret: 'secret',
+        assessmentsStore: {
+          getAssessmentById: async () => ({ title: 'Ready', status: 'ready' }),
+          getLatestVersion: async () => ({ id: 'v', status: 'ready' }),
+        } as never,
+        questionStore: { getQuestionsByAssessmentVersionId: async () => questions } as never,
+      },
+    );
+    const response = await app.inject({ method: 'GET', url: '/v1/shares/token' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().data.questions).toEqual(
+      questions.map(({ id, questionType, stem, options }) => ({ id, questionType, stem, options })),
+    );
+    expect(response.body).not.toContain('secret');
+    expect(response.body).not.toContain('math');
+    await app.close();
+  });
+
   it('never exposes answer or explanation in public questions', () => {
     const output = sanitizePublicQuestions(questions);
     expect(JSON.stringify(output)).not.toContain('math');

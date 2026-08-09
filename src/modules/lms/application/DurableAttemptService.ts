@@ -78,9 +78,24 @@ export class DurableAttemptService {
       answers: {},
     });
   }
-  async autosave(id: string, answers: Record<string, string>, shareLinkId?: string) {
+  async autosave(
+    id: string,
+    answers: Record<string, string>,
+    shareLinkId?: string,
+    authoritativeQuestionIds?: string[],
+  ) {
     const current = await this.store.find(id);
     if (!current || (shareLinkId && current.shareLinkId !== shareLinkId)) throw this.notFound();
+    if (
+      authoritativeQuestionIds &&
+      Object.keys(answers).some((questionId) => !authoritativeQuestionIds.includes(questionId))
+    )
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: 'Terdapat questionId yang tidak valid.',
+        requestId: 'unknown',
+        status: 400,
+      });
     const a = await this.store.saveAnswers(id, answers);
     if (!a) throw this.notFound();
     return a;

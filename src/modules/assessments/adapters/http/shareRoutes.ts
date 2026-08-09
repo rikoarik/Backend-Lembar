@@ -118,6 +118,19 @@ export async function registerShareRoutes(
       }
 
       try {
+        if (assessmentsStore) {
+          const assessment = await assessmentsStore.getAssessmentById(
+            workspaceId,
+            body.assessmentId,
+          );
+          if (!assessment || assessment.status !== 'ready')
+            throw new ApiError({
+              code: 'RESOURCE_NOT_FOUND',
+              message: 'Assessment tidak tersedia untuk dibagikan.',
+              requestId: getRequestId(request),
+              status: 404,
+            });
+        }
         const link = await service.createShareLink({
           workspaceId,
           assessmentId: body.assessmentId,
@@ -185,9 +198,8 @@ export async function registerShareRoutes(
               }
             }
           }
-        } catch (fetchErr) {
-          // Non-fatal: assessment/questions fetch failure still returns valid token response
-          console.error('[shareRoutes] Failed to fetch assessment data for share:', fetchErr);
+        } catch {
+          // Public response remains sanitized and does not leak storage errors.
         }
       }
 
