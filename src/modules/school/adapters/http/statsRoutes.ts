@@ -15,6 +15,9 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { SchoolWorkspaceStore } from '../../application/SchoolService.js';
 import type { WorkspacePlanRepository } from '../../../plans/persistence/repository.js';
 import { FREE_MONTHLY_LIMIT } from '../../../plans/persistence/schema.js';
+import { createJwtAuthMiddleware, requireRole } from '../../../../common/middleware/jwtMultiRoleAuth.js';
+import type { Database } from '../../../../infrastructure/database/db.js';
+import { throwApiError } from '../../../../common/errors/apiError.js';
 
 function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? 'req_unknown';
@@ -34,13 +37,16 @@ export interface StatsData {
 export interface RegisterStatsRoutesOptions {
   workspaceStore: SchoolWorkspaceStore;
   planRepo: WorkspacePlanRepository;
+  jwtSecret: string;
+  db?: Database;
 }
 
 export async function registerStatsRoutes(
   app: FastifyInstance,
   options: RegisterStatsRoutesOptions,
 ): Promise<void> {
-  const { workspaceStore, planRepo } = options;
+  const { workspaceStore, planRepo, jwtSecret, db } = options;
+  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
 
   /**
    * GET /v1/school/stats
@@ -48,44 +54,11 @@ export async function registerStatsRoutes(
    * Query:   workspaceId
    * Returns: { data: StatsData }
    */
-  app.get('/v1/school/stats', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/v1/school/stats', { preHandler: [auth, requireRole(['school_admin'])] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = getRequestId(request);
-    const tenantId = (request.headers['x-tenant-id'] as string | undefined) ?? '';
-    const userRole = (request.headers['x-user-role'] as string | undefined) ?? '';
-    const { workspaceId } = request.query as { workspaceId?: string };
-
-    if (!tenantId) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_FAILED',
-          message: 'Missing x-tenant-id header',
-          requestId,
-          retryable: false,
-        },
-      });
-    }
-
-    if (userRole !== 'school_admin') {
-      return reply.status(403).send({
-        error: {
-          code: 'PERMISSION_DENIED',
-          message: 'This endpoint requires school_admin role',
-          requestId,
-          retryable: false,
-        },
-      });
-    }
-
-    if (!workspaceId) {
-      return reply.status(400).send({
-        error: {
-          code: 'VALIDATION_FAILED',
-          message: 'Missing workspaceId query parameter',
-          requestId,
-          retryable: false,
-        },
-      });
-    }
+    const workspaceId = request.jwtUser?.workspaceId;
+    if (!workspaceId) throwApiError('forbidden', 'Akun tidak terhubung ke workspace sekolah');
+    const tenantId = workspaceId;
 
     const [workspace, members, plan] = await Promise.all([
       workspaceStore.getWorkspace(tenantId, workspaceId),

@@ -509,11 +509,19 @@ export async function buildApp(
     const schoolWorkspaceStore = new PostgresSchoolWorkspaceStore(managedDb);
     const schoolInvitationStore = new PostgresSchoolInvitationStore(managedDb);
     const schoolService = new SchoolService(schoolWorkspaceStore, schoolInvitationStore);
-    registerSchoolRoutes(app, { service: schoolService });
+    registerSchoolRoutes(app, {
+      service: schoolService,
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
 
     // School dashboard
     const schoolDashboardService = new SchoolDashboardService(schoolWorkspaceStore, new WorkspacePlanRepository(managedDb));
-    registerDashboardRoutes(app, { dashboardService: schoolDashboardService });
+    registerDashboardRoutes(app, {
+      dashboardService: schoolDashboardService,
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
 
     // School member management (list, invite, update role, remove)
     registerMemberRoutes(app, {
@@ -523,7 +531,12 @@ export async function buildApp(
     });
 
     // School stats (KPI aggregates for admin panel)
-    registerStatsRoutes(app, { workspaceStore: schoolWorkspaceStore, planRepo: new WorkspacePlanRepository(managedDb) });
+    registerStatsRoutes(app, {
+      workspaceStore: schoolWorkspaceStore,
+      planRepo: new WorkspacePlanRepository(managedDb),
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
 
     // School library (finalized assessments visible to workspace members)
     registerLibraryRoutes(app, {
@@ -566,7 +579,11 @@ export async function buildApp(
       schoolWorkspaceStore,
       new WorkspacePlanRepository(managedDb),
     );
-    registerBillingRoutes(app, { billingService: schoolBillingService });
+    registerBillingRoutes(app, {
+      billingService: schoolBillingService,
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
 
     await registerClassRoutes(app, {
       db: managedDb,

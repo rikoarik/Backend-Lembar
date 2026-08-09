@@ -65,6 +65,26 @@ export async function registerSuspendRoutes(
         });
       }
 
+      const targetAdmin = await pool.query<{ is_admin: boolean }>(
+        `SELECT roles @> ARRAY['school_admin']::text[] AS is_admin
+         FROM jwt_users WHERE id = $1::uuid AND workspace_id = $2::uuid`,
+        [memberId, workspaceId],
+      );
+      if (targetAdmin.rows[0]?.is_admin) {
+        const adminCount = await pool.query<{ count: string }>(
+          `SELECT COUNT(*)::text AS count FROM jwt_users
+           WHERE workspace_id = $1::uuid
+             AND roles @> ARRAY['school_admin']::text[]
+             AND suspended_at IS NULL`,
+          [workspaceId],
+        );
+        if (Number(adminCount.rows[0]?.count ?? 0) <= 1) {
+          return reply.status(409).send({
+            error: { code: 'STATE_CONFLICT', message: 'Admin sekolah terakhir tidak dapat ditangguhkan', requestId, retryable: false },
+          });
+        }
+      }
+
       // Update membership state to 'suspended' — only if this member belongs to the workspace
       const res = await pool.query<{ id: string; state: string }>(
         `UPDATE auth_workspace_memberships

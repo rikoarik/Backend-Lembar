@@ -9,6 +9,9 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import type { SchoolService } from '../../application/SchoolService.js';
 import { InvalidInvitationError } from '../../application/SchoolService.js';
+import { createJwtAuthMiddleware, requireRole } from '../../../../common/middleware/jwtMultiRoleAuth.js';
+import type { Database } from '../../../../infrastructure/database/db.js';
+import { throwApiError } from '../../../../common/errors/apiError.js';
 
 function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? 'req_unknown';
@@ -16,33 +19,37 @@ function getRequestId(req: FastifyRequest): string {
 
 export interface RegisterSchoolRoutesOptions {
   service: SchoolService;
+  jwtSecret: string;
+  db?: Database;
 }
 
 export async function registerSchoolRoutes(
   app: FastifyInstance,
   options: RegisterSchoolRoutesOptions,
 ): Promise<void> {
-  const { service } = options;
+  const { service, jwtSecret, db } = options;
+  const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
+  const adminOnly = requireRole(['school_admin']);
 
   /**
    * POST /v1/invitations
    * Body: { workspaceId, email, role, tenantId, createdByUserId }
    * Returns one-time token (high-entropy, 64 hex chars = 32 bytes).
    */
-  app.post('/v1/invitations', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/v1/invitations', { preHandler: [auth, adminOnly] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as Record<string, unknown> | null | undefined;
 
-    const workspaceId = body?.['workspaceId'] as string | undefined;
+    const workspaceId = request.jwtUser?.workspaceId;
     const email = body?.['email'] as string | undefined;
     const role = body?.['role'] as string | undefined;
-    const tenantId = body?.['tenantId'] as string | undefined;
-    const createdByUserId = body?.['createdByUserId'] as string | undefined;
+    const tenantId = workspaceId;
+    const createdByUserId = request.jwtUser?.userId;
 
     if (!workspaceId || !email || !role || !tenantId || !createdByUserId) {
       return reply.status(400).send({
         error: {
           code: 'VALIDATION_FAILED',
-          message: 'Missing required fields: workspaceId, email, role, tenantId, createdByUserId',
+          message: 'Token workspaceId, email, dan role wajib ada',
           requestId: getRequestId(request),
           retryable: false,
         },
@@ -107,20 +114,11 @@ export async function registerSchoolRoutes(
    */
   app.get(
     '/v1/school/:workspaceId/members',
+    { preHandler: [auth, adminOnly] },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { workspaceId } = request.params as { workspaceId: string };
-      const tenantId = (request.headers['x-tenant-id'] as string | undefined) ?? '';
-
-      if (!tenantId) {
-        return reply.status(400).send({
-          error: {
-            code: 'VALIDATION_FAILED',
-            message: 'Missing x-tenant-id header',
-            requestId: getRequestId(request),
-            retryable: false,
-          },
-        });
-      }
+      const workspaceId = request.jwtUser?.workspaceId;
+      if (!workspaceId) throwApiError('forbidden', 'Akun tidak terhubung ke workspace sekolah');
+      const tenantId = workspaceId;
 
       const members = await service.listMembers(tenantId, workspaceId);
       return reply.status(200).send({ data: members });

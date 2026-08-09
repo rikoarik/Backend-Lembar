@@ -13,14 +13,13 @@
  * DELETE /v1/school/members/:id      — remove member from workspace (school_admin only)
  *
  * Auth (GET endpoints): JWT Bearer — workspaceId read from request.jwtUser.workspaceId
- * Auth (mutating endpoints): x-tenant-id header + x-user-role header (legacy, kept for BC)
+ * Auth: JWT Bearer; workspace scope comes only from request.jwtUser.workspaceId.
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import type { SchoolService } from '../../application/SchoolService.js';
 import type { SchoolMember } from '../../domain/types.js';
-import { authenticate } from '../../../../common/middleware/authenticate.js';
-import { createJwtAuthMiddleware } from '../../../../common/middleware/jwtMultiRoleAuth.js';
+import { createJwtAuthMiddleware, requireRole } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import { throwApiError } from '../../../../common/errors/apiError.js';
 import { getPool, type Database } from '../../../../infrastructure/database/db.js';
 
@@ -28,45 +27,9 @@ function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? 'req_unknown';
 }
 
-/** Authenticated school-admin guard; role comes from the verified token, not a header. */
-function requireSchoolAdmin(
-  request: FastifyRequest,
-  reply: FastifyReply,
-  jwtSecret: string,
-): { tenantId: string; workspaceId: string; requestId: string } | null {
-  const requestId = getRequestId(request);
-  const user = authenticate(request, { secret: jwtSecret });
-
-  if (!user.roles.includes('school_admin')) {
-    void reply.status(403).send({
-      error: {
-        code: 'PERMISSION_DENIED',
-        message: 'This endpoint requires school_admin role',
-        requestId,
-        retryable: false,
-      },
-    });
-    return null;
-  }
-
-  if (!user.workspaceId) {
-    void reply.status(400).send({
-      error: {
-        code: 'VALIDATION_FAILED',
-        message: 'Missing workspaceId query parameter',
-        requestId,
-        retryable: false,
-      },
-    });
-    return null;
-  }
-
-  return { tenantId: user.tenantId, workspaceId: user.workspaceId, requestId };
-}
-
 export interface RegisterMemberRoutesOptions {
   service: SchoolService;
-  db: Database;
+  db?: Database;
   jwtSecret: string;
 }
 
@@ -76,6 +39,7 @@ export async function registerMemberRoutes(
 ): Promise<void> {
   const { service, db, jwtSecret } = options;
   const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
+  const adminOnly = requireRole(['school_admin']);
   // ── GET /v1/school/members ─────────────────────────────────────────────────
   /**
    * List workspace members with server-side search, role filter, and pagination.
@@ -89,7 +53,7 @@ export async function registerMemberRoutes(
    */
   app.get(
     '/v1/school/members',
-    { preHandler: [auth] },
+    { preHandler: [auth, adminOnly] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const requestId = getRequestId(request);
       const user = request.jwtUser!;
@@ -98,7 +62,7 @@ export async function registerMemberRoutes(
         throwApiError('forbidden', 'Akun tidak terhubung ke workspace sekolah');
       }
       const workspaceId = user.workspaceId!;
-      const tenantId = user.userId; // tenantId === userId for single-tenant JWT users
+      const tenantId = workspaceId;
 
       const { q, role, page: pageStr, limit: limitStr } = request.query as {
         q?: string;
@@ -118,7 +82,10 @@ export async function registerMemberRoutes(
 
       if (q && q.trim()) {
         const needle = q.trim().toLowerCase();
-        filtered = filtered.filter((m) => m.email.toLowerCase().includes(needle));
+        filtered = filtered.filter((m) =>
+          m.email.toLowerCase().includes(needle)
+          || ((m as SchoolMember & { name?: string }).name?.toLowerCase().includes(needle) ?? false),
+        );
       }
 
       if (role && role.trim()) {
@@ -151,15 +118,16 @@ export async function registerMemberRoutes(
    */
   app.get(
     '/v1/school/members/:id',
+    { preHandler: [auth, adminOnly] },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const requestId = getRequestId(request);
-      const user = authenticate(request, { secret: jwtSecret });
+      const user = request.jwtUser!;
 
       if (!user.workspaceId) {
         throwApiError('forbidden', 'Akun tidak terhubung ke workspace sekolah');
       }
       const workspaceId = user.workspaceId;
-      const tenantId = user.tenantId;
+      const tenantId = workspaceId;
 
       const { id: memberId } = request.params as { id: string };
 
@@ -184,7 +152,7 @@ export async function registerMemberRoutes(
       let assessmentCount = 0;
       let quotaUsed = 0;
 
-      const pool = getPool(db);
+      const pool = db ? getPool(db) : undefined;
       if (pool) {
         try {
           // name + lastActiveAt from jwt_users
@@ -251,19 +219,14 @@ export async function registerMemberRoutes(
    * Body:    { email, role }
    * Returns: { data: SchoolInvitationResult }
    */
-  app.post('/v1/school/members/invite', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/v1/school/members/invite', { preHandler: [auth, adminOnly] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = getRequestId(request);
-    const user = authenticate(request, { secret: jwtSecret });
-    const tenantId = user.tenantId;
+    const user = request.jwtUser!;
+    const tenantId = user.workspaceId!;
     const createdByUserId = user.userId;
     const workspaceId = user.workspaceId;
     const body = request.body as Record<string, unknown> | null | undefined;
 
-    if (!user.roles.includes('school_admin')) {
-      return reply.status(403).send({
-        error: { code: 'PERMISSION_DENIED', message: 'This endpoint requires school_admin role', requestId, retryable: false },
-      });
-    }
 
     if (!workspaceId) {
       return reply.status(400).send({
@@ -313,10 +276,12 @@ export async function registerMemberRoutes(
    */
   app.patch(
     '/v1/school/members/:id/role',
+    { preHandler: [auth, adminOnly] },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const ctx = requireSchoolAdmin(request, reply, jwtSecret);
-      if (!ctx) return;
-      const { tenantId, workspaceId, requestId } = ctx;
+      const requestId = getRequestId(request);
+      const workspaceId = request.jwtUser!.workspaceId;
+      if (!workspaceId) throwApiError('forbidden', 'Akun tidak terhubung ke workspace sekolah');
+      const tenantId = workspaceId;
 
       const { id: memberId } = request.params as { id: string };
       const body = request.body as Record<string, unknown> | null | undefined;
@@ -361,12 +326,29 @@ export async function registerMemberRoutes(
    */
   app.delete(
     '/v1/school/members/:id',
+    { preHandler: [auth, adminOnly] },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const ctx = requireSchoolAdmin(request, reply, jwtSecret);
-      if (!ctx) return;
-      const { tenantId, workspaceId, requestId } = ctx;
-
+      const requestId = getRequestId(request);
+      const user = request.jwtUser!;
+      const workspaceId = user.workspaceId;
+      if (!workspaceId) throwApiError('forbidden', 'Akun tidak terhubung ke workspace sekolah');
+      const tenantId = workspaceId;
       const { id: memberId } = request.params as { id: string };
+
+      if (memberId === user.userId) {
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_FAILED', message: 'Tidak dapat menghapus akun Anda sendiri', requestId, retryable: false },
+        });
+      }
+
+      const members = await service.listMembers(tenantId, workspaceId);
+      const target = members.find((member) => member.id === memberId);
+      if (target?.role === 'school_admin'
+        && members.filter((member) => member.role === 'school_admin' && member.state === 'active').length <= 1) {
+        return reply.status(409).send({
+          error: { code: 'STATE_CONFLICT', message: 'Admin sekolah terakhir tidak dapat dihapus', requestId, retryable: false },
+        });
+      }
 
       const removed = await service.removeMember(tenantId, workspaceId, memberId);
 

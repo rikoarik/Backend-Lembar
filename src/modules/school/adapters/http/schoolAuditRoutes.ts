@@ -43,11 +43,12 @@ export async function registerSchoolAuditRoutes(
     }
     const workspaceId = user.workspaceId!;
 
-    const { page: pageStr, limit: limitStr, actor, action } = request.query as {
+    const { page: pageStr, limit: limitStr, actor, action, q } = request.query as {
       page?: string;
       limit?: string;
       actor?: string;
       action?: string;
+      q?: string;
     };
 
     const page = Math.max(1, parseInt(pageStr ?? '1', 10) || 1);
@@ -78,6 +79,13 @@ export async function registerSchoolAuditRoutes(
       conditions.push(`e.action = $${idx}`);
     }
 
+    if (q?.trim()) {
+      countParams.push(`%${q.trim()}%`);
+      rowParams.push(`%${q.trim()}%`);
+      const idx = countParams.length;
+      conditions.push(`(e.action ILIKE $${idx} OR e.user_id::text ILIKE $${idx} OR e.metadata::text ILIKE $${idx})`);
+    }
+
     const whereClause = conditions.join(' AND ');
 
     rowParams.push(limit, offset);
@@ -96,7 +104,7 @@ export async function registerSchoolAuditRoutes(
         e.occurred_at          AS "at",
         e.user_id             AS "actor",
         e.action,
-        e.metadata             AS "target",
+        COALESCE(e.metadata->>'target', e.metadata->>'targetId', e.metadata::text, '') AS "target",
         e.metadata
       FROM auth_audit_events e
       WHERE ${whereClause}

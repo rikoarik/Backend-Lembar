@@ -95,7 +95,7 @@ export async function registerSettingsRoutes(
            t.slug,
            COALESCE(s.level, 'unknown')         AS level,
            COALESCE(wp.plan, 'free')             AS plan,
-           wp.generations_used_this_month        AS seats,
+           (SELECT COUNT(*)::int FROM jwt_users u WHERE u.workspace_id = $1::uuid AND u.suspended_at IS NULL) AS seats,
            wp.billing_cycle_started_at           AS renews_at,
            t.created_at
          FROM tenants t
