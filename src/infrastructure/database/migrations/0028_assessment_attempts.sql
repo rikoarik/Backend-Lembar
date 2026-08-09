@@ -12,5 +12,34 @@ CREATE TABLE IF NOT EXISTS assessment_attempt_answers (
  question_id uuid NOT NULL REFERENCES generated_questions(id) ON DELETE RESTRICT, value text NOT NULL, is_correct boolean, score integer, needs_grading boolean NOT NULL DEFAULT false,
  graded_at timestamptz, UNIQUE (attempt_id, question_id)
 );
+DO $$
+BEGIN
+ IF EXISTS (
+  SELECT 1 FROM pg_constraint
+  WHERE conrelid = 'assessment_attempts'::regclass
+    AND conname = 'assessment_attempts_share_link_id_fkey'
+    AND confdeltype <> 'r'
+ ) THEN
+  ALTER TABLE assessment_attempts DROP CONSTRAINT assessment_attempts_share_link_id_fkey;
+ END IF;
+ IF NOT EXISTS (
+  SELECT 1 FROM pg_constraint
+  WHERE conrelid = 'assessment_attempts'::regclass
+    AND conname = 'assessment_attempts_share_link_id_fkey'
+ ) THEN
+  ALTER TABLE assessment_attempts
+   ADD CONSTRAINT assessment_attempts_share_link_id_fkey
+   FOREIGN KEY (share_link_id) REFERENCES share_links(id) ON DELETE RESTRICT;
+ END IF;
+ IF NOT EXISTS (
+  SELECT 1 FROM pg_constraint
+  WHERE conrelid = 'assessment_attempt_answers'::regclass
+    AND conname = 'assessment_attempt_answers_question_id_fkey'
+ ) THEN
+  ALTER TABLE assessment_attempt_answers
+   ADD CONSTRAINT assessment_attempt_answers_question_id_fkey
+   FOREIGN KEY (question_id) REFERENCES generated_questions(id) ON DELETE RESTRICT;
+ END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS assessment_attempts_results ON assessment_attempts(workspace_id, assessment_id, submitted_at);
 CREATE INDEX IF NOT EXISTS assessment_attempt_answers_attempt ON assessment_attempt_answers(attempt_id);
