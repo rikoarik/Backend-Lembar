@@ -463,16 +463,18 @@ export async function buildApp(
     });
 
     // Register all routes
-    registerAssessmentRoutes(app, assessmentService);
+    const assessmentAuth = { jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production' };
+    registerAssessmentRoutes(app, assessmentService, assessmentAuth);
     await registerHistoryRoutes(app, historyService);
     await registerShareRoutes(app, shareLinkService, {
       assessmentsStore: assessmentStore,
       questionStore: questionGenStore,
+      ...assessmentAuth,
     });
-    await registerQuestionReviewRoutes(app, questionReviewService, finalizationService);
+    await registerQuestionReviewRoutes(app, questionReviewService, finalizationService, assessmentAuth);
     await registerBlueprintPipelineRoutes(app, blueprintService);
-    await registerPrintRoutes(app, printService);
-    await registerArtifactRoutes(app, printArtifactService);
+    await registerPrintRoutes(app, printService, assessmentAuth);
+    await registerArtifactRoutes(app, printArtifactService, assessmentAuth);
   }
 
   // Catalog routes (fallback to static data if DB empty)

@@ -28,6 +28,7 @@ import {
 } from '../../application/QuestionReviewService.js';
 import type { QuestionReviewService } from '../../application/QuestionReviewService.js';
 import type { FinalizationService } from '../../application/FinalizationService.js';
+import { assessmentPrivateAuth, jwtActor, jwtWorkspace, type AssessmentRouteAuthOptions } from './privateAuth.js';
 
 function getRequestId(request: FastifyRequest): string {
   return (request.headers['x-request-id'] as string | undefined) ?? 'unknown';
@@ -94,20 +95,24 @@ export async function registerQuestionReviewRoutes(
   app: FastifyInstance,
   reviewService: QuestionReviewService,
   finalizationService: FinalizationService,
+  authOptions: AssessmentRouteAuthOptions,
 ): Promise<void> {
+  const privateAuth = assessmentPrivateAuth(authOptions);
   const BASE =
     '/v1/workspaces/:workspaceId/assessments/:assessmentId/versions/:versionId/questions';
 
   app.post(
     '/v1/workspaces/:workspaceId/assessments/:assessmentId/versions/:versionId/bulk-accept',
+    { preHandler: privateAuth },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { workspaceId, versionId } = request.params as {
+      const { workspaceId: _pathWorkspaceId, versionId } = request.params as {
         workspaceId: string;
         assessmentId: string;
         versionId: string;
       };
+      const workspaceId = jwtWorkspace(request);
       const body = (request.body ?? {}) as BulkAcceptBody;
-      const actorUserId = (request.headers['x-actor-user-id'] as string | undefined) ?? 'system';
+      const actorUserId = jwtActor(request);
 
       try {
         if (
@@ -135,12 +140,13 @@ export async function registerQuestionReviewRoutes(
   );
 
   // ── LIST questions for the review workspace ───────────────────────────────
-  app.get(`${BASE}`, async (request: FastifyRequest, reply: FastifyReply) => {
-    const { workspaceId, versionId } = request.params as {
+  app.get(`${BASE}`, { preHandler: privateAuth }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { workspaceId: _pathWorkspaceId, versionId } = request.params as {
       workspaceId: string;
       assessmentId: string;
       versionId: string;
     };
+    const workspaceId = jwtWorkspace(request);
     try {
       const questions = await reviewService.listQuestions(workspaceId, versionId);
       return reply.status(200).send({ data: { questions } });
@@ -150,13 +156,14 @@ export async function registerQuestionReviewRoutes(
   });
 
   // ── GET question + ETag header (B4-01, B4-03) ─────────────────────────────
-  app.get(`${BASE}/:qId`, async (request: FastifyRequest, reply: FastifyReply) => {
-    const { workspaceId, qId } = request.params as {
+  app.get(`${BASE}/:qId`, { preHandler: privateAuth }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { workspaceId: _pathWorkspaceId, qId } = request.params as {
       workspaceId: string;
       assessmentId: string;
       versionId: string;
       qId: string;
     };
+    const workspaceId = jwtWorkspace(request);
     try {
       const q = await reviewService.getQuestion(workspaceId, qId);
       reply.header('ETag', `"${q.etag}"`);
@@ -167,16 +174,17 @@ export async function registerQuestionReviewRoutes(
   });
 
   // ── PATCH edit question (B4-01 versioned edit, B4-03 If-Match) ────────────
-  app.patch(`${BASE}/:qId`, async (request: FastifyRequest, reply: FastifyReply) => {
-    const { workspaceId, qId } = request.params as {
+  app.patch(`${BASE}/:qId`, { preHandler: privateAuth }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { workspaceId: _pathWorkspaceId, qId } = request.params as {
       workspaceId: string;
       assessmentId: string;
       versionId: string;
       qId: string;
     };
+    const workspaceId = jwtWorkspace(request);
     const ifMatch = request.headers['if-match'] as string | undefined;
     const body = (request.body ?? {}) as EditQuestionBody;
-    const actorUserId = (request.headers['x-actor-user-id'] as string | undefined) ?? 'system';
+    const actorUserId = jwtActor(request);
 
     try {
       // Extract etag value from If-Match header (strip quotes if present)
@@ -201,14 +209,15 @@ export async function registerQuestionReviewRoutes(
   });
 
   // ── DELETE question (B4-01) ────────────────────────────────────────────────
-  app.delete(`${BASE}/:qId`, async (request: FastifyRequest, reply: FastifyReply) => {
-    const { workspaceId, qId } = request.params as {
+  app.delete(`${BASE}/:qId`, { preHandler: privateAuth }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { workspaceId: _pathWorkspaceId, qId } = request.params as {
       workspaceId: string;
       assessmentId: string;
       versionId: string;
       qId: string;
     };
-    const actorUserId = (request.headers['x-actor-user-id'] as string | undefined) ?? 'system';
+    const workspaceId = jwtWorkspace(request);
+    const actorUserId = jwtActor(request);
 
     try {
       await reviewService.deleteQuestion(workspaceId, qId, actorUserId);
@@ -219,13 +228,14 @@ export async function registerQuestionReviewRoutes(
   });
 
   // ── GET audit trail (B4-01) ───────────────────────────────────────────────
-  app.get(`${BASE}/:qId/audit`, async (request: FastifyRequest, reply: FastifyReply) => {
-    const { workspaceId, qId } = request.params as {
+  app.get(`${BASE}/:qId/audit`, { preHandler: privateAuth }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { workspaceId: _pathWorkspaceId, qId } = request.params as {
       workspaceId: string;
       assessmentId: string;
       versionId: string;
       qId: string;
     };
+    const workspaceId = jwtWorkspace(request);
 
     try {
       const log = await reviewService.getAuditLog(workspaceId, qId);
@@ -236,15 +246,16 @@ export async function registerQuestionReviewRoutes(
   });
 
   // ── POST regenerate — create candidate (B4-02) ────────────────────────────
-  app.post(`${BASE}/:qId/regenerate`, async (request: FastifyRequest, reply: FastifyReply) => {
-    const { workspaceId, qId } = request.params as {
+  app.post(`${BASE}/:qId/regenerate`, { preHandler: privateAuth }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const { workspaceId: _pathWorkspaceId, qId } = request.params as {
       workspaceId: string;
       assessmentId: string;
       versionId: string;
       qId: string;
     };
+    const workspaceId = jwtWorkspace(request);
     const body = (request.body ?? {}) as RegenerateBody;
-    const actorUserId = (request.headers['x-actor-user-id'] as string | undefined) ?? 'system';
+    const actorUserId = jwtActor(request);
 
     try {
       const result = await reviewService.createCandidate(
@@ -265,14 +276,16 @@ export async function registerQuestionReviewRoutes(
   // ── PATCH accept-candidate (B4-02) ────────────────────────────────────────
   app.patch(
     `${BASE}/:qId/accept-candidate`,
+    { preHandler: privateAuth },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { workspaceId, qId } = request.params as {
+      const { workspaceId: _pathWorkspaceId, qId } = request.params as {
         workspaceId: string;
         assessmentId: string;
         versionId: string;
         qId: string;
       };
-      const actorUserId = (request.headers['x-actor-user-id'] as string | undefined) ?? 'system';
+      const workspaceId = jwtWorkspace(request);
+      const actorUserId = jwtActor(request);
 
       try {
         const accepted = await reviewService.acceptCandidate(workspaceId, qId, actorUserId);
@@ -287,14 +300,16 @@ export async function registerQuestionReviewRoutes(
   // ── PATCH reject-candidate (B4-02) ────────────────────────────────────────
   app.patch(
     `${BASE}/:qId/reject-candidate`,
+    { preHandler: privateAuth },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { workspaceId, qId } = request.params as {
+      const { workspaceId: _pathWorkspaceId, qId } = request.params as {
         workspaceId: string;
         assessmentId: string;
         versionId: string;
         qId: string;
       };
-      const actorUserId = (request.headers['x-actor-user-id'] as string | undefined) ?? 'system';
+      const workspaceId = jwtWorkspace(request);
+      const actorUserId = jwtActor(request);
 
       try {
         const original = await reviewService.rejectCandidate(workspaceId, qId, actorUserId);
@@ -309,13 +324,15 @@ export async function registerQuestionReviewRoutes(
   // ── POST finalize (B4-04) ─────────────────────────────────────────────────
   app.post(
     '/v1/workspaces/:workspaceId/assessments/:assessmentId/versions/:versionId/finalize',
+    { preHandler: privateAuth },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { workspaceId, versionId } = request.params as {
+      const { workspaceId: _pathWorkspaceId, versionId } = request.params as {
         workspaceId: string;
         assessmentId: string;
         versionId: string;
       };
-      const actorUserId = (request.headers['x-actor-user-id'] as string | undefined) ?? 'system';
+      const workspaceId = jwtWorkspace(request);
+      const actorUserId = jwtActor(request);
 
       try {
         const result = await finalizationService.finalizeAssessmentVersion(

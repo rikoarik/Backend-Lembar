@@ -16,25 +16,12 @@ import { ApiError, buildErrorEnvelope } from '../../../../common/errors/envelope
 import type { ShareLinkService } from '../../application/ShareLinkService.js';
 import type { AssessmentsStore } from '../../domain/Assessment.js';
 import type { QuestionGenerationStore } from '../../domain/QuestionGeneration.js';
+import { assessmentPrivateAuth, jwtWorkspace } from './privateAuth.js';
 
 function getRequestId(request: FastifyRequest): string {
   return (request.headers['x-request-id'] as string | undefined) ?? 'unknown';
 }
 
-function getWorkspaceId(request: FastifyRequest, reply: FastifyReply): string | null {
-  const wsId = request.headers['x-workspace-id'] as string | undefined;
-  if (!wsId) {
-    reply.status(400).send(
-      buildErrorEnvelope({
-        code: 'VALIDATION_FAILED',
-        message: 'x-workspace-id header is required',
-        requestId: getRequestId(request),
-      }),
-    );
-    return null;
-  }
-  return wsId;
-}
 
 function handleError(err: unknown, request: FastifyRequest, reply: FastifyReply): void {
   if (err instanceof ApiError) {
@@ -58,23 +45,24 @@ interface CreateShareBody {
 export interface RegisterShareRoutesOptions {
   assessmentsStore?: AssessmentsStore;
   questionStore?: QuestionGenerationStore;
+  jwtSecret: string;
 }
 
 export async function registerShareRoutes(
   app: FastifyInstance,
   service: ShareLinkService,
-  options: RegisterShareRoutesOptions = {},
+  options: RegisterShareRoutesOptions,
 ): Promise<void> {
   const { assessmentsStore, questionStore } = options;
+  const privateAuth = assessmentPrivateAuth({ jwtSecret: options.jwtSecret });
 
   /**
    * GET /v1/shares?assessmentId=<id>
    * List all share links for an assessment (tenant-scoped).
    * Requires x-workspace-id header.
    */
-  app.get('/v1/shares', async (request: FastifyRequest, reply: FastifyReply) => {
-    const workspaceId = getWorkspaceId(request, reply);
-    if (!workspaceId) return;
+  app.get('/v1/shares', { preHandler: privateAuth }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = jwtWorkspace(request);
 
     const { assessmentId } = request.query as { assessmentId?: string };
     if (!assessmentId) {
@@ -109,9 +97,8 @@ export async function registerShareRoutes(
    * Create share link with expiry TTL and high-entropy token.
    * Requires x-workspace-id header.
    */
-  app.post('/v1/shares', async (request: FastifyRequest, reply: FastifyReply) => {
-    const workspaceId = getWorkspaceId(request, reply);
-    if (!workspaceId) return;
+  app.post('/v1/shares', { preHandler: privateAuth }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = jwtWorkspace(request);
 
     const body = request.body as CreateShareBody | undefined;
     if (!body?.assessmentId) {
@@ -219,9 +206,9 @@ export async function registerShareRoutes(
    */
   app.delete(
     '/v1/shares/:token/revoke',
+    { preHandler: privateAuth },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const workspaceId = getWorkspaceId(request, reply);
-      if (!workspaceId) return;
+      const workspaceId = jwtWorkspace(request);
 
       const { token } = request.params as { token: string };
 

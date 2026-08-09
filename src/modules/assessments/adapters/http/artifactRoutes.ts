@@ -11,25 +11,12 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import { ApiError, buildErrorEnvelope } from '../../../../common/errors/envelope.js';
 import type { PrintArtifactService } from '../../application/PrintArtifactService.js';
+import { assessmentPrivateAuth, jwtWorkspace, type AssessmentRouteAuthOptions } from './privateAuth.js';
 
 function getRequestId(request: FastifyRequest): string {
   return (request.headers['x-request-id'] as string | undefined) ?? 'unknown';
 }
 
-function getWorkspaceId(request: FastifyRequest, reply: FastifyReply): string | null {
-  const wsId = request.headers['x-workspace-id'] as string | undefined;
-  if (!wsId) {
-    reply.status(400).send(
-      buildErrorEnvelope({
-        code: 'VALIDATION_FAILED',
-        message: 'x-workspace-id header is required',
-        requestId: getRequestId(request),
-      }),
-    );
-    return null;
-  }
-  return wsId;
-}
 
 function handleError(err: unknown, request: FastifyRequest, reply: FastifyReply): void {
   if (err instanceof ApiError) {
@@ -48,6 +35,7 @@ function handleError(err: unknown, request: FastifyRequest, reply: FastifyReply)
 export async function registerArtifactRoutes(
   app: FastifyInstance,
   service: PrintArtifactService,
+  authOptions: AssessmentRouteAuthOptions,
 ): Promise<void> {
   /**
    * POST /v1/assessments/:id/output
@@ -55,9 +43,9 @@ export async function registerArtifactRoutes(
    */
   app.post(
     '/v1/assessments/:id/output',
+    { preHandler: assessmentPrivateAuth(authOptions) },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const workspaceId = getWorkspaceId(request, reply);
-      if (!workspaceId) return;
+      const workspaceId = jwtWorkspace(request);
 
       const { id } = request.params as { id: string };
 
@@ -88,9 +76,9 @@ export async function registerArtifactRoutes(
    */
   app.get(
     '/v1/assessments/:id/output',
+    { preHandler: assessmentPrivateAuth(authOptions) },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const workspaceId = getWorkspaceId(request, reply);
-      if (!workspaceId) return;
+      const workspaceId = jwtWorkspace(request);
 
       const { id } = request.params as { id: string };
 

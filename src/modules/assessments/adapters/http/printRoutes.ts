@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import { ApiError, buildErrorEnvelope } from '../../../../common/errors/envelope.js';
 import type { PrintService } from '../../application/PrintService.js';
+import { assessmentPrivateAuth, jwtWorkspace, type AssessmentRouteAuthOptions } from './privateAuth.js';
 
 function getRequestId(request: FastifyRequest): string {
   return (request.headers['x-request-id'] as string | undefined) ?? 'unknown';
@@ -34,6 +35,7 @@ function handleError(err: unknown, request: FastifyRequest, reply: FastifyReply)
 export async function registerPrintRoutes(
   app: FastifyInstance,
   service: PrintService,
+  authOptions: AssessmentRouteAuthOptions,
 ): Promise<void> {
   /**
    * GET /v1/assessments/:id/print
@@ -43,20 +45,12 @@ export async function registerPrintRoutes(
    */
   app.get(
     '/v1/assessments/:id/print',
+    { preHandler: assessmentPrivateAuth(authOptions) },
     async (request: FastifyRequest, reply: FastifyReply) => {
       const { id } = request.params as { id: string };
       const requestId = getRequestId(request);
 
-      const workspaceId = request.headers['x-workspace-id'] as string | undefined;
-      if (!workspaceId) {
-        return reply.status(400).send(
-          buildErrorEnvelope({
-            code: 'VALIDATION_FAILED',
-            message: 'x-workspace-id header is required',
-            requestId,
-          }),
-        );
-      }
+      const workspaceId = jwtWorkspace(request);
 
       try {
         const doc = await service.buildPrintDocument(workspaceId, id, requestId);

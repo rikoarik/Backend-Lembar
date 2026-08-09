@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { generateJwt } from '../../../src/modules/auth/infrastructure/jwtMultiRole.js';
 import { describe, expect, it } from 'vitest';
 
 import { QuestionReviewService } from '../../../src/modules/assessments/application/QuestionReviewService.js';
@@ -89,12 +90,13 @@ describe('P0-E: bulk accept reviewed questions', () => {
     const finalizationService = new FinalizationService({ store, reviewService });
     const question = await reviewService.importQuestion(makeGeneratedQuestion('gq-4'), 'user-1');
     const app = Fastify();
-    await registerQuestionReviewRoutes(app, reviewService, finalizationService);
+    const secret = 'bulk-accept-test-secret';
+    await registerQuestionReviewRoutes(app, reviewService, finalizationService, { jwtSecret: secret });
 
     const response = await app.inject({
       method: 'POST',
       url: '/v1/workspaces/ws-1/assessments/assessment-1/versions/version-1/bulk-accept',
-      headers: { 'x-actor-user-id': 'user-1' },
+      headers: { authorization: `Bearer ${generateJwt({ userId: 'user-1', email: 'user@example.test', roles: ['teacher'], workspaceId: 'ws-1' }, { secret, expiryDays: 1 })}` },
       payload: { questionIds: [question.id, 'missing'] },
     });
 

@@ -11,6 +11,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ApiError, buildErrorEnvelope } from '../../../../common/errors/envelope.js';
 import type { AssessmentService } from '../../application/AssessmentService.js';
 import type { QuestionType, Difficulty } from '../../domain/Assessment.js';
+import { assessmentPrivateAuth, jwtActor, jwtWorkspace, type AssessmentRouteAuthOptions } from './privateAuth.js';
 
 const VALID_QUESTION_TYPES: QuestionType[] = [
   'multiple_choice',
@@ -61,12 +62,15 @@ function handleError(err: unknown, request: FastifyRequest, reply: FastifyReply)
 export async function registerAssessmentRoutes(
   app: FastifyInstance,
   service: AssessmentService,
+  authOptions: AssessmentRouteAuthOptions,
 ): Promise<void> {
+  const privateAuth = assessmentPrivateAuth(authOptions);
   // POST /v1/workspaces/:workspaceId/assessments
   app.post(
     '/v1/workspaces/:workspaceId/assessments',
+    { preHandler: privateAuth },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { workspaceId } = request.params as { workspaceId: string };
+      const workspaceId = jwtWorkspace(request);
       const body = request.body as CreateAssessmentBody;
       const requestId = getRequestId(request);
       const idempotencyKey = (request.headers['idempotency-key'] as string | undefined) ?? null;
@@ -137,9 +141,7 @@ export async function registerAssessmentRoutes(
       }
 
       try {
-        // Extract actor user id from auth context (stub: use header for now, real auth in B1-01).
-        const actorUserId =
-          (request.headers['x-actor-user-id'] as string | undefined) ?? 'anonymous';
+        const actorUserId = jwtActor(request);
 
         const result = await service.createConfig({
           workspaceId,
@@ -180,8 +182,9 @@ export async function registerAssessmentRoutes(
   // GET /v1/workspaces/:workspaceId/assessments
   app.get(
     '/v1/workspaces/:workspaceId/assessments',
+    { preHandler: privateAuth },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { workspaceId } = request.params as { workspaceId: string };
+      const workspaceId = jwtWorkspace(request);
       const query = request.query as { limit?: string; cursor?: string };
       const limit = Math.min(parseInt(query.limit ?? '20', 10) || 20, 100);
 
@@ -200,8 +203,10 @@ export async function registerAssessmentRoutes(
   // GET /v1/workspaces/:workspaceId/assessments/:id
   app.get(
     '/v1/workspaces/:workspaceId/assessments/:id',
+    { preHandler: privateAuth },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const { workspaceId, id } = request.params as { workspaceId: string; id: string };
+      const { id } = request.params as { id: string };
+      const workspaceId = jwtWorkspace(request);
       const requestId = getRequestId(request);
 
       try {
