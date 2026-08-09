@@ -176,9 +176,9 @@ export class PostgresSchoolInvitationStore implements SchoolInvitationStore {
     if (!pool) return;
     await pool.query(
       `INSERT INTO auth_school_invitations
-         (id, tenant_id, email, role, state, token_hash, workspace_id, expires_at, created_at)
+         (id, tenant_id, email, role, state, token_hash, expires_at, created_at)
        VALUES
-         (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, $6::uuid, $7, now())
+         (gen_random_uuid(), $1::uuid, $2, $3, $4, $5, $6, now())
        ON CONFLICT (token_hash)
        DO UPDATE SET state = EXCLUDED.state`,
       [
@@ -187,7 +187,6 @@ export class PostgresSchoolInvitationStore implements SchoolInvitationStore {
         record.role,
         record.state,
         record.tokenHash,
-        record.workspaceId,
         record.expiresAt,
       ],
     );
@@ -213,7 +212,7 @@ export class PostgresSchoolInvitationStore implements SchoolInvitationStore {
       state: string;
       expires_at: Date;
     }>(
-      `SELECT token_hash, email, workspace_id, tenant_id, role, state, expires_at
+      `SELECT token_hash, email, tenant_id AS workspace_id, tenant_id, role, state, expires_at
        FROM auth_school_invitations
        WHERE token_hash = $1
        LIMIT 1`,
