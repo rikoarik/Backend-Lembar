@@ -9,7 +9,12 @@ import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/er
 import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
 import { parseDatabaseEnv } from '../config/database.env.js';
 import { parseQueueEnv } from '../config/queue.env.js';
-import { closeDatabase, createDatabase, getPool, type Database } from '../infrastructure/database/db.js';
+import {
+  closeDatabase,
+  createDatabase,
+  getPool,
+  type Database,
+} from '../infrastructure/database/db.js';
 import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRoutes.js';
 import { createSharedQueueStore } from '../infrastructure/queue/createSharedQueueStore.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
@@ -26,7 +31,10 @@ import type { AuthService } from '../modules/auth/application/AuthService.js';
 
 // B6-04: Ops routes
 import { MetricsCollector } from '../modules/ops/application/MetricsCollector.js';
-import { LeadCaptureService, InMemoryLeadStore } from '../modules/ops/application/LeadCaptureService.js';
+import {
+  LeadCaptureService,
+  InMemoryLeadStore,
+} from '../modules/ops/application/LeadCaptureService.js';
 import { registerOpsRoutes } from '../modules/ops/adapters/http/opsRoutes.js';
 
 // B6-01: Plan routes
@@ -59,6 +67,9 @@ import { ShareLinkService } from '../modules/assessments/application/ShareLinkSe
 import { PostgresShareLinkStore } from '../modules/assessments/persistence/PostgresShareLinkStore.js';
 import { InMemoryShareLinkStore } from '../modules/assessments/persistence/InMemoryShareLinkStore.js';
 import { registerShareRoutes } from '../modules/assessments/adapters/http/shareRoutes.js';
+import { DurableAttemptService } from '../modules/lms/application/DurableAttemptService.js';
+import { PostgresAttemptStore } from '../modules/lms/persistence/PostgresAttemptStore.js';
+import { registerDurableAttemptRoutes } from '../modules/lms/adapters/http/durableAttemptRoutes.js';
 // B4-01: Question review + finalization
 import { QuestionReviewService } from '../modules/assessments/application/QuestionReviewService.js';
 import { InMemoryQuestionReviewStore } from '../modules/assessments/persistence/InMemoryQuestionReviewStore.js';
@@ -102,7 +113,10 @@ import { registerAiFeedbackRoutes } from '../modules/ai/adapters/http/aiFeedback
 // School routes
 import { SchoolService } from '../modules/school/application/SchoolService.js';
 import { SchoolDashboardService } from '../modules/school/application/SchoolDashboardService.js';
-import { InMemorySchoolWorkspaceStore, InMemorySchoolInvitationStore } from '../modules/school/persistence/InMemorySchoolStores.js';
+import {
+  InMemorySchoolWorkspaceStore,
+  InMemorySchoolInvitationStore,
+} from '../modules/school/persistence/InMemorySchoolStores.js';
 import { PostgresSchoolWorkspaceStore } from '../modules/school/persistence/PostgresSchoolStores.js';
 import { PostgresSchoolInvitationStore } from '../modules/school/persistence/PostgresSchoolStores.js';
 import { registerSchoolRoutes } from '../modules/school/adapters/http/schoolRoutes.js';
@@ -224,7 +238,8 @@ export async function buildApp(
     // Helpful message for known-but-unregistered routes
     const hints: Record<string, string> = {
       '/v1/admin': 'Module admin belum di-register. Butuh AdminDataStore implementation.',
-      '/v1/catalog': 'Module catalog belum di-register. Endpoint ada di OpenAPI spec tapi belum ada backend implementation.',
+      '/v1/catalog':
+        'Module catalog belum di-register. Endpoint ada di OpenAPI spec tapi belum ada backend implementation.',
     };
 
     const hintKey = Object.keys(hints).find((k) => url.startsWith(k));
@@ -291,7 +306,7 @@ export async function buildApp(
 
   // JWT Multi-Role Auth Routes (primary auth)
   if (authDb) {
-    await registerJwtMultiRoleRoutes(app, { 
+    await registerJwtMultiRoleRoutes(app, {
       db: authDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
       jwtExpiryDays: parseInt(process.env.JWT_EXPIRY_DAYS || '7', 10),
@@ -301,7 +316,8 @@ export async function buildApp(
     // Google OAuth routes
     const googleClientId = process.env.GOOGLE_CLIENT_ID;
     const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI ?? 'http://localhost:3000/auth/callback';
+    const googleRedirectUri =
+      process.env.GOOGLE_REDIRECT_URI ?? 'http://localhost:3000/auth/callback';
 
     if (googleClientId && googleClientSecret) {
       await registerGoogleOAuthRoutes(app, {
@@ -316,19 +332,34 @@ export async function buildApp(
       });
     }
   }
-  
+
   const generationPlanRepo = managedDb ? new WorkspacePlanRepository(managedDb) : null;
   const generationTrialRepo = managedDb ? new TrialRepository(managedDb) : null;
-  const generationPlanService = generationPlanRepo && generationTrialRepo
-    ? new PlanService(generationPlanRepo, generationTrialRepo)
-    : null;
+  const generationPlanService =
+    generationPlanRepo && generationTrialRepo
+      ? new PlanService(generationPlanRepo, generationTrialRepo)
+      : null;
   await app.register(registerJobRoutes, {
     Store: createSharedQueueStore(process.env),
     jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
-    ...(generationPlanService ? { generationAccess: {
-      assertGenerationAllowed: async (input) => generationPlanService.assertQuota(input.tenantId, input.workspaceId, input.deviceToken),
-      recordGeneration: async (input) => generationPlanService.recordGeneration(input.tenantId, input.workspaceId, input.idempotencyKey),
-    } } : {}),
+    ...(generationPlanService
+      ? {
+          generationAccess: {
+            assertGenerationAllowed: async (input) =>
+              generationPlanService.assertQuota(
+                input.tenantId,
+                input.workspaceId,
+                input.deviceToken,
+              ),
+            recordGeneration: async (input) =>
+              generationPlanService.recordGeneration(
+                input.tenantId,
+                input.workspaceId,
+                input.idempotencyKey,
+              ),
+          },
+        }
+      : {}),
   });
 
   // B2-05: Wire job status and recovery routes
@@ -355,11 +386,11 @@ export async function buildApp(
     await registerMarketingRoutes(app, { db: marketingDb });
     await registerMarketingOpsRoutes(app, { db: marketingDb });
   }
-  await app.register(registerNotificationRoutes, notificationDb ? { db: notificationDb } : {} );
+  await app.register(registerNotificationRoutes, notificationDb ? { db: notificationDb } : {});
   await registerUploadsAuthHook(app, {
     jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
   });
-  await registerUploadRoutes(app, options.uploadsDb ? { db: options.uploadsDb } : {} );
+  await registerUploadRoutes(app, options.uploadsDb ? { db: options.uploadsDb } : {});
 
   // B6-04: Ops routes (metrics + leads)
   if (managedDb) {
@@ -375,7 +406,12 @@ export async function buildApp(
     const trialRepo = new TrialRepository(managedDb);
     const planService = new PlanService(planRepo, trialRepo);
     registerPlanRoutes(app, planService, {
-      trials: new TrialService(trialRepo, process.env.TRIAL_IDENTITY_PEPPER ?? process.env.JWT_SECRET ?? 'dev-secret-change-in-production'),
+      trials: new TrialService(
+        trialRepo,
+        process.env.TRIAL_IDENTITY_PEPPER ??
+          process.env.JWT_SECRET ??
+          'dev-secret-change-in-production',
+      ),
       jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
     });
   }
@@ -384,7 +420,10 @@ export async function buildApp(
   if (managedDb) {
     const planRepo = new WorkspacePlanRepository(managedDb);
     const paymentRepo = new PaymentRepository(managedDb);
-    const paymentOpts: { midtransServerKey?: string | undefined; stripeWebhookSecret?: string | undefined } = {};
+    const paymentOpts: {
+      midtransServerKey?: string | undefined;
+      stripeWebhookSecret?: string | undefined;
+    } = {};
     const midtransKey = process.env['MIDTRANS_SERVER_KEY'];
     const stripeSecret = process.env['STRIPE_WEBHOOK_SECRET'];
     if (midtransKey !== undefined) paymentOpts.midtransServerKey = midtransKey;
@@ -399,7 +438,7 @@ export async function buildApp(
     await registerSubscriptionRoutes(app, paymentRouteOptions);
   }
 
-// B2-03: Assessment routes (Postgres when configured; in-memory for local smoke)
+  // B2-03: Assessment routes (Postgres when configured; in-memory for local smoke)
   {
     const pool = managedDb ? getPool(managedDb) : undefined;
     const assessmentStore = managedDb
@@ -414,7 +453,9 @@ export async function buildApp(
       ? new PostgresQuestionReviewStore(managedDb)
       : new InMemoryQuestionReviewStore();
     const blueprintStore = new InMemoryBlueprintPipelineStore();
-    const shareLinkStore = managedDb ? new PostgresShareLinkStore(managedDb) : new InMemoryShareLinkStore();
+    const shareLinkStore = managedDb
+      ? new PostgresShareLinkStore(managedDb)
+      : new InMemoryShareLinkStore();
     const printArtifactStore = new InMemoryPrintArtifactStore();
 
     const assessmentService = new AssessmentService({
@@ -442,7 +483,9 @@ export async function buildApp(
     // B3-02: Blueprint pipeline
     const passagesStore = new InMemorySourcePassagesStore();
     const sourceRetrievalStore = new InMemorySourceRetrievalStore({ passagesStore, uploadsStore });
-    const sourceRetrievalService = new SourceRetrievalService({ retrievalStore: sourceRetrievalStore });
+    const sourceRetrievalService = new SourceRetrievalService({
+      retrievalStore: sourceRetrievalStore,
+    });
     const blueprintService = new BlueprintPipelineService({
       store: blueprintStore,
       assessmentsStore: assessmentStore,
@@ -463,7 +506,9 @@ export async function buildApp(
     });
 
     // Register all routes
-    const assessmentAuth = { jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production' };
+    const assessmentAuth = {
+      jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+    };
     registerAssessmentRoutes(app, assessmentService, assessmentAuth);
     await registerHistoryRoutes(app, historyService);
     await registerShareRoutes(app, shareLinkService, {
@@ -471,7 +516,23 @@ export async function buildApp(
       questionStore: questionGenStore,
       ...assessmentAuth,
     });
-    await registerQuestionReviewRoutes(app, questionReviewService, finalizationService, assessmentAuth);
+    if (managedDb) {
+      const pool = getPool(managedDb);
+      if (pool)
+        await registerDurableAttemptRoutes(app, {
+          service: new DurableAttemptService(new PostgresAttemptStore(pool)),
+          shareService: shareLinkService,
+          assessmentsStore: assessmentStore,
+          questionStore: questionGenStore,
+          ...assessmentAuth,
+        });
+    }
+    await registerQuestionReviewRoutes(
+      app,
+      questionReviewService,
+      finalizationService,
+      assessmentAuth,
+    );
     await registerBlueprintPipelineRoutes(app, blueprintService);
     await registerPrintRoutes(app, printService, assessmentAuth);
     await registerArtifactRoutes(app, printArtifactService, assessmentAuth);
@@ -522,7 +583,10 @@ export async function buildApp(
     });
 
     // School dashboard
-    const schoolDashboardService = new SchoolDashboardService(schoolWorkspaceStore, new WorkspacePlanRepository(managedDb));
+    const schoolDashboardService = new SchoolDashboardService(
+      schoolWorkspaceStore,
+      new WorkspacePlanRepository(managedDb),
+    );
     registerDashboardRoutes(app, {
       dashboardService: schoolDashboardService,
       db: managedDb,

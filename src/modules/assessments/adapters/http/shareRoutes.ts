@@ -22,7 +22,6 @@ function getRequestId(request: FastifyRequest): string {
   return (request.headers['x-request-id'] as string | undefined) ?? 'unknown';
 }
 
-
 function handleError(err: unknown, request: FastifyRequest, reply: FastifyReply): void {
   if (err instanceof ApiError) {
     reply.status(err.status).send(err.toEnvelope());
@@ -61,76 +60,84 @@ export async function registerShareRoutes(
    * List all share links for an assessment (tenant-scoped).
    * Requires x-workspace-id header.
    */
-  app.get('/v1/shares', { preHandler: privateAuth }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const workspaceId = jwtWorkspace(request);
+  app.get(
+    '/v1/shares',
+    { preHandler: privateAuth },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const workspaceId = jwtWorkspace(request);
 
-    const { assessmentId } = request.query as { assessmentId?: string };
-    if (!assessmentId) {
-      return reply.status(400).send(
-        buildErrorEnvelope({
-          code: 'VALIDATION_FAILED',
-          message: 'assessmentId query param is required',
-          requestId: getRequestId(request),
-        }),
-      );
-    }
+      const { assessmentId } = request.query as { assessmentId?: string };
+      if (!assessmentId) {
+        return reply.status(400).send(
+          buildErrorEnvelope({
+            code: 'VALIDATION_FAILED',
+            message: 'assessmentId query param is required',
+            requestId: getRequestId(request),
+          }),
+        );
+      }
 
-    try {
-      const links = await service.listByAssessment(workspaceId, assessmentId);
-      return reply.status(200).send({
-        data: links.map((l) => ({
-          id: l.id,
-          token: l.token,
-          assessmentId: l.assessmentId,
-          expiresAt: l.expiresAt,
-          revokedAt: l.revokedAt ?? null,
-          createdAt: l.createdAt,
-        })),
-      });
-    } catch (err) {
-      handleError(err, request, reply);
-    }
-  });
+      try {
+        const links = await service.listByAssessment(workspaceId, assessmentId);
+        return reply.status(200).send({
+          data: links.map((l) => ({
+            id: l.id,
+            token: l.token,
+            assessmentId: l.assessmentId,
+            expiresAt: l.expiresAt,
+            revokedAt: l.revokedAt ?? null,
+            createdAt: l.createdAt,
+          })),
+        });
+      } catch (err) {
+        handleError(err, request, reply);
+      }
+    },
+  );
 
   /**
    * POST /v1/shares
    * Create share link with expiry TTL and high-entropy token.
    * Requires x-workspace-id header.
    */
-  app.post('/v1/shares', { preHandler: privateAuth }, async (request: FastifyRequest, reply: FastifyReply) => {
-    const workspaceId = jwtWorkspace(request);
+  app.post(
+    '/v1/shares',
+    { preHandler: privateAuth },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const workspaceId = jwtWorkspace(request);
 
-    const body = request.body as CreateShareBody | undefined;
-    if (!body?.assessmentId) {
-      return reply.status(400).send(
-        buildErrorEnvelope({
-          code: 'VALIDATION_FAILED',
-          message: 'assessmentId is required',
+      const body = request.body as CreateShareBody | undefined;
+      if (!body?.assessmentId) {
+        return reply.status(400).send(
+          buildErrorEnvelope({
+            code: 'VALIDATION_FAILED',
+            message: 'assessmentId is required',
+            requestId: getRequestId(request),
+          }),
+        );
+      }
+
+      try {
+        const link = await service.createShareLink({
+          workspaceId,
+          assessmentId: body.assessmentId,
           requestId: getRequestId(request),
-        }),
-      );
-    }
-
-    try {
-      const link = await service.createShareLink({
-        workspaceId,
-        assessmentId: body.assessmentId,
-        requestId: getRequestId(request),
-        ...(body.ttlSeconds !== undefined ? { ttlSeconds: body.ttlSeconds } : {}),
-      });
-      return reply.status(201).send({
-        data: {
-          id: link.id,
-          token: link.token,
-          assessmentId: link.assessmentId,
-          expiresAt: link.expiresAt,
-          createdAt: link.createdAt,
-        },
-      });
-    } catch (err) {
-      handleError(err, request, reply);
-    }
-  });
+          ...(body.ttlSeconds !== undefined ? { ttlSeconds: body.ttlSeconds } : {}),
+        });
+        return reply.status(201).send({
+          data: {
+            id: link.id,
+            token: link.token,
+            assessmentId: link.assessmentId,
+            expiresAt: link.expiresAt,
+            createdAt: link.createdAt,
+          },
+        });
+      } catch (err) {
+        handleError(err, request, reply);
+      }
+    },
+  );
 
   /**
    * GET /v1/shares/:token
@@ -174,8 +181,6 @@ export async function registerShareRoutes(
                   difficulty: q.difficulty,
                   stem: q.stem,
                   options: q.options,
-                  answer: q.answer,
-                  explanation: q.explanation,
                 }));
               }
             }
