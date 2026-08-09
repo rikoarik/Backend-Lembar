@@ -316,23 +316,32 @@ export async function registerCatalogRoutes(
     }
   });
 
-  app.get('/v1/catalog/grades', async (_request, reply) => {
-    if (db) {
+  const optionalAuth = auth
+    ? async (request: FastifyRequest, reply: FastifyReply) => {
+        if (request.headers.authorization) await auth(request, reply);
+      }
+    : async () => {};
+
+  app.get('/v1/catalog/grades', { preHandler: optionalAuth }, async (request, reply) => {
+    const tenantId = request.jwtUser?.workspaceId;
+    if (db && tenantId) {
       try {
         const rows = await db
           .select({
             id: grades.id,
             label: grades.label,
             publishedVersion: grades.publishedVersion,
+            tenantId: grades.tenantId,
           })
           .from(grades)
-          .where(isNotNull(grades.publishedVersion));
+          .where(and(eq(grades.tenantId, tenantId), isNotNull(grades.publishedVersion)));
 
         if (rows.length > 0) {
           return reply.status(200).send({
             data: [
               ...OFFICIAL_GRADES,
               ...rows
+                .filter((r) => r.tenantId === tenantId)
                 .filter((r) => !OFFICIAL_GRADES.some((grade) => grade.id === r.id))
                 .map((r) => ({
                   id: r.id,
@@ -358,7 +367,7 @@ export async function registerCatalogRoutes(
     return reply.status(200).send({ data });
   });
 
-  app.get('/v1/catalog/subjects', async (request, reply) => {
+  app.get('/v1/catalog/subjects', { preHandler: optionalAuth }, async (request, reply) => {
     const q = request.query as { gradeId?: string; curriculumVersionId?: string };
     const requestId = getRequestId(request);
 
@@ -366,25 +375,35 @@ export async function registerCatalogRoutes(
       return validationError(reply, 'Query gradeId wajib diisi.', requestId);
     }
 
-    if (db) {
+    const tenantId = request.jwtUser?.workspaceId;
+    if (db && tenantId) {
       try {
         const rows = await db
           .select({
             id: subjects.id,
             label: subjects.title,
             publishedVersion: subjects.publishedVersion,
+            tenantId: subjects.tenantId,
           })
           .from(subjects)
-          .where(and(eq(subjects.gradeId, q.gradeId), isNotNull(subjects.publishedVersion)));
+          .where(
+            and(
+              eq(subjects.tenantId, tenantId),
+              eq(subjects.gradeId, q.gradeId),
+              isNotNull(subjects.publishedVersion),
+            ),
+          );
 
         if (rows.length > 0) {
           return reply.status(200).send({
-            data: rows.map((r) => ({
-              id: r.id,
-              label: r.label,
-              gradeId: q.gradeId,
-              status: 'active' as const,
-            })),
+            data: rows
+              .filter((r) => r.tenantId === tenantId)
+              .map((r) => ({
+                id: r.id,
+                label: r.label,
+                gradeId: q.gradeId,
+                status: 'active' as const,
+              })),
           });
         }
       } catch {
@@ -411,7 +430,7 @@ export async function registerCatalogRoutes(
     });
   });
 
-  app.get('/v1/catalog/materials', async (request, reply) => {
+  app.get('/v1/catalog/materials', { preHandler: optionalAuth }, async (request, reply) => {
     const q = request.query as {
       gradeId?: string;
       subjectId?: string;
@@ -427,17 +446,20 @@ export async function registerCatalogRoutes(
       );
     }
 
-    if (db) {
+    const tenantId = request.jwtUser?.workspaceId;
+    if (db && tenantId) {
       try {
         const rows = await db
           .select({
             id: materials.id,
             label: materials.title,
             publishedVersion: materials.publishedVersion,
+            tenantId: materials.tenantId,
           })
           .from(materials)
           .where(
             and(
+              eq(materials.tenantId, tenantId),
               eq(materials.gradeId, q.gradeId),
               eq(materials.subjectId, q.subjectId),
               isNotNull(materials.publishedVersion),
@@ -446,11 +468,13 @@ export async function registerCatalogRoutes(
 
         if (rows.length > 0) {
           return reply.status(200).send({
-            data: rows.map((r) => ({
-              id: r.id,
-              label: r.label,
-              status: 'active' as const,
-            })),
+            data: rows
+              .filter((r) => r.tenantId === tenantId)
+              .map((r) => ({
+                id: r.id,
+                label: r.label,
+                status: 'active' as const,
+              })),
           });
         }
       } catch {
