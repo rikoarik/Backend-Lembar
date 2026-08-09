@@ -343,7 +343,9 @@ export async function buildApp(
       maxAttempts: queueEnv.maxAttempts,
     });
     const jobStatusService = new JobStatusService(jobStatusAdapter, quotaLedger);
-    registerJobStatusRoutes(app, jobStatusService);
+    registerJobStatusRoutes(app, jobStatusService, {
+      jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+    });
   }
 
   if (curriculumDb) {
@@ -354,7 +356,9 @@ export async function buildApp(
     await registerMarketingOpsRoutes(app, { db: marketingDb });
   }
   await app.register(registerNotificationRoutes, notificationDb ? { db: notificationDb } : {} );
-  await registerUploadsAuthHook(app);
+  await registerUploadsAuthHook(app, {
+    jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+  });
   await registerUploadRoutes(app, options.uploadsDb ? { db: options.uploadsDb } : {} );
 
   // B6-04: Ops routes (metrics + leads)
