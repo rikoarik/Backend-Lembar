@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
@@ -70,13 +69,27 @@ describeDb('JWT auth routes', () => {
     }
   });
 
-  test('public register ignores privileged roles supplied by the client', async () => {
+  test('register derives a valid username when the published contract omits it', async () => {
     const { app } = await makeApp();
     try {
       const ts = Date.now();
       const res = await app.inject({
         method: 'POST', url: '/v1/auth/register',
-        payload: { email: `role-escalation-${ts}@test.example`, password: 'Test1234!@#A', name: 'Safe Subscriber', username: `safe${ts}`, roles: ['superadmin', 'school_admin'] },
+        payload: { email: `missing-username-${ts}@test.example`, password: 'Test1234!@#A', name: 'Safe Subscriber' },
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().user.username).toMatch(/^[a-zA-Z0-9_.]{3,24}$/);
+      expect(res.json().user.roles).toEqual(['subscriber']);
+    } finally { await app.close(); await closeDb(); }
+  });
+
+  test('public register without username ignores privileged client roles', async () => {
+    const { app } = await makeApp();
+    try {
+      const ts = Date.now();
+      const res = await app.inject({
+        method: 'POST', url: '/v1/auth/register',
+        payload: { email: `role-escalation-${ts}@test.example`, password: 'Test1234!@#A', name: 'Safe Subscriber', roles: ['superadmin', 'school_admin'] },
       });
       expect(res.statusCode).toBe(201);
       expect(res.json().user.roles).toEqual(['subscriber']);

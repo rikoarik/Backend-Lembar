@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { throwApiError } from '../../../../common/errors/apiError.js';
 import type { Database } from '../../../../infrastructure/database/db.js';
 import { JwtMultiRoleAuthService } from '../../application/JwtMultiRoleAuthService.js';
+import type { UserRole } from '../../persistence/jwtUsersSchema.js';
 import { createJwtAuthMiddleware, requireRole } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import { clearRateLimit, opaque, rateLimit, verifyTurnstile } from '../../../../common/security/rateLimit.js';
 
@@ -39,14 +41,15 @@ export async function registerJwtMultiRoleRoutes(
 
     const name = (body.name ?? body.username ?? '').trim();
     if (!body.email || !body.password || !name) {
-      throwApiError('missing_fields', 'Email, password, dan username/name diperlukan');
+      throwApiError('missing_fields', 'Email, password, dan name diperlukan');
     }
+    const username = body.username?.trim() || deriveUsername(body.email);
 
     const result = await service.register({
       email: body.email,
       password: body.password,
       name,
-      username: body.username ?? name,
+      username,
       ...(body.phone ? { phone: body.phone } : {}),
     });
     return reply.status(201).send(result);
@@ -106,7 +109,7 @@ export async function registerJwtMultiRoleRoutes(
       }
 
       const userId = request.jwtUser!.userId;
-      const user = await service.updateRoles(userId, { roles: body.roles as any });
+      const user = await service.updateRoles(userId, { roles: body.roles as UserRole[] });
       return reply.status(200).send(user);
     },
   );
@@ -144,6 +147,11 @@ export async function registerJwtMultiRoleRoutes(
       });
     },
   );
+}
+
+function deriveUsername(email: string): string {
+  const base = email.split('@')[0]?.toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 15) || 'user';
+  return `${base.length >= 3 ? base : `user${base}`}_${randomUUID().slice(0, 8)}`.slice(0, 24);
 }
 
 function extractBearerToken(request: FastifyRequest): string | null {
