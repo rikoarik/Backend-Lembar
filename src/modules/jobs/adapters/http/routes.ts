@@ -6,6 +6,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { JobStatusService } from '../../application/JobStatusService.js';
+import { createJwtAuthMiddleware } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import {
   JobNotFoundError,
   JobTenantMismatchError,
@@ -23,13 +24,15 @@ interface JobQuery {
 export function registerJobStatusRoutes(
   app: FastifyInstance,
   jobStatusService: JobStatusService,
+  options: { jwtSecret: string },
 ): void {
+  const auth = createJwtAuthMiddleware({ secret: options.jwtSecret });
   app.get<{ Params: JobParams; Querystring: JobQuery }>(
     '/v1/jobs/:jobId',
+    { preHandler: auth },
     async (request, reply) => {
       const { jobId } = request.params;
-      const workspaceId =
-        request.query.workspaceId ?? (request.headers['x-workspace-id'] as string);
+      const workspaceId = request.jwtUser!.workspaceId;
 
       if (!workspaceId) {
         return reply.status(400).send({
@@ -60,10 +63,10 @@ export function registerJobStatusRoutes(
 
   app.post<{ Params: JobParams; Querystring: JobQuery }>(
     '/v1/jobs/:jobId/cancel',
+    { preHandler: auth },
     async (request, reply) => {
       const { jobId } = request.params;
-      const workspaceId =
-        request.query.workspaceId ?? (request.headers['x-workspace-id'] as string);
+      const workspaceId = request.jwtUser!.workspaceId;
 
       if (!workspaceId) {
         return reply.status(400).send({
@@ -74,7 +77,7 @@ export function registerJobStatusRoutes(
       const tenantCtx = { tenantId: workspaceId, workspaceId };
 
       try {
-        const status = await jobStatusService.cancel(jobId, tenantCtx, workspaceId);
+        const status = await jobStatusService.cancel(jobId, tenantCtx, request.jwtUser!.userId);
         return reply.status(200).send({ data: status });
       } catch (err: unknown) {
         if (err instanceof JobNotFoundError) {
@@ -99,10 +102,10 @@ export function registerJobStatusRoutes(
 
   app.post<{ Params: JobParams; Querystring: JobQuery }>(
     '/v1/jobs/:jobId/recover',
+    { preHandler: auth },
     async (request, reply) => {
       const { jobId } = request.params;
-      const workspaceId =
-        request.query.workspaceId ?? (request.headers['x-workspace-id'] as string);
+      const workspaceId = request.jwtUser!.workspaceId;
 
       if (!workspaceId) {
         return reply.status(400).send({
@@ -116,7 +119,7 @@ export function registerJobStatusRoutes(
         const status = await jobStatusService.recover(
           jobId,
           tenantCtx,
-          workspaceId,
+          request.jwtUser!.userId,
           'manual recovery via API',
         );
         return reply.status(200).send({ data: status });
@@ -136,3 +139,4 @@ export function registerJobStatusRoutes(
     },
   );
 }
+
