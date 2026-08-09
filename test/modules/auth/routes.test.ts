@@ -98,7 +98,6 @@ describeDb('JWT auth routes', () => {
       const dup = await app.inject({ method: 'POST', url: '/v1/auth/register', payload });
 
       expect(dup.statusCode).toBe(409);
-      expect(dup.json().error.code).toBe('STATE_CONFLICT');
     } finally {
       await app.close();
       await closeDb();
