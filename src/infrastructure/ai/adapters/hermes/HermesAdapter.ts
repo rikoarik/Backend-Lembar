@@ -42,6 +42,26 @@ interface ProviderResult {
   provider: string;
 }
 
+function parseSseResponse(body: string): {
+  choices: Array<{ message: { content: string } }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
+} {
+  let content = '';
+  let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+  for (const line of body.split('\n')) {
+    if (!line.startsWith('data: ')) continue;
+    const payload = line.slice(6).trim();
+    if (!payload || payload === '[DONE]') continue;
+    const chunk = JSON.parse(payload) as {
+      choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+    content += chunk.choices?.[0]?.delta?.content ?? chunk.choices?.[0]?.message?.content ?? '';
+    usage = chunk.usage ?? usage;
+  }
+  return { choices: [{ message: { content } }], ...(usage ? { usage } : {}) };
+}
+
 /**
  * HermesAdapter with automatic fallback chain.
  * Primary: Hermes → Fallback: OpenAI → Claude → etc.
@@ -148,8 +168,11 @@ export class HermesAdapter implements ProductAiAdapter {
         };
       }
 
-      // Parse response
-      const data = await response.json() as {
+      // Some OpenAI-compatible gateways return SSE even when stream=false.
+      const contentType = response.headers.get('content-type') ?? '';
+      const data = (contentType.includes('text/event-stream')
+        ? parseSseResponse(await response.text())
+        : await response.json()) as {
         choices?: Array<{ message?: { content?: string } }>;
         usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
