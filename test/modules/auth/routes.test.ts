@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { buildApp, type BuildAppOptions } from '../../../src/bootstrap/app.js';
+import Fastify from 'fastify';
+import { registerJwtMultiRoleRoutes } from '../../../src/modules/auth/adapters/http/jwtMultiRoleRoutes.js';
 import { createDatabase, closeDatabase, type Database } from '../../../src/infrastructure/database/db.js';
 
 function resolveDatabaseUrl(): string | null {
@@ -27,11 +28,11 @@ describeDb('JWT auth routes', () => {
 
   async function makeApp() {
     db = createDatabase({ connectionString: DATABASE_URL! });
-    const app = await buildApp({
-      logger: false,
-      serviceName: 'test',
-      serviceVersion: 'test',
-      authDb: db,
+    const app = Fastify();
+    await registerJwtMultiRoleRoutes(app, {
+      db,
+      jwtSecret: 'test-secret',
+      jwtExpiryDays: 1,
     });
     return { app, db };
   }
@@ -67,6 +68,19 @@ describeDb('JWT auth routes', () => {
       await app.close();
       await closeDb();
     }
+  });
+
+  test('public register ignores privileged roles supplied by the client', async () => {
+    const { app } = await makeApp();
+    try {
+      const ts = Date.now();
+      const res = await app.inject({
+        method: 'POST', url: '/v1/auth/register',
+        payload: { email: `role-escalation-${ts}@test.example`, password: 'Test1234!@#A', name: 'Safe Subscriber', username: `safe${ts}`, roles: ['superadmin', 'school_admin'] },
+      });
+      expect(res.statusCode).toBe(201);
+      expect(res.json().user.roles).toEqual(['subscriber']);
+    } finally { await app.close(); await closeDb(); }
   });
 
   test('register rejects duplicate email', async () => {

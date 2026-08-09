@@ -48,7 +48,6 @@ export async function registerJwtMultiRoleRoutes(
       name,
       username: body.username ?? name,
       ...(body.phone ? { phone: body.phone } : {}),
-      ...(body.roles ? { roles: body.roles as any } : {}),
     });
     return reply.status(201).send(result);
   });
