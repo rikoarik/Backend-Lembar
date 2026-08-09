@@ -118,7 +118,7 @@ export class HermesAdapter implements ProductAiAdapter {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), provider.timeoutMs);
 
-      const response = await fetch(`${provider.baseUrl}/v1/chat/completions`, {
+      const response = await fetch(`${provider.baseUrl.replace(/\/v1\/?$/, '')}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

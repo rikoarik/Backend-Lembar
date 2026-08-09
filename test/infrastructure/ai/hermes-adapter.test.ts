@@ -23,6 +23,10 @@ describe('HermesAdapter', () => {
       schemaVersion: '1', prompt: 'buat soal', tokenEstimateHint: 10,
     });
 
+    expect(fetch).toHaveBeenCalledWith(
+      'https://example.test/v1/chat/completions',
+      expect.any(Object),
+    );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.value.kind).toBe('succeeded');
