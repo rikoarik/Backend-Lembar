@@ -19,9 +19,12 @@ import {
   createJwtAuthMiddleware,
   requireRole,
 } from '../../../../common/middleware/jwtMultiRoleAuth.js';
+import { FREE_MONTHLY_LIMIT } from '../../../plans/persistence/schema.js';
 
 function getRequestId(req: FastifyRequest): string {
-  return (req.headers['x-request-id'] as string | undefined) ?? (req as any).requestId ?? 'req_unknown';
+  return (
+    (req.headers['x-request-id'] as string | undefined) ?? (req as any).requestId ?? 'req_unknown'
+  );
 }
 
 export interface RegisterUsageRoutesOptions {
@@ -59,7 +62,12 @@ export async function registerUsageRoutes(
       const pool = getPool(db);
       if (!pool) {
         return reply.status(503).send({
-          error: { code: 'DB_UNAVAILABLE', message: 'Database tidak tersedia', requestId, retryable: true },
+          error: {
+            code: 'DB_UNAVAILABLE',
+            message: 'Database tidak tersedia',
+            requestId,
+            retryable: true,
+          },
         });
       }
 
@@ -74,7 +82,7 @@ export async function registerUsageRoutes(
       const quotaUsed = parseInt(quotaUsedRes.rows[0]?.quota_used ?? '0', 10);
 
       // ── 2. Get quota limit from workspace_plans ────────────────────────────
-      // quota_limit is determined by plan: free → 10, pro → unlimited (0 = no limit)
+      // quota_limit follows the same plan contract used by billing.
       const planRes = await pool.query<{ plan: string }>(
         `SELECT COALESCE(plan, 'free') AS plan
          FROM workspace_plans
@@ -84,7 +92,7 @@ export async function registerUsageRoutes(
       );
 
       const plan = planRes.rows[0]?.plan ?? 'free';
-      const quotaLimit = plan === 'pro' ? 0 : 10;
+      const quotaLimit = plan === 'pro' ? 0 : FREE_MONTHLY_LIMIT;
 
       // ── 3. Monthly trend from ai_jobs_audit (last 12 months) ──────────────
       const trendRes = await pool.query<{
