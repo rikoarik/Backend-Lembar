@@ -33,6 +33,8 @@ import { registerArtifactRoutes } from '../../../src/modules/assessments/adapter
 import { registerShareRoutes } from '../../../src/modules/assessments/adapters/http/shareRoutes.js';
 import type { GeneratedQuestion } from '../../../src/modules/assessments/domain/QuestionGeneration.js';
 
+import { generateJwt } from '../../../src/modules/auth/infrastructure/jwtMultiRole.js';
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -41,6 +43,14 @@ const WS = 'ws-x5-01';
 const CREATOR = 'user-x5';
 const REQ_ID = 'req-x5-01';
 const FIXED_NOW = '2025-06-01T00:00:00.000Z';
+const JWT_SECRET = 'test-secret';
+
+function authToken() {
+  return generateJwt(
+    { userId: CREATOR, email: 'guru@x5.test', roles: ['teacher'], workspaceId: WS },
+    { secret: JWT_SECRET, expiryDays: 1 },
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -154,7 +164,7 @@ async function buildTestApp(rootDir: string) {
   const app = Fastify({ logger: false });
 
   await registerPrintRoutes(app, printService, { jwtSecret: 'test-secret' });
-  await registerArtifactRoutes(app, printArtifactService);
+  await registerArtifactRoutes(app, printArtifactService, { jwtSecret: 'test-secret' });
   await registerShareRoutes(app, shareLinkService, { jwtSecret: 'test-secret' });
 
   return {
@@ -191,7 +201,7 @@ describe('X5-01: Print/PDF/share E2E integration gate', () => {
       method: 'GET',
       url: `/v1/assessments/${assessmentId}/print`,
       headers: {
-        'x-workspace-id': WS,
+        authorization: `Bearer ${authToken()}`,
         'x-request-id': REQ_ID,
       },
     });
@@ -208,7 +218,7 @@ describe('X5-01: Print/PDF/share E2E integration gate', () => {
       method: 'POST',
       url: `/v1/assessments/${assessmentId}/output`,
       headers: {
-        'x-workspace-id': WS,
+        authorization: `Bearer ${authToken()}`,
         'x-request-id': REQ_ID,
       },
     });
@@ -225,7 +235,7 @@ describe('X5-01: Print/PDF/share E2E integration gate', () => {
       method: 'POST',
       url: '/v1/shares',
       headers: {
-        'x-workspace-id': WS,
+        authorization: `Bearer ${authToken()}`,
         'x-request-id': REQ_ID,
       },
       payload: { assessmentId },
@@ -243,7 +253,7 @@ describe('X5-01: Print/PDF/share E2E integration gate', () => {
       method: 'POST',
       url: '/v1/shares',
       headers: {
-        'x-workspace-id': WS,
+        authorization: `Bearer ${authToken()}`,
         'x-request-id': REQ_ID,
       },
       payload: { assessmentId },
@@ -268,7 +278,7 @@ describe('X5-01: Print/PDF/share E2E integration gate', () => {
       method: 'DELETE',
       url: `/v1/shares/${token}/revoke`,
       headers: {
-        'x-workspace-id': WS,
+        authorization: `Bearer ${authToken()}`,
         'x-request-id': REQ_ID,
       },
     });
