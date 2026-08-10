@@ -153,9 +153,9 @@ async function buildTestApp(rootDir: string) {
 
   const app = Fastify({ logger: false });
 
-  await registerPrintRoutes(app, printService);
+  await registerPrintRoutes(app, printService, { jwtSecret: 'test-secret' });
   await registerArtifactRoutes(app, printArtifactService);
-  await registerShareRoutes(app, shareLinkService);
+  await registerShareRoutes(app, shareLinkService, { jwtSecret: 'test-secret' });
 
   return {
     app,
