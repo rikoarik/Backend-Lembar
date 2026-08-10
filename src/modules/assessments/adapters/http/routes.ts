@@ -29,6 +29,7 @@ interface CreateAssessmentBody {
   subjectLabel?: string;
   gradeLabel?: string;
   sourceUploadIds: string[];
+  durationMinutes?: number;
   blueprintItems: Array<{
     sequence: number;
     outcomeId?: string | null;
@@ -164,6 +165,7 @@ export async function registerAssessmentRoutes(
           })),
           idempotencyKey,
           requestId,
+          ...(typeof body.durationMinutes === 'number' ? { durationMinutes: body.durationMinutes } : {}),
         });
 
         const status = result.idempotent ? 200 : 201;

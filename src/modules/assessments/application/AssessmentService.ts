@@ -54,6 +54,8 @@ export interface CreateAssessmentConfigInput {
   blueprintItems: BlueprintItemRequest[];
   /** Optional idempotency key. Same key + same fingerprint returns the same result. */
   idempotencyKey?: string | null;
+  /** Duration in minutes, stored in configSnapshot JSONB. */
+  durationMinutes?: number | null;
   requestId: string;
 }
 
@@ -83,6 +85,7 @@ function fingerprintConfig(input: CreateAssessmentConfigInput): string {
     curriculumVersionId: input.curriculumVersionId,
     gradeId: input.gradeId,
     subjectId: input.subjectId,
+    durationMinutes: input.durationMinutes ?? null,
     sourceUploadIds: [...input.sourceUploadIds].sort(),
     blueprintItems: [...input.blueprintItems].sort((a, b) => a.sequence - b.sequence),
   });
@@ -239,6 +242,7 @@ export class AssessmentService {
       sourceUploadIds: [...input.sourceUploadIds],
       blueprintItems: blueprintItemConfigs,
       _fingerprint: fingerprint,
+      ...(typeof input.durationMinutes === 'number' ? { durationMinutes: input.durationMinutes } : {}),
     };
 
     // ---- Persist ----

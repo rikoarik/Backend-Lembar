@@ -203,11 +203,23 @@ export async function registerShareRoutes(
         }
       }
 
+      // Extract durationMinutes from configSnapshot if available
+      let durationMinutes: number | null = null;
+      try {
+        if (assessmentsStore) {
+          const latestVer = await assessmentsStore.getLatestVersion(link.workspaceId, link.assessmentId);
+          const snap = latestVer?.configSnapshot as unknown as Record<string, unknown> | undefined;
+          const d = snap?.['durationMinutes'];
+          if (typeof d === 'number') durationMinutes = d;
+        }
+      } catch { /* non-fatal */ }
+
       return reply.status(200).send({
         data: {
           assessmentId: link.assessmentId,
           title,
           expiresAt: link.expiresAt,
+          ...(durationMinutes !== null ? { durationMinutes } : {}),
           questions,
         },
       });

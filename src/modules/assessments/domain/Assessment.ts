@@ -73,6 +73,8 @@ export interface AssessmentConfigSnapshot {
   subjectLabel?: string;
   sourceUploadIds: string[];
   blueprintItems: BlueprintItemConfig[];
+  /** Optional duration in minutes exposed to students via public share. */
+  durationMinutes?: number | undefined;
 }
 
 export interface BlueprintItemConfig {
