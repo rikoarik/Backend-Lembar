@@ -7,6 +7,7 @@
  * GET  /v1/payment/orders/:id/events — audit log for an order
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { request as httpsRequest } from 'node:https';
 
 import type { PaymentService } from '../../application/PaymentService.js';
 import type { Database } from '../../../../infrastructure/database/db.js';
@@ -73,12 +74,13 @@ export async function registerWebhookRoutes(
    */
   app.post('/v1/payment/webhook', async (request: FastifyRequest, reply: FastifyReply) => {
     const gateway = request.headers['x-gateway'] as string | undefined;
-    if (gateway !== 'midtrans' && gateway !== 'stripe') {
+    if (gateway !== 'midtrans' && gateway !== 'stripe' && gateway !== 'pakasir') {
       return reply.status(400).send({ error: { code: 'PAYMENT_GATEWAY_INVALID', message: 'Gateway tidak didukung.', requestId: getRequestId(request), retryable: false } });
     }
     if (
       (gateway === 'midtrans' && !process.env['MIDTRANS_SERVER_KEY']) ||
-      (gateway === 'stripe' && !process.env['STRIPE_WEBHOOK_SECRET'])
+      (gateway === 'stripe' && !process.env['STRIPE_WEBHOOK_SECRET']) ||
+      (gateway === 'pakasir' && !process.env['PAKASIR_API_KEY'])
     ) {
       return reply.status(503).send({ error: { code: 'PAYMENT_NOT_CONFIGURED', message: 'Gateway pembayaran belum dikonfigurasi.', requestId: getRequestId(request), retryable: false } });
     }
@@ -228,6 +230,52 @@ export async function registerWebhookRoutes(
     try {
       const events = await paymentService.getOrderEventsForWorkspace(orderId, workspaceId, workspaceId);
       return reply.status(200).send({ data: events });
+    } catch (err) {
+      handleError(err, request, reply);
+    }
+  });
+
+  app.post('/v1/payment/pakasir/create-order', { preHandler: [auth] }, async (request, reply) => {
+    const requestId = getRequestId(request);
+    const workspaceId = request.jwtUser?.workspaceId;
+    const body = request.body as Record<string, unknown>;
+    const orderId = body['orderId'];
+    const amountCents = body['amountCents'];
+    const toPlan = body['toPlan'];
+    const apiKey = process.env['PAKASIR_API_KEY'];
+    const slug = process.env['PAKASIR_PROJECT_SLUG'];
+    if (!workspaceId || typeof orderId !== 'string' || !orderId || !Number.isInteger(amountCents) || Number(amountCents) <= 0 || toPlan !== 'pro') {
+      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'orderId, amountCents, dan toPlan tidak valid.', requestId, retryable: false } });
+    }
+    if (!apiKey || !slug) {
+      return reply.status(503).send({ error: { code: 'PAYMENT_NOT_CONFIGURED', message: 'Gateway pembayaran belum dikonfigurasi.', requestId, retryable: false } });
+    }
+    try {
+      await paymentService.createOrder({
+        tenantId: workspaceId,
+        workspaceId,
+        idempotencyKey: `${workspaceId}:${orderId}`,
+        externalOrderId: orderId,
+        toPlan,
+        amountCents: Number(amountCents),
+        currency: 'IDR',
+      });
+      const amount = Number(amountCents) / 100;
+      await new Promise<void>((resolve, reject) => {
+        const pakasirRequest = httpsRequest('https://app.pakasir.com/api/transactioncreate/qris', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+        }, (response) => {
+          response.resume();
+          response.on('end', () => response.statusCode && response.statusCode < 300
+            ? resolve()
+            : reject(new Error(`Pakasir returned HTTP ${response.statusCode ?? 0}`)));
+        });
+        pakasirRequest.on('error', reject);
+        pakasirRequest.end(JSON.stringify({ project: slug, order_id: orderId, amount, api_key: apiKey }));
+      });
+      const paymentUrl = `https://app.pakasir.com/pay/${encodeURIComponent(slug)}/${amount}?order_id=${encodeURIComponent(orderId)}`;
+      return reply.status(201).send({ paymentUrl });
     } catch (err) {
       handleError(err, request, reply);
     }

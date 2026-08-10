@@ -423,11 +423,17 @@ export async function buildApp(
     const paymentOpts: {
       midtransServerKey?: string | undefined;
       stripeWebhookSecret?: string | undefined;
+      pakasirApiKey?: string | undefined;
+      pakasirProjectSlug?: string | undefined;
     } = {};
     const midtransKey = process.env['MIDTRANS_SERVER_KEY'];
     const stripeSecret = process.env['STRIPE_WEBHOOK_SECRET'];
+    const pakasirKey = process.env['PAKASIR_API_KEY'];
+    const pakasirSlug = process.env['PAKASIR_PROJECT_SLUG'];
     if (midtransKey !== undefined) paymentOpts.midtransServerKey = midtransKey;
     if (stripeSecret !== undefined) paymentOpts.stripeWebhookSecret = stripeSecret;
+    if (pakasirKey !== undefined) paymentOpts.pakasirApiKey = pakasirKey;
+    if (pakasirSlug !== undefined) paymentOpts.pakasirProjectSlug = pakasirSlug;
     const paymentService = new PaymentService(paymentRepo, planRepo, paymentOpts);
     const paymentRouteOptions = {
       paymentService,

@@ -69,6 +69,8 @@ export interface PaymentServiceOptions {
   midtransServerKey?: string | undefined;
   /** HMAC-SHA256 secret for Stripe webhook (optional — disabled if absent) */
   stripeWebhookSecret?: string | undefined;
+  pakasirApiKey?: string | undefined;
+  pakasirProjectSlug?: string | undefined;
 }
 
 export class PaymentService {
@@ -94,7 +96,7 @@ export class PaymentService {
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
       idempotencyKey: input.idempotencyKey,
-      externalOrderId: null,
+      externalOrderId: input.externalOrderId ?? null,
       fromPlan: currentPlan.plan,
       toPlan: input.toPlan,
       amountCents: input.amountCents,
@@ -160,6 +162,12 @@ export class PaymentService {
       const currency = String(object?.['currency'] ?? '').toUpperCase();
       if (!Number.isInteger(amount) || amount !== row.amountCents || currency !== row.currency) {
         throw new WebhookSignatureError('stripe-amount');
+      }
+    }
+    if (payload.gateway === 'pakasir') {
+      const amount = Number(parsed['amount']);
+      if (!Number.isFinite(amount) || amount * 100 !== row.amountCents) {
+        throw new WebhookSignatureError('pakasir-amount');
       }
     }
 
@@ -344,6 +352,8 @@ export class PaymentService {
       return;
     }
 
+    if (payload.gateway === 'pakasir') return;
+
     if (payload.gateway === 'stripe') {
       const secret = this.opts.stripeWebhookSecret;
       if (!secret) return;
@@ -394,6 +404,14 @@ export class PaymentService {
       if (eventType === 'payment_intent.succeeded') return 'paid';
       if (eventType === 'payment_intent.payment_failed') return 'failed';
       if (eventType === 'charge.refunded') return 'refunded';
+      return 'failed';
+    }
+
+    if (gateway === 'pakasir') {
+      const status = parsed['status'] as string | undefined;
+      if (status === 'completed') return 'paid';
+      if (status === 'failed') return 'failed';
+      if (status === 'cancelled' || status === 'expired') return 'cancelled';
       return 'failed';
     }
 

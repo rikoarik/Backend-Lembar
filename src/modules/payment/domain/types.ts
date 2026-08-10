@@ -71,6 +71,7 @@ export interface CreateOrderInput {
   toPlan: PaymentPlanType;
   amountCents: number;
   currency?: string | undefined;
+  externalOrderId?: string | undefined;
 }
 
 
