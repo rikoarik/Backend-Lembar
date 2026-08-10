@@ -78,7 +78,7 @@ export class ShareLinkService {
     }
 
     if (link.revokedAt !== null) {
-      throw new ApiError({ code: 'AUTH_REQUIRED', message: 'Share link has been revoked.', requestId });
+      throw new ApiError({ code: 'RESOURCE_NOT_FOUND', message: 'Share link has been revoked.', requestId, status: 410 });
     }
 
     const now = this.clock();

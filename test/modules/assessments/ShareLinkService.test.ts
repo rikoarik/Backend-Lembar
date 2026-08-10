@@ -118,7 +118,7 @@ describe('ShareLinkService', () => {
       );
     });
 
-    it('throws AUTH_REQUIRED (401) for revoked token', async () => {
+    it('throws RESOURCE_NOT_FOUND (410) for revoked token', async () => {
       const link = await service.createShareLink({
         workspaceId: WS_A,
         assessmentId: ASSESSMENT_ID,
@@ -126,7 +126,7 @@ describe('ShareLinkService', () => {
       });
       await service.revokeShareLink(link.token, WS_A, REQ_ID);
       await expect(service.validateToken(link.token, REQ_ID)).rejects.toSatisfy(
-        (e: unknown) => e instanceof ApiError && e.status === 401 && e.code === 'AUTH_REQUIRED',
+        (e: unknown) => e instanceof ApiError && e.status === 410 && e.code === 'RESOURCE_NOT_FOUND',
       );
     });
   });

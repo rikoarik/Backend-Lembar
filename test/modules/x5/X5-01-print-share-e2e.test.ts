@@ -277,15 +277,15 @@ describe('X5-01: Print/PDF/share E2E integration gate', () => {
     const revokeBody = revokeRes.json();
     expect(revokeBody.data.revokedAt).toBeTruthy();
 
-    // After revoke: GET /v1/shares/:token → 401 AUTH_REQUIRED
+    // After revoke: GET /v1/shares/:token → 410 RESOURCE_NOT_FOUND
     const revalidateRes = await app.inject({
       method: 'GET',
       url: `/v1/shares/${token}`,
       headers: { 'x-request-id': REQ_ID },
     });
 
-    expect(revalidateRes.statusCode).toBe(401);
+    expect(revalidateRes.statusCode).toBe(410);
     const revalidateBody = revalidateRes.json();
-    expect(revalidateBody.error.code).toBe('AUTH_REQUIRED');
+    expect(revalidateBody.error.code).toBe('RESOURCE_NOT_FOUND');
   });
 });

@@ -76,6 +76,18 @@ export async function registerClassRoutes(app: FastifyInstance, options: { db: D
     return reply.status(201).send({ data: result.rows[0] });
   });
 
+  app.delete('/v1/classes/:classId', { preHandler: [auth] }, async (request, reply) => {
+    const workspaceId = request.jwtUser?.workspaceId;
+    if (!workspaceId) throwApiError('forbidden', 'Workspace aktif diperlukan');
+    const { classId } = request.params as { classId: string };
+    const result = await pool.query(
+      `DELETE FROM teacher_classes WHERE id=$1 AND workspace_id=$2 RETURNING id`,
+      [classId, workspaceId],
+    );
+    if (!result.rows[0]) throwApiError('not_found', 'Kelas tidak ditemukan');
+    return reply.status(204).send();
+  });
+
   app.delete('/v1/classes/:classId/students/:studentId', { preHandler: [auth] }, async (request, reply) => {
     const workspaceId = request.jwtUser?.workspaceId;
     if (!workspaceId) throwApiError('forbidden', 'Workspace aktif diperlukan');

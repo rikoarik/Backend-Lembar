@@ -188,7 +188,7 @@ describe('B5-05 — Output and library security gate', () => {
       );
     });
 
-    it('revoked share returns AUTH_REQUIRED (401)', async () => {
+    it('revoked share returns RESOURCE_NOT_FOUND (410)', async () => {
       const link = await shareLinkService.createShareLink({
         workspaceId: WS_A,
         assessmentId: 'a-001',
@@ -201,7 +201,7 @@ describe('B5-05 — Output and library security gate', () => {
         shareLinkService.validateToken(link.token, REQ_ID),
       ).rejects.toSatisfy(
         (e: unknown) =>
-          e instanceof ApiError && e.status === 401 && e.code === 'AUTH_REQUIRED',
+          e instanceof ApiError && e.status === 410 && e.code === 'RESOURCE_NOT_FOUND',
       );
     });
 
