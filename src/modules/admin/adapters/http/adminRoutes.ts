@@ -28,6 +28,7 @@ import {
 } from '../../application/jobRetry.js';
 import { tenants } from '../../../../infrastructure/database/schema.js';
 import jwt from 'jsonwebtoken';
+import { mapWorkspacePlanSummary } from './accountPlanSummary.js';
 
 function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? req.requestId ?? 'req_unknown';
@@ -255,6 +256,9 @@ export async function registerAdminRoutes(
         t.name as school_name, t.slug as school_slug,
         ab.state as billing_state, ab.plan as billing_plan,
         ab.seats as billing_seats, ab.renews_at as billing_renews_at,
+        wp.plan as workspace_plan_key,
+        wp.tokens_used_this_month as token_used_this_month,
+        pc.token_monthly_limit as token_monthly_limit,
         CASE WHEN jw.suspended_at IS NOT NULL THEN 'ditangguhkan'
              WHEN jw.created_at > now() - interval '7 days' THEN 'baru'
              ELSE 'aktif' END as status,
@@ -267,6 +271,10 @@ export async function registerAdminRoutes(
       FROM jwt_users jw
       LEFT JOIN tenants t ON t.id = jw.workspace_id
       LEFT JOIN admin_billing ab ON ab.tenant_id = jw.workspace_id::text
+      LEFT JOIN workspace_plans wp
+        ON wp.tenant_id = jw.workspace_id
+        AND wp.workspace_id = jw.workspace_id::text
+      LEFT JOIN plan_catalog pc ON pc.key = wp.plan
       WHERE jw.id = $1
     `,
       [id],
@@ -277,6 +285,11 @@ export async function registerAdminRoutes(
         .status(404)
         .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
     const r = res.rows[0] as any;
+    const workspacePlan = mapWorkspacePlanSummary({
+      plan_key: r.workspace_plan_key,
+      token_used_this_month: r.token_used_this_month,
+      token_monthly_limit: r.token_monthly_limit,
+    });
 
     await auditLog(request.jwtUser!.userId, 'account.read', 'user', id);
     return reply.status(200).send({
@@ -302,6 +315,8 @@ export async function registerAdminRoutes(
           seats: r.billing_seats ?? null,
           renewsAt: r.billing_renews_at ?? null,
         },
+        // Token workspace berasal dari workspace_plans yang tenant-nya sama.
+        workspacePlan,
         // Aktivitas
         stats: {
           jobsTotal: parseInt(r.jobs_total ?? '0', 10),
