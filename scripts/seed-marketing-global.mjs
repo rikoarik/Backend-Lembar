@@ -1,11 +1,13 @@
 /**
- * Seed published marketing global content so GET /v1/public/marketing/global works.
+ * Seeds only finite, schema-valid, published marketing CMS documents.
  * Usage: node scripts/seed-marketing-global.mjs
  */
 import pg from 'pg';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+import { MARKETING_PUBLISHED_SEED_DOCUMENTS } from './marketing-published-seed.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const envPath = resolve(__dirname, '../.env');
@@ -25,73 +27,6 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const globalPayload = {
-  navigation: [
-    { id: 'nav-home', title: 'Beranda', body: null, mediaAssetId: null, cta: null },
-    { id: 'nav-school', title: 'Untuk Sekolah', body: null, mediaAssetId: null, cta: null },
-    { id: 'nav-pricing', title: 'Harga', body: null, mediaAssetId: null, cta: null },
-  ],
-  footer: [
-    {
-      id: 'footer-about',
-      title: 'Tentang lembar',
-      body: 'Platform asesmen berbasis kurikulum untuk guru dan sekolah.',
-      mediaAssetId: null,
-      cta: null,
-    },
-  ],
-  ctas: [
-    {
-      id: 'cta-start',
-      label: 'Mulai gratis',
-      href: '/register',
-      variant: 'primary',
-      placement: 'header',
-      audience: 'all',
-      trackingKey: 'cta_start_header',
-      enabled: true,
-      external: false,
-      accessibleLabel: 'Mulai gratis',
-    },
-  ],
-};
-
-const pagePayload = {
-  schemaVersion: 1,
-  blocks: [
-    {
-      id: 'hero-1',
-      type: 'hero',
-      eyebrow: 'lembar',
-      heading: 'Asesmen kurikulum yang rapi',
-      body: 'Buat, review, dan cetak asesmen dengan alur kerja yang jelas.',
-      theme: 'light',
-      mediaAssetId: null,
-      ctas: [
-        {
-          id: 'hero-cta',
-          label: 'Coba sekarang',
-          href: '/register',
-          variant: 'primary',
-          placement: 'hero',
-          audience: 'all',
-          trackingKey: 'hero_cta',
-          enabled: true,
-          external: false,
-          accessibleLabel: 'Coba sekarang',
-        },
-      ],
-      items: [],
-    },
-  ],
-  seo: {
-    title: 'lembar — asesmen untuk guru',
-    description: 'Platform asesmen berbasis kurikulum untuk guru dan sekolah.',
-    imageAssetId: null,
-    noIndex: false,
-  },
-};
-
 const client = new pg.Client({ connectionString: DATABASE_URL });
 await client.connect();
 
@@ -103,7 +38,6 @@ async function upsertPublished(kind, slug, payload) {
 
   let contentId;
   let version = 1;
-
   if (existing.rows[0]) {
     contentId = existing.rows[0].id;
     version = (existing.rows[0].published_version ?? 0) + 1;
@@ -121,7 +55,6 @@ async function upsertPublished(kind, slug, payload) {
       [kind, slug, JSON.stringify(payload)],
     );
     contentId = inserted.rows[0].id;
-    version = 1;
   }
 
   await client.query(
@@ -130,19 +63,17 @@ async function upsertPublished(kind, slug, payload) {
      ON CONFLICT DO NOTHING`,
     [contentId, version, JSON.stringify(payload)],
   );
-
-  // ensure published_version points to this version
   await client.query(
     `UPDATE marketing_content SET published_version = $2, current_version = GREATEST(current_version, $2), state = 'published' WHERE id = $1`,
     [contentId, version],
   );
-
   console.log(`Seeded ${kind}/${slug} version ${version}`);
 }
 
 try {
-  await upsertPublished('global', '__global__', globalPayload);
-  await upsertPublished('page', 'home', pagePayload);
+  for (const document of MARKETING_PUBLISHED_SEED_DOCUMENTS) {
+    await upsertPublished(document.kind, document.slug, document.payload);
+  }
   console.log('Marketing seed OK');
 } catch (err) {
   console.error('Seed failed:', err.message);
