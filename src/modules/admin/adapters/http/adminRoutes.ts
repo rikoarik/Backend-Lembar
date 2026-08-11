@@ -29,6 +29,7 @@ import {
 import { tenants } from '../../../../infrastructure/database/schema.js';
 import jwt from 'jsonwebtoken';
 import { mapWorkspacePlanSummary } from './accountPlanSummary.js';
+import { validateQualityReportUpdate } from '../../application/qualityReportWorkflow.js';
 
 function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? req.requestId ?? 'req_unknown';
@@ -1188,9 +1189,7 @@ export async function registerAdminRoutes(
     }
 
     const user = request.jwtUser!;
-    // workspaceId: prefer JWT, fall back to x-workspace-id header (BFF injects)
-    const headerWs = (request.headers['x-workspace-id'] as string | undefined) ?? '';
-    const workspaceId = user.workspaceId ?? headerWs ?? '';
+    const workspaceId = user.workspaceId ?? '';
     if (!workspaceId) {
       return reply.status(400).send({
         error: {
@@ -1221,9 +1220,9 @@ export async function registerAdminRoutes(
     const row = result.rows[0] as any;
 
     await auditLog(user.userId, 'quality.create', 'report', row.id, {
-      reason,
       workspaceId,
       hasAssessment: Boolean(assessmentVersionId),
+      reasonLength: reason.length,
     });
 
     return reply.status(201).send({
@@ -1314,21 +1313,34 @@ export async function registerAdminRoutes(
     { preHandler: [auth, superadmin] },
     async (request, reply) => {
       const { id } = request.params as { id: string };
-      const body = request.body as { status?: string; notes?: string } | null;
-      // allow notes-only update (no status required when only notes provided)
-      if (!body?.status && body?.notes === undefined)
-        return reply
-          .status(400)
-          .send({ error: { code: 'VALIDATION_FAILED', message: 'status or notes required' } });
-
-      await db
-        .update(adminQualityReports)
-        .set({ status: body.status, notes: body.notes ?? '', updatedAt: new Date() })
-        .where(eq(adminQualityReports.id, id));
-
+      const body = request.body as { status?: unknown; expectedStatus?: unknown; notes?: unknown } | null;
+      const validation = validateQualityReportUpdate(body ?? {});
+      if (validation.ok === false) {
+        return reply.status(400).send({ error: { code: validation.code, message: validation.message } });
+      }
+      const pool = getPool(db);
+      if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+      const { status, expectedStatus, notes } = validation.update;
+      const result = status
+        ? await pool.query(
+            `UPDATE admin_quality_reports SET status = $1, notes = COALESCE($2, notes), updated_at = now()
+             WHERE id = $3 AND status = $4 RETURNING id, status, notes, updated_at`,
+            [status, notes ?? null, id, expectedStatus],
+          )
+        : await pool.query(
+            `UPDATE admin_quality_reports SET notes = $1, updated_at = now()
+             WHERE id = $2 RETURNING id, status, notes, updated_at`,
+            [notes, id],
+          );
+      if (!result.rows[0]) {
+        const existing = await pool.query('SELECT id FROM admin_quality_reports WHERE id = $1', [id]);
+        if (!existing.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Report not found' } });
+        return reply.status(409).send({ error: { code: 'QUALITY_REPORT_CONFLICT', message: 'Status report sudah berubah. Muat ulang report sebelum melanjutkan.' } });
+      }
+      const row = result.rows[0] as { id: string; status: string; notes: string; updated_at: string };
       const user = request.jwtUser!;
-      await auditLog(user.userId, 'quality.update', 'report', id, { status: body.status });
-      return reply.status(200).send({ data: { id, status: body.status } });
+      await auditLog(user.userId, status ? 'quality.transition' : 'quality.notes.update', 'report', id, { fromStatus: expectedStatus, toStatus: status, notesUpdated: notes !== undefined });
+      return reply.status(200).send({ data: { id: row.id, status: row.status, notes: row.notes, updatedAt: row.updated_at } });
     },
   );
 
