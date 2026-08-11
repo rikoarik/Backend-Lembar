@@ -6,8 +6,25 @@ import {
   createJwtAuthMiddleware,
   requireRole,
 } from '../../../../common/middleware/jwtMultiRoleAuth.js';
-import type { MarketingBlock, MarketingSeo } from '../../domain/MarketingContent.js';
+import {
+  MARKETING_PAGE_SLUGS,
+  type MarketingBlock,
+  type MarketingSeo,
+} from '../../domain/MarketingContent.js';
 import { MarketingOpsService } from '../../domain/MarketingOpsService.js';
+
+const ALLOWED_PAGE_SLUGS = new Set<string>(MARKETING_PAGE_SLUGS);
+
+function requireAllowedPageSlug(slug: string, requestId: string): void {
+  if (!ALLOWED_PAGE_SLUGS.has(slug)) {
+    throw new ApiError({
+      code: 'RESOURCE_NOT_FOUND',
+      message: 'Konten marketing tidak ditemukan.',
+      requestId,
+      status: 404,
+    });
+  }
+}
 
 export interface RegisterMarketingOpsRoutesOptions {
   db: Database;
@@ -53,53 +70,21 @@ export async function registerMarketingOpsRoutes(
   const superadminOnly = requireRole(['superadmin']);
 
   const requireSuperadmin = async (request: FastifyRequest): Promise<void> => {
-    // Prefer JWT superadmin; keep legacy session cookie as fallback.
-    const auth = request.headers.authorization;
-    if (auth?.startsWith('Bearer ')) {
-      await authMiddleware(request, {} as never);
-      await superadminOnly(request, {} as never);
-      return;
-    }
-
-    const sessionCookie = cookieMap(request)['__Host-lembar_session'];
-    if (!sessionCookie) {
-      throw new ApiError({
-        code: 'AUTH_REQUIRED',
-        message: 'Autentikasi diperlukan. Gunakan Authorization: Bearer <jwt> dengan role superadmin.',
-        requestId: request.requestId ?? 'req_unknown',
-        status: 401,
-      });
-    }
+    // This API is reachable directly; presence of a browser cookie is not authentication.
+    await authMiddleware(request, {} as never);
+    await superadminOnly(request, {} as never);
   };
 
   app.get('/v1/ops/marketing/pages', async (request) => {
     await requireSuperadmin(request);
     const pages = await service.listPages(actorIdFromRequest(request));
-    return { data: pages };
-  });
-
-  app.post('/v1/ops/marketing/pages', async (request, reply) => {
-    await requireSuperadmin(request);
-    const body = request.body as { slug?: unknown; title?: unknown } | null;
-    if (typeof body?.slug !== 'string' || !body.slug.trim()) {
-      throw new ApiError({
-        code: 'VALIDATION_FAILED',
-        message: 'Slug wajib diisi.',
-        requestId: request.requestId ?? 'req_marketing',
-        status: 400,
-      });
-    }
-    const userId = actorIdFromRequest(request);
-    const page = await service.createPage(
-      { slug: body.slug, title: typeof body.title === 'string' ? body.title : body.slug },
-      userId,
-    );
-    return reply.status(201).send({ data: page });
+    return { data: pages.filter((page) => ALLOWED_PAGE_SLUGS.has(page.slug)) };
   });
 
   app.get('/v1/ops/marketing/pages/:slug', async (request) => {
     await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
+    requireAllowedPageSlug(slug, 'req_marketing');
     const page = await service.getPageForOps(slug, actorIdFromRequest(request));
     return { data: page };
   });
@@ -107,6 +92,7 @@ export async function registerMarketingOpsRoutes(
   app.put('/v1/ops/marketing/pages/:slug/draft', async (request, reply) => {
     await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
+    requireAllowedPageSlug(slug, 'req_marketing');
     const revision = Number(request.headers['if-match']);
     const userId = actorIdFromRequest(request);
     const payload = request.body as {
@@ -122,6 +108,7 @@ export async function registerMarketingOpsRoutes(
   app.get('/v1/ops/marketing/pages/:slug/preview', async (request, reply) => {
     await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
+    requireAllowedPageSlug(slug, 'req_marketing');
     const preview = await service.preview(slug, actorIdFromRequest(request));
     reply.header('Cache-Control', 'no-store');
     return { data: preview };
@@ -130,6 +117,7 @@ export async function registerMarketingOpsRoutes(
   app.post('/v1/ops/marketing/pages/:slug/publish', async (request) => {
     await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
+    requireAllowedPageSlug(slug, 'req_marketing');
     const revision = Number(request.headers['if-match']);
     const userId = actorIdFromRequest(request);
     const page = await service.publish(slug, revision, userId);
@@ -139,6 +127,7 @@ export async function registerMarketingOpsRoutes(
   app.post('/v1/ops/marketing/pages/:slug/unpublish', async (request) => {
     await requireSuperadmin(request);
     const { slug } = request.params as { slug: string };
+    requireAllowedPageSlug(slug, 'req_marketing');
     const revision = Number(request.headers['if-match']);
     const userId = actorIdFromRequest(request);
     const page = await service.unpublish(slug, revision, userId);
@@ -148,10 +137,11 @@ export async function registerMarketingOpsRoutes(
   app.post('/v1/ops/marketing/pages/:slug/versions/:version/restore', async (request) => {
     await requireSuperadmin(request);
     const { slug, version } = request.params as { slug: string; version: string };
-    const userId = actorIdFromRequest(request);
-    const page = await service.restore(slug, Number(version), userId);
+    requireAllowedPageSlug(slug, 'req_marketing');
+    const page = await service.restore(slug, Number(version), actorIdFromRequest(request));
     return { data: page };
   });
+
 }
 
 function cookieMap(request: FastifyRequest): Record<string, string> {

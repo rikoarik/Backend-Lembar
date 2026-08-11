@@ -333,29 +333,18 @@ describe.skipIf(!hasDb)('B6-06 marketing CMS authoring ops', () => {
     }
   });
 
-  it('creates a marketing page draft via POST', async () => {
+  it('only exposes and accepts the public marketing slugs', async () => {
+    await db.insert(marketingContent).values({
+      kind: 'page', slug: 'internal-only', locale: 'id-ID', currentVersion: 1, revision: 1, state: 'draft',
+    });
     const app = await buildApp({ logger: false, marketingDb: db });
     await app.ready();
     try {
-      const response = await app.inject({
-        method: 'POST',
-        url: '/v1/ops/marketing/pages',
-        headers: { cookie: SUPERADMIN_COOKIE },
-        payload: { slug: 'tentang-kami', title: 'Tentang Kami' },
-      });
-      expect(response.statusCode).toBe(201);
-      const body = response.json();
-      expect(body.data.slug).toBe('tentang-kami');
-      expect(body.data.state).toBe('draft');
-
-      // duplicate slug should 409
-      const dup = await app.inject({
-        method: 'POST',
-        url: '/v1/ops/marketing/pages',
-        headers: { cookie: SUPERADMIN_COOKIE },
-        payload: { slug: 'tentang-kami', title: 'Dup' },
-      });
-      expect(dup.statusCode).toBe(409);
+      const list = await app.inject({ method: 'GET', url: '/v1/ops/marketing/pages', headers: { cookie: SUPERADMIN_COOKIE } });
+      expect(list.statusCode).toBe(200);
+      expect(list.json().data.map((page: { slug: string }) => page.slug)).toEqual(['home']);
+      const internal = await app.inject({ method: 'GET', url: '/v1/ops/marketing/pages/internal-only', headers: { cookie: SUPERADMIN_COOKIE } });
+      expect(internal.statusCode).toBe(404);
     } finally {
       await app.close();
     }
