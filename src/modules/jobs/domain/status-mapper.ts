@@ -23,6 +23,7 @@ export function toNeutralStatus(internal: JobStatus): NeutralJobStatus {
     case 'partially_succeeded':
       return 'partially_failed';
     case 'failed':
+    case 'dead_letter':
       return 'failed';
     case 'cancelled':
       return 'cancelled';
@@ -43,6 +44,7 @@ export function toNeutralStage(internal: JobStatus, kind: string): string {
     case 'partially_succeeded':
       return `${kind}:partial`;
     case 'failed':
+    case 'dead_letter':
       return `${kind}:failed`;
     case 'cancelled':
       return 'cancelled';

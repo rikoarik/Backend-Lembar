@@ -71,6 +71,13 @@
       "when": 1786312800000,
       "tag": "0028_assessment_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786400000000,
+      "tag": "0031_jobs_dead_letter_retry",
+      "breakpoints": true
     }
   ]
 }

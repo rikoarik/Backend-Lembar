@@ -21,6 +21,11 @@ import {
 } from '../../persistence/adminOpsSchema.js';
 import type { AdminService } from '../../application/AdminService.js';
 import { PasswordResetService } from '../../../auth/application/PasswordResetService.js';
+import {
+  isRetryableJobStatus,
+  retryJobAtomically,
+  retryJobsBulkAtomically,
+} from '../../application/jobRetry.js';
 import { tenants } from '../../../../infrastructure/database/schema.js';
 import jwt from 'jsonwebtoken';
 
@@ -1083,6 +1088,39 @@ export async function registerAdminRoutes(
   });
 
   app.post(
+    '/v1/admin/jobs/retry-bulk',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+      const body = (request.body ?? {}) as { status?: unknown; q?: unknown };
+      const status = body.status === undefined ? undefined : String(body.status).trim();
+      const q = body.q === undefined ? undefined : String(body.q).trim();
+      if (status !== undefined && !isRetryableJobStatus(status)) {
+        return reply.status(400).send({
+          error: { code: 'VALIDATION_FAILED', message: 'status harus failed atau dead_letter' },
+        });
+      }
+
+      const result = await retryJobsBulkAtomically(pool, {
+        ...(status ? { status } : {}),
+        ...(q ? { q } : {}),
+      });
+      await auditLog(request.jwtUser!.userId, 'job.retry_bulk', 'job', 'filtered', {
+        ...(status ? { status } : {}),
+        search: Boolean(q),
+        retried: result.retried,
+        skipped: result.skipped,
+      });
+      return reply.status(200).send({ data: result });
+    },
+  );
+
+  app.post(
     '/v1/admin/jobs/:id/retry',
     { preHandler: [auth, superadmin] },
     async (request, reply) => {
@@ -1092,28 +1130,22 @@ export async function registerAdminRoutes(
         return reply
           .status(500)
           .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
-      const res = await pool.query('SELECT id, status FROM spike_jobs WHERE id = $1', [id]);
-      if (!res.rows[0])
+
+      const existing = await pool.query('SELECT id FROM spike_jobs WHERE id = $1', [id]);
+      if (!existing.rows[0])
         return reply
           .status(404)
           .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
-      const jobStatus = (res.rows[0] as any).status;
-      if (jobStatus !== 'failed' && jobStatus !== 'dead_letter') {
-        return reply
-          .status(400)
-          .send({
-            error: {
-              code: 'VALIDATION_FAILED',
-              message: 'Only failed or dead_letter jobs can be retried',
-            },
-          });
+
+      if (!(await retryJobAtomically(pool, id))) {
+        return reply.status(409).send({
+          error: {
+            code: 'JOB_NOT_RETRYABLE',
+            message: 'Job tidak lagi berstatus failed atau dead_letter',
+          },
+        });
       }
-      await pool.query('UPDATE spike_jobs SET status = $1, attempt = attempt + 1 WHERE id = $2', [
-        'queued',
-        id,
-      ]);
-      const user = request.jwtUser!;
-      await auditLog(user.userId, 'job.retry', 'job', id, {});
+      await auditLog(request.jwtUser!.userId, 'job.retry', 'job', id);
       return reply.status(200).send({ data: { id, retried: true } });
     },
   );
