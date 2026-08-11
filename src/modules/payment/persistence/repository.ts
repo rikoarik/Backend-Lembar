@@ -19,6 +19,17 @@ import type { PaymentOrderStatus } from '../domain/types.js';
 export class PaymentRepository {
   constructor(private readonly db: Database) {}
 
+  /**
+   * Run payment and entitlement writes on one Drizzle transaction. Callers that
+   * also modify workspace plans can use the provided transaction handle to
+   * construct a transaction-bound WorkspacePlanRepository.
+   */
+  async transaction<T>(
+    fn: (repo: PaymentRepository, db: Database) => Promise<T>,
+  ): Promise<T> {
+    return this.db.transaction(async (tx) => fn(new PaymentRepository(tx as Database), tx as Database));
+  }
+
   // ── Orders ────────────────────────────────────────────────────────────────
 
   /**
@@ -64,39 +75,47 @@ export class PaymentRepository {
     return this.db
       .select()
       .from(paymentOrders)
-      .where(
-        and(
-          eq(paymentOrders.tenantId, tenantId),
-          eq(paymentOrders.workspaceId, workspaceId),
-        ),
-      )
+      .where(and(eq(paymentOrders.tenantId, tenantId), eq(paymentOrders.workspaceId, workspaceId)))
       .orderBy(desc(paymentOrders.createdAt));
   }
 
   /**
-   * Insert a new payment order.
+   * Insert an order once at the database uniqueness boundary.  The caller must
+   * compare an existing row's immutable request fields before treating it as a
+   * valid idempotent replay.
    */
-  async createOrder(data: NewPaymentOrderRow): Promise<PaymentOrderRow> {
-    const rows = await this.db.insert(paymentOrders).values(data).returning();
-    const row = rows[0];
-    if (!row) throw new Error('Insert returned no rows');
-    return row;
+  async createOrderIfAbsent(
+    data: NewPaymentOrderRow,
+  ): Promise<{ row: PaymentOrderRow; created: boolean }> {
+    const inserted = await this.db
+      .insert(paymentOrders)
+      .values(data)
+      .onConflictDoNothing({ target: paymentOrders.idempotencyKey })
+      .returning();
+    if (inserted[0]) return { row: inserted[0], created: true };
+
+    const existing = await this.findByIdempotencyKey(data.idempotencyKey);
+    if (!existing) throw new Error('Idempotency conflict without an existing payment order');
+    return { row: existing, created: false };
   }
 
   /**
-   * Transition an order to a new status. Optionally set paidAt and
-   * gatewayPayload when the order is paid.
+   * Compare-and-set status transition. Only one concurrent webhook observing
+   * the same old status can win and perform payment side effects.
    */
-  async updateOrderStatus(
+  async transitionOrderIfCurrent(
     id: string,
+    expectedStatus: PaymentOrderStatus,
     status: PaymentOrderStatus,
     opts?: {
       paidAt?: Date;
       gatewayPayload?: Record<string, unknown>;
       externalOrderId?: string;
     },
-  ): Promise<PaymentOrderRow> {
+  ): Promise<PaymentOrderRow | null> {
     const now = new Date();
+    // Drizzle's conditional optional object properties conflict with
+    // exactOptionalPropertyTypes, so build the update object incrementally.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updates: Record<string, any> = { status, updatedAt: now };
     if (opts?.paidAt !== undefined) updates['paidAt'] = opts.paidAt;
@@ -106,11 +125,9 @@ export class PaymentRepository {
     const rows = await this.db
       .update(paymentOrders)
       .set(updates)
-      .where(eq(paymentOrders.id, id))
+      .where(and(eq(paymentOrders.id, id), eq(paymentOrders.status, expectedStatus)))
       .returning();
-    const row = rows[0];
-    if (!row) throw new Error(`Order ${id} not found for status update`);
-    return row;
+    return rows[0] ?? null;
   }
 
   // ── Events ────────────────────────────────────────────────────────────────

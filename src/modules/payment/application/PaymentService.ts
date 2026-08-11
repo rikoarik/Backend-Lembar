@@ -11,8 +11,9 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 
 import type { PaymentRepository } from '../persistence/repository.js';
-import type { WorkspacePlanRepository } from '../../plans/persistence/repository.js';
+import { WorkspacePlanRepository } from '../../plans/persistence/repository.js';
 import {
+  DuplicateOrderError,
   OrderNotFoundError,
   InvalidOrderTransitionError,
   WebhookSignatureError,
@@ -82,16 +83,10 @@ export class PaymentService {
   // ── Order creation (idempotent) ──────────────────────────────────────────
 
   async createOrder(input: CreateOrderInput): Promise<CreateOrderResult> {
-    // Check idempotency — return existing order if key already used
-    const existing = await this.paymentRepo.findByIdempotencyKey(input.idempotencyKey);
-    if (existing) {
-      return { order: rowToOrder(existing), idempotent: true };
-    }
-
-    // Get current plan for "from" value
+    const currency = input.currency ?? 'IDR';
+    // Get current plan for "from" value before attempting the unique insert.
     const currentPlan = await this.planRepo.findOrCreate(input.tenantId, input.workspaceId);
-
-    const row = await this.paymentRepo.createOrder({
+    const { row, created } = await this.paymentRepo.createOrderIfAbsent({
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
       idempotencyKey: input.idempotencyKey,
@@ -99,22 +94,31 @@ export class PaymentService {
       fromPlan: currentPlan.plan,
       toPlan: input.toPlan,
       amountCents: input.amountCents,
-      currency: input.currency ?? 'IDR',
+      currency,
       status: 'pending',
       gatewayPayload: null,
       paidAt: null,
     });
+
+    if (!created) {
+      if (
+        row.tenantId !== input.tenantId ||
+        row.workspaceId !== input.workspaceId ||
+        row.toPlan !== input.toPlan ||
+        row.amountCents !== input.amountCents ||
+        row.currency !== currency
+      ) {
+        throw new DuplicateOrderError(input.idempotencyKey, row.id);
+      }
+      return { order: rowToOrder(row), idempotent: true };
+    }
 
     await this.paymentRepo.appendEvent({
       orderId: row.id,
       tenantId: input.tenantId,
       workspaceId: input.workspaceId,
       eventType: 'order_created',
-      payload: {
-        toPlan: input.toPlan,
-        amountCents: input.amountCents,
-        currency: input.currency ?? 'IDR',
-      },
+      payload: { toPlan: input.toPlan, amountCents: input.amountCents, currency },
     });
 
     return { order: rowToOrder(row), idempotent: false };
@@ -130,9 +134,7 @@ export class PaymentService {
 
     // Extract external order id — supports Midtrans and Stripe conventions
     const externalOrderId =
-      (parsed['order_id'] as string | undefined) ??
-      (parsed['id'] as string | undefined) ??
-      null;
+      (parsed['order_id'] as string | undefined) ?? (parsed['id'] as string | undefined) ?? null;
 
     if (!externalOrderId) {
       throw new Error('Webhook payload missing order_id / id field');
@@ -194,41 +196,65 @@ export class PaymentService {
       throw new InvalidOrderTransitionError(row.id, currentStatus, newStatus);
     }
 
-    // Transition order
-    const statusOpts: { paidAt?: Date; gatewayPayload?: Record<string, unknown> } = {
-      gatewayPayload: parsed,
-    };
-    if (newStatus === 'paid') statusOpts.paidAt = new Date();
-    const updatedRow = await this.paymentRepo.updateOrderStatus(row.id, newStatus, statusOpts);
+    // The status write, transition event, and paid entitlement are a single
+    // durable unit. A failed callback rolls all three back, so no committed
+    // order can be paid without both its audit event and workspace upgrade.
+    return this.paymentRepo.transaction(async (paymentRepo, db) => {
+      const statusOpts: { paidAt?: Date; gatewayPayload?: Record<string, unknown> } = {
+        gatewayPayload: parsed,
+      };
+      if (newStatus === 'paid') statusOpts.paidAt = new Date();
+      const updatedRow = await paymentRepo.transitionOrderIfCurrent(
+        row.id,
+        currentStatus,
+        newStatus,
+        statusOpts,
+      );
+      // A concurrent callback won the compare-and-set. It alone owns the
+      // transition event and entitlement side effects; this delivery is a replay.
+      if (!updatedRow) {
+        const latest = await paymentRepo.findById(row.id);
+        if (!latest) throw new OrderNotFoundError(row.id);
+        const latestStatus = latest.status as PaymentOrderStatus;
+        if (latestStatus === newStatus) {
+          return { orderId: row.id, newStatus, planTransitioned: false };
+        }
+        throw new InvalidOrderTransitionError(row.id, latestStatus, newStatus);
+      }
 
-    const eventType =
-      newStatus === 'paid' ? 'order_paid' :
-      newStatus === 'failed' ? 'order_failed' :
-      newStatus === 'cancelled' ? 'order_cancelled' :
-      'order_refunded';
+      const eventType =
+        newStatus === 'paid'
+          ? 'order_paid'
+          : newStatus === 'failed'
+            ? 'order_failed'
+            : newStatus === 'cancelled'
+              ? 'order_cancelled'
+              : 'order_refunded';
 
-    await this.paymentRepo.appendEvent({
-      orderId: row.id,
-      tenantId: row.tenantId,
-      workspaceId: row.workspaceId,
-      eventType,
-      payload: { previousStatus: currentStatus, newStatus },
-    });
-
-    // If order is now paid, upgrade the plan
-    let planTransitioned = false;
-    if (newStatus === 'paid') {
-      await this.transitionPlan({
-        tenantId: updatedRow.tenantId,
-        workspaceId: updatedRow.workspaceId,
-        actorId: 'payment_webhook',
-        targetPlan: updatedRow.toPlan as PaymentPlanType,
-        orderId: updatedRow.id,
+      await paymentRepo.appendEvent({
+        orderId: row.id,
+        tenantId: row.tenantId,
+        workspaceId: row.workspaceId,
+        eventType,
+        payload: { previousStatus: currentStatus, newStatus },
       });
-      planTransitioned = true;
-    }
 
-    return { orderId: row.id, newStatus, planTransitioned };
+      if (newStatus === 'paid') {
+        await this.transitionPlan(
+          {
+            tenantId: updatedRow.tenantId,
+            workspaceId: updatedRow.workspaceId,
+            actorId: 'payment_webhook',
+            targetPlan: updatedRow.toPlan as PaymentPlanType,
+            orderId: updatedRow.id,
+          },
+          paymentRepo,
+          this.planRepo.withDatabase(db),
+        );
+      }
+
+      return { orderId: row.id, newStatus, planTransitioned: newStatus === 'paid' };
+    });
   }
 
   // ── Plan upgrade/downgrade ────────────────────────────────────────────────
@@ -249,10 +275,18 @@ export class PaymentService {
       order.workspaceId !== input.workspaceId ||
       order.toPlan !== input.targetPlan
     ) {
-      throw new InvalidPlanTransitionError('free', input.targetPlan, 'order does not belong to this plan and workspace');
+      throw new InvalidPlanTransitionError(
+        'free',
+        input.targetPlan,
+        'order does not belong to this plan and workspace',
+      );
     }
     if (order.status !== 'paid') {
-      throw new InvalidPlanTransitionError('free', input.targetPlan, `order is ${order.status}, not paid`);
+      throw new InvalidPlanTransitionError(
+        'free',
+        input.targetPlan,
+        `order is ${order.status}, not paid`,
+      );
     }
     return this.transitionPlan(input);
   }
@@ -264,8 +298,12 @@ export class PaymentService {
     return this.transitionPlan(input);
   }
 
-  private async transitionPlan(input: PlanChangeInput): Promise<PlanChangeResult> {
-    const current = await this.planRepo.findOrCreate(input.tenantId, input.workspaceId);
+  private async transitionPlan(
+    input: PlanChangeInput,
+    paymentRepo: PaymentRepository = this.paymentRepo,
+    planRepo: WorkspacePlanRepository = this.planRepo,
+  ): Promise<PlanChangeResult> {
+    const current = await planRepo.findOrCreate(input.tenantId, input.workspaceId);
     const previousPlan = current.plan as PaymentPlanType;
 
     if (previousPlan === input.targetPlan) {
@@ -278,13 +316,13 @@ export class PaymentService {
       };
     }
 
-    await this.planRepo.setPlan(input.tenantId, input.workspaceId, input.targetPlan);
+    await planRepo.setPlan(input.tenantId, input.workspaceId, input.targetPlan);
 
     const eventType = input.targetPlan === 'pro' ? 'plan_upgraded' : 'plan_downgraded';
 
     // If we have an associated order, append the event to it
     if (input.orderId) {
-      await this.paymentRepo.appendEvent({
+      await paymentRepo.appendEvent({
         orderId: input.orderId,
         tenantId: input.tenantId,
         workspaceId: input.workspaceId,
@@ -370,7 +408,10 @@ export class PaymentService {
       if (!tPart || !v1Part) throw new WebhookSignatureError('stripe');
       const timestamp = tPart.slice(2);
       const timestampSeconds = Number(timestamp);
-      if (!Number.isFinite(timestampSeconds) || Math.abs(Date.now() / 1000 - timestampSeconds) > 300) {
+      if (
+        !Number.isFinite(timestampSeconds) ||
+        Math.abs(Date.now() / 1000 - timestampSeconds) > 300
+      ) {
         throw new WebhookSignatureError('stripe');
       }
       const receivedSig = v1Part.slice(3);

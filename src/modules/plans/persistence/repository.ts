@@ -13,6 +13,11 @@ import { FREE_MONTHLY_TOKEN_LIMIT } from './schema.js';
 export class WorkspacePlanRepository {
   constructor(private readonly db: Database) {}
 
+  /** Bind this repository to an existing Drizzle transaction. */
+  withDatabase(db: Database): WorkspacePlanRepository {
+    return new WorkspacePlanRepository(db);
+  }
+
   /**
    * Find the active plan for a workspace, or auto-create a free plan.
    * Returns a default free plan if DB query fails (e.g., demo workspaces).

@@ -14,6 +14,7 @@ import type { Database } from '../../../../infrastructure/database/db.js';
 import { createJwtAuthMiddleware } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import type { PlanCatalogRepository } from '../../../plans/persistence/catalogRepository.js';
 import {
+  DuplicateOrderError,
   OrderNotFoundError,
   InvalidOrderTransitionError,
   WebhookSignatureError,
@@ -31,6 +32,17 @@ function handleError(err: unknown, req: FastifyRequest, reply: FastifyReply): vo
       error: {
         code: 'WEBHOOK_SIGNATURE_INVALID',
         message: err.message,
+        requestId,
+        retryable: false,
+      },
+    });
+    return;
+  }
+  if (err instanceof DuplicateOrderError) {
+    void reply.status(409).send({
+      error: {
+        code: 'IDEMPOTENCY_KEY_REUSED',
+        message: 'Kunci idempotensi sudah digunakan untuk permintaan pembayaran yang berbeda.',
         requestId,
         retryable: false,
       },
@@ -92,32 +104,28 @@ export async function registerWebhookRoutes(
   app.post('/v1/payment/webhook', async (request: FastifyRequest, reply: FastifyReply) => {
     const gateway = request.headers['x-gateway'] as string | undefined;
     if (gateway !== 'midtrans' && gateway !== 'stripe' && gateway !== 'pakasir') {
-      return reply
-        .status(400)
-        .send({
-          error: {
-            code: 'PAYMENT_GATEWAY_INVALID',
-            message: 'Gateway tidak didukung.',
-            requestId: getRequestId(request),
-            retryable: false,
-          },
-        });
+      return reply.status(400).send({
+        error: {
+          code: 'PAYMENT_GATEWAY_INVALID',
+          message: 'Gateway tidak didukung.',
+          requestId: getRequestId(request),
+          retryable: false,
+        },
+      });
     }
     if (
       (gateway === 'midtrans' && !process.env['MIDTRANS_SERVER_KEY']) ||
       (gateway === 'stripe' && !process.env['STRIPE_WEBHOOK_SECRET']) ||
       (gateway === 'pakasir' && !process.env['PAKASIR_API_KEY'])
     ) {
-      return reply
-        .status(503)
-        .send({
-          error: {
-            code: 'PAYMENT_NOT_CONFIGURED',
-            message: 'Gateway pembayaran belum dikonfigurasi.',
-            requestId: getRequestId(request),
-            retryable: false,
-          },
-        });
+      return reply.status(503).send({
+        error: {
+          code: 'PAYMENT_NOT_CONFIGURED',
+          message: 'Gateway pembayaran belum dikonfigurasi.',
+          requestId: getRequestId(request),
+          retryable: false,
+        },
+      });
     }
     const signature =
       (request.headers['stripe-signature'] as string | undefined) ??
@@ -167,16 +175,14 @@ export async function registerWebhookRoutes(
         });
       }
       if (!/^[A-Za-z0-9_-]{16,100}$/.test(idempotencyKey)) {
-        return reply
-          .status(400)
-          .send({
-            error: {
-              code: 'VALIDATION_FAILED',
-              message: 'x-idempotency-key tidak valid.',
-              requestId,
-              retryable: false,
-            },
-          });
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_FAILED',
+            message: 'x-idempotency-key tidak valid.',
+            requestId,
+            retryable: false,
+          },
+        });
       }
 
       const body = request.body as Record<string, unknown>;
@@ -281,16 +287,14 @@ export async function registerWebhookRoutes(
       const orderId = params.id;
       const workspaceId = request.jwtUser?.workspaceId;
       if (!workspaceId)
-        return reply
-          .status(403)
-          .send({
-            error: {
-              code: 'PERMISSION_DENIED',
-              message: 'Workspace aktif diperlukan.',
-              requestId: getRequestId(request),
-              retryable: false,
-            },
-          });
+        return reply.status(403).send({
+          error: {
+            code: 'PERMISSION_DENIED',
+            message: 'Workspace aktif diperlukan.',
+            requestId: getRequestId(request),
+            retryable: false,
+          },
+        });
 
       try {
         const events = await paymentService.getOrderEventsForWorkspace(
@@ -314,43 +318,37 @@ export async function registerWebhookRoutes(
     const apiKey = process.env['PAKASIR_API_KEY'];
     const slug = process.env['PAKASIR_PROJECT_SLUG'];
     if (!workspaceId || typeof orderId !== 'string' || !orderId || toPlan !== 'pro') {
-      return reply
-        .status(400)
-        .send({
-          error: {
-            code: 'VALIDATION_FAILED',
-            message: 'orderId dan toPlan tidak valid.',
-            requestId,
-            retryable: false,
-          },
-        });
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: 'orderId dan toPlan tidak valid.',
+          requestId,
+          retryable: false,
+        },
+      });
     }
     if (!apiKey || !slug) {
-      return reply
-        .status(503)
-        .send({
-          error: {
-            code: 'PAYMENT_NOT_CONFIGURED',
-            message: 'Gateway pembayaran belum dikonfigurasi.',
-            requestId,
-            retryable: false,
-          },
-        });
+      return reply.status(503).send({
+        error: {
+          code: 'PAYMENT_NOT_CONFIGURED',
+          message: 'Gateway pembayaran belum dikonfigurasi.',
+          requestId,
+          retryable: false,
+        },
+      });
     }
     // Amount is always derived server-side from catalog; client-supplied amountCents is ignored.
     const proCatalog = await options.catalog?.find('pro');
     const serverAmount = proCatalog?.priceAmount;
     if (!Number.isInteger(serverAmount) || (serverAmount ?? 0) <= 0) {
-      return reply
-        .status(503)
-        .send({
-          error: {
-            code: 'PAYMENT_NOT_CONFIGURED',
-            message: 'Harga Pro belum dikonfigurasi di katalog.',
-            requestId,
-            retryable: false,
-          },
-        });
+      return reply.status(503).send({
+        error: {
+          code: 'PAYMENT_NOT_CONFIGURED',
+          message: 'Harga Pro belum dikonfigurasi di katalog.',
+          requestId,
+          retryable: false,
+        },
+      });
     }
     try {
       await paymentService.createOrder({
