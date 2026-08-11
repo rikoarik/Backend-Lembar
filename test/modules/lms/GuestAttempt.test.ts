@@ -13,7 +13,7 @@ const ASSESSMENT_ID_2 = 'assess-002';
 
 function makeService() {
   const store = new InMemoryAttemptStore();
-  const service = new AttemptService(store);
+  const service = new AttemptService({ guestStore: store });
   return { store, service };
 }
 

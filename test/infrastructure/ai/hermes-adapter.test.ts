@@ -19,8 +19,9 @@ describe('HermesAdapter', () => {
       fallbacks: [],
     });
     const result = await adapter.generate({
-      workspaceId: 'ws', actorId: 'actor', promptTemplateId: 'question-generation-v1',
-      schemaVersion: '1', prompt: 'buat soal', tokenEstimateHint: 10,
+      workspaceId: 'ws', promptTemplateId: 'question-generation-v1',
+      schemaVersion: 1, prompt: 'buat soal', tokenEstimateHint: 10,
+      contextWindowId: null, signals: {}, attemptNumber: 0, maxSchemaRepairAttempts: 1,
     });
 
     expect(fetch).toHaveBeenCalledWith(

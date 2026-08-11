@@ -14,7 +14,6 @@ export interface RegisterInput {
   name: string;
   username?: string;
   phone?: string;
-  roles?: UserRole[];
 }
 
 export interface LoginInput {
@@ -90,14 +89,9 @@ export class JwtMultiRoleAuthService {
       throwApiError('invalid_phone', 'Nomor telepon tidak valid');
     }
 
-    const roles = input.roles && input.roles.length > 0 ? input.roles : (['subscriber'] as UserRole[]);
-    const invalidRoles = roles.filter((role) => !(USER_ROLES as readonly string[]).includes(role));
-    if (invalidRoles.length > 0) {
-      throwApiError(
-        'invalid_roles',
-        `Roles tidak valid: ${invalidRoles.join(', ')}. Allowed: ${USER_ROLES.join(', ')}`,
-      );
-    }
+    // Personal registration always creates a teacher in a personal workspace.
+    // Privileged platform and school roles are assigned only through authorized flows.
+    const roles: UserRole[] = ['teacher'];
 
     // Uniqueness checks
     const [existingEmail] = await this.db

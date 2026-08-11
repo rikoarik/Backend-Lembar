@@ -61,8 +61,8 @@ describe('AssessmentGenerationHandler importQuestion wiring', () => {
       questions: [],
       totalSchemaRepairAttempts: 0,
       hasFailures: true,
-      failures: [{ blueprintSequence: 0, reason: 'provider_error', message: 'forced' }],
-    });
+      failures: [{ blueprintSequence: 0, reason: 'provider_error' as const, message: 'forced' }],
+    } as never);
     const handler = new AssessmentGenerationHandler({
       questionGenerationService: questionGenerationService as never,
       assessmentsStore: { updateAssessment } as never,
@@ -128,7 +128,7 @@ describe('AssessmentGenerationHandler importQuestion wiring', () => {
     questionGenerationService.generateQuestions.mockResolvedValue({
       questions: [
         {
-          id: 'q-success',
+          id: randomUUID(),
           workspaceId: 'ws-import-test',
           assessmentVersionId: 'ver-1',
           blueprintSequence: 0,
@@ -154,11 +154,11 @@ describe('AssessmentGenerationHandler importQuestion wiring', () => {
       failures: [
         {
           blueprintSequence: 1,
-          reason: 'provider_error',
+          reason: 'provider_error' as const,
           message: 'forced',
         },
       ],
-    });
+    } as never);
 
     const handler = new AssessmentGenerationHandler({
       questionGenerationService: questionGenerationService as never,

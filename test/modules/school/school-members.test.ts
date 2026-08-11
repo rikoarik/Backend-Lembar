@@ -11,6 +11,9 @@ import Fastify from 'fastify';
 import { SchoolService } from '../../../src/modules/school/application/SchoolService.js';
 import { InMemorySchoolWorkspaceStore, InMemorySchoolInvitationStore } from '../../../src/modules/school/persistence/InMemorySchoolStores.js';
 import { registerMemberRoutes } from '../../../src/modules/school/adapters/http/memberRoutes.js';
+import { generateJwt } from '../../../src/modules/auth/infrastructure/jwtMultiRole.js';
+
+const JWT_SECRET = 'school-members-test-secret';
 
 async function buildApp() {
   const app = Fastify({ logger: false });
@@ -20,30 +23,33 @@ async function buildApp() {
 
   // Seed a workspace with members
   workspaceStore.seedWorkspace(
-    { id: 'ws-001', tenantId: 'tenant-001', name: 'Test School', level: 'sd', createdAt: new Date().toISOString() },
+    { id: 'ws-001', tenantId: 'ws-001', name: 'Test School', level: 'sd', createdAt: new Date().toISOString() },
     [
       { id: 'mem-001', email: 'teacher@test.school', role: 'teacher', state: 'active', joinedAt: new Date().toISOString() },
       { id: 'mem-002', email: 'admin@test.school', role: 'school_admin', state: 'active', joinedAt: new Date().toISOString() },
     ],
   );
 
-  registerMemberRoutes(app, { service });
+  registerMemberRoutes(app, { service, jwtSecret: JWT_SECRET });
   await app.ready();
   return app;
 }
 
-const adminHeaders = {
-  'x-tenant-id': 'tenant-001',
-  'x-user-role': 'school_admin',
-  'content-type': 'application/json',
-};
+function authHeaders(roles: ('school_admin' | 'teacher')[]) {
+  return {
+    authorization: `Bearer ${generateJwt({ userId: 'mem-002', email: 'admin@test.school', roles, workspaceId: 'ws-001' }, { secret: JWT_SECRET, expiryDays: 1 })}`,
+    'content-type': 'application/json',
+  };
+}
+
+const adminHeaders = authHeaders(['school_admin']);
 
 describe('GET /v1/school/members', () => {
   it('returns members for school_admin', async () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'GET',
-      url: '/v1/school/members?workspaceId=ws-001',
+      url: '/v1/school/members',
       headers: adminHeaders,
     });
     expect(res.statusCode).toBe(200);
@@ -56,31 +62,12 @@ describe('GET /v1/school/members', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'GET',
-      url: '/v1/school/members?workspaceId=ws-001',
-      headers: { 'x-tenant-id': 'tenant-001', 'x-user-role': 'teacher' },
+      url: '/v1/school/members',
+      headers: authHeaders(['teacher']),
     });
     expect(res.statusCode).toBe(403);
   });
 
-  it('returns 400 when workspaceId missing', async () => {
-    const app = await buildApp();
-    const res = await app.inject({
-      method: 'GET',
-      url: '/v1/school/members',
-      headers: adminHeaders,
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
-  it('returns 400 when x-tenant-id missing', async () => {
-    const app = await buildApp();
-    const res = await app.inject({
-      method: 'GET',
-      url: '/v1/school/members?workspaceId=ws-001',
-      headers: { 'x-user-role': 'school_admin' },
-    });
-    expect(res.statusCode).toBe(400);
-  });
 });
 
 describe('POST /v1/school/members/invite', () => {
@@ -88,7 +75,7 @@ describe('POST /v1/school/members/invite', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/school/members/invite?workspaceId=ws-001',
+      url: '/v1/school/members/invite',
       headers: { ...adminHeaders, 'x-user-id': 'mem-002' },
       body: JSON.stringify({ email: 'newteacher@test.school', role: 'teacher' }),
     });
@@ -102,7 +89,7 @@ describe('POST /v1/school/members/invite', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/school/members/invite?workspaceId=ws-001',
+      url: '/v1/school/members/invite',
       headers: adminHeaders,
       body: JSON.stringify({ role: 'teacher' }),
     });
@@ -113,7 +100,7 @@ describe('POST /v1/school/members/invite', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/school/members/invite?workspaceId=ws-001',
+      url: '/v1/school/members/invite',
       headers: adminHeaders,
       body: JSON.stringify({ email: 'x@test.school', role: 'superadmin' }),
     });
@@ -124,8 +111,8 @@ describe('POST /v1/school/members/invite', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'POST',
-      url: '/v1/school/members/invite?workspaceId=ws-001',
-      headers: { 'x-tenant-id': 'tenant-001', 'x-user-role': 'teacher', 'content-type': 'application/json' },
+      url: '/v1/school/members/invite',
+      headers: authHeaders(['teacher']),
       body: JSON.stringify({ email: 'x@test.school', role: 'teacher' }),
     });
     expect(res.statusCode).toBe(403);
@@ -137,7 +124,7 @@ describe('PATCH /v1/school/members/:id/role', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'PATCH',
-      url: '/v1/school/members/mem-001/role?workspaceId=ws-001',
+      url: '/v1/school/members/mem-001/role',
       headers: adminHeaders,
       body: JSON.stringify({ role: 'school_admin' }),
     });
@@ -150,7 +137,7 @@ describe('PATCH /v1/school/members/:id/role', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'PATCH',
-      url: '/v1/school/members/does-not-exist/role?workspaceId=ws-001',
+      url: '/v1/school/members/does-not-exist/role',
       headers: adminHeaders,
       body: JSON.stringify({ role: 'teacher' }),
     });
@@ -161,7 +148,7 @@ describe('PATCH /v1/school/members/:id/role', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'PATCH',
-      url: '/v1/school/members/mem-001/role?workspaceId=ws-001',
+      url: '/v1/school/members/mem-001/role',
       headers: adminHeaders,
       body: JSON.stringify({}),
     });
@@ -174,8 +161,8 @@ describe('DELETE /v1/school/members/:id', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'DELETE',
-      url: '/v1/school/members/mem-001?workspaceId=ws-001',
-      headers: { 'x-tenant-id': 'tenant-001', 'x-user-role': 'school_admin' },
+      url: '/v1/school/members/mem-001',
+      headers: { authorization: adminHeaders.authorization },
     });
     expect(res.statusCode).toBe(204);
   });
@@ -184,8 +171,8 @@ describe('DELETE /v1/school/members/:id', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'DELETE',
-      url: '/v1/school/members/does-not-exist?workspaceId=ws-001',
-      headers: { 'x-tenant-id': 'tenant-001', 'x-user-role': 'school_admin' },
+      url: '/v1/school/members/does-not-exist',
+      headers: { authorization: adminHeaders.authorization },
     });
     expect(res.statusCode).toBe(404);
   });
@@ -194,8 +181,8 @@ describe('DELETE /v1/school/members/:id', () => {
     const app = await buildApp();
     const res = await app.inject({
       method: 'DELETE',
-      url: '/v1/school/members/mem-001?workspaceId=ws-001',
-      headers: { 'x-tenant-id': 'tenant-001', 'x-user-role': 'teacher' },
+      url: '/v1/school/members/mem-001',
+      headers: { authorization: authHeaders(['teacher']).authorization },
     });
     expect(res.statusCode).toBe(403);
   });

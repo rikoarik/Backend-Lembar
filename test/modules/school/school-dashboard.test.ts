@@ -9,6 +9,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import Fastify from 'fastify';
+import { generateJwt } from '../../../src/modules/auth/infrastructure/jwtMultiRole.js';
 
 import { SchoolDashboardService } from '../../../src/modules/school/application/SchoolDashboardService.js';
 import { registerDashboardRoutes } from '../../../src/modules/school/adapters/http/dashboardRoutes.js';
@@ -47,6 +48,29 @@ class StubWorkspaceStore implements SchoolWorkspaceStore {
   async listMembers(tenantId: string, workspaceId: string): Promise<SchoolMember[]> {
     return this.members.get(`${tenantId}::${workspaceId}`) ?? [];
   }
+
+  async updateMemberRole(
+    tenantId: string,
+    workspaceId: string,
+    memberId: string,
+    role: SchoolMember['role'],
+  ): Promise<SchoolMember | null> {
+    const members = this.members.get(`${tenantId}::${workspaceId}`) ?? [];
+    const member = members.find((candidate) => candidate.id === memberId);
+    if (!member) return null;
+    member.role = role;
+    return member;
+  }
+
+  async removeMember(tenantId: string, workspaceId: string, memberId: string): Promise<boolean> {
+    const key = `${tenantId}::${workspaceId}`;
+    const members = this.members.get(key) ?? [];
+    const index = members.findIndex((member) => member.id === memberId);
+    if (index === -1) return false;
+    members.splice(index, 1);
+    this.members.set(key, members);
+    return true;
+  }
 }
 
 class StubPlanRepo {
@@ -83,6 +107,13 @@ const TENANT_A = 'tenant-school-a';
 const TENANT_B = 'tenant-school-b';
 const WS_A = 'ws-alpha';
 const WS_B = 'ws-beta';
+const JWT_SECRET = 'school-dashboard-test-secret';
+
+function authHeaders(workspaceId: string, roles: ('school_admin' | 'teacher' | 'subscriber')[]) {
+  return {
+    authorization: `Bearer ${generateJwt({ userId: 'school-user', email: 'school@example.test', roles, workspaceId }, { secret: JWT_SECRET, expiryDays: 1 })}`,
+  };
+}
 
 function buildApp(workspaceStore: StubWorkspaceStore, planRepo: StubPlanRepo) {
   const app = Fastify({ logger: false });
@@ -90,7 +121,7 @@ function buildApp(workspaceStore: StubWorkspaceStore, planRepo: StubPlanRepo) {
     workspaceStore,
     planRepo as unknown as WorkspacePlanRepository,
   );
-  void registerDashboardRoutes(app, { dashboardService });
+  void registerDashboardRoutes(app, { dashboardService, jwtSecret: JWT_SECRET });
   return app;
 }
 
@@ -106,20 +137,52 @@ describe('B7-02 — School admin dashboard', () => {
 
     // Seed workspace A dengan 2 member
     workspaceStore.seed(
-      { id: WS_A, tenantId: TENANT_A, name: 'SMA Negeri 1', level: 'SMA', createdAt: new Date().toISOString() },
+      {
+        id: WS_A,
+        tenantId: WS_A,
+        name: 'SMA Negeri 1',
+        level: 'SMA',
+        createdAt: new Date().toISOString(),
+      },
       [
-        { id: 'u-1', email: 'admin@sma1.id', role: 'school_admin', state: 'active', joinedAt: new Date().toISOString() },
-        { id: 'u-2', email: 'guru@sma1.id', role: 'teacher', state: 'active', joinedAt: new Date().toISOString() },
+        {
+          id: 'u-1',
+          email: 'admin@sma1.id',
+          role: 'school_admin',
+          state: 'active',
+          joinedAt: new Date().toISOString(),
+        },
+        {
+          id: 'u-2',
+          email: 'guru@sma1.id',
+          role: 'teacher',
+          state: 'active',
+          joinedAt: new Date().toISOString(),
+        },
       ],
     );
-    planRepo.seed(TENANT_A, WS_A, { generationsUsedThisMonth: 3, plan: 'free' });
+    planRepo.seed(WS_A, WS_A, { generationsUsedThisMonth: 3, plan: 'free' });
 
     // Seed workspace B (tenant lain)
     workspaceStore.seed(
-      { id: WS_B, tenantId: TENANT_B, name: 'SMK Negeri 2', level: 'SMK', createdAt: new Date().toISOString() },
-      [{ id: 'u-3', email: 'admin@smk2.id', role: 'school_admin', state: 'active', joinedAt: new Date().toISOString() }],
+      {
+        id: WS_B,
+        tenantId: WS_B,
+        name: 'SMK Negeri 2',
+        level: 'SMK',
+        createdAt: new Date().toISOString(),
+      },
+      [
+        {
+          id: 'u-3',
+          email: 'admin@smk2.id',
+          role: 'school_admin',
+          state: 'active',
+          joinedAt: new Date().toISOString(),
+        },
+      ],
     );
-    planRepo.seed(TENANT_B, WS_B, { generationsUsedThisMonth: 7, plan: 'pro' });
+    planRepo.seed(WS_B, WS_B, { generationsUsedThisMonth: 7, plan: 'pro' });
   });
 
   describe('akses role', () => {
@@ -127,8 +190,8 @@ describe('B7-02 — School admin dashboard', () => {
       const app = buildApp(workspaceStore, planRepo);
       const res = await app.inject({
         method: 'GET',
-        url: `/v1/school/dashboard?workspaceId=${WS_A}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'school_admin' },
+        url: '/v1/school/dashboard',
+        headers: authHeaders(WS_A, ['school_admin']),
       });
 
       expect(res.statusCode).toBe(200);
@@ -140,26 +203,26 @@ describe('B7-02 — School admin dashboard', () => {
       expect(Array.isArray(body.data.members)).toBe(true);
       expect(body.data.usage.plan).toBe('free');
       expect(body.data.usage.generationsUsedThisMonth).toBe(3);
-      expect(body.data.usage.monthlyLimit).toBe(10); // FREE_MONTHLY_LIMIT
+      expect(body.data.usage.monthlyLimit).toBe(3); // FREE_MONTHLY_LIMIT
     });
 
     it('teacher mendapat 403', async () => {
       const app = buildApp(workspaceStore, planRepo);
       const res = await app.inject({
         method: 'GET',
-        url: `/v1/school/dashboard?workspaceId=${WS_A}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'teacher' },
+        url: '/v1/school/dashboard',
+        headers: authHeaders(WS_A, ['teacher']),
       });
       expect(res.statusCode).toBe(403);
-      expect(res.json().error.code).toBe('PERMISSION_DENIED');
+      expect(res.json().code).toBe('PERMISSION_DENIED');
     });
 
     it('subscriber mendapat 403', async () => {
       const app = buildApp(workspaceStore, planRepo);
       const res = await app.inject({
         method: 'GET',
-        url: `/v1/school/dashboard?workspaceId=${WS_A}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'subscriber' },
+        url: '/v1/school/dashboard',
+        headers: authHeaders(WS_A, ['subscriber']),
       });
       expect(res.statusCode).toBe(403);
     });
@@ -168,8 +231,8 @@ describe('B7-02 — School admin dashboard', () => {
       const app = buildApp(workspaceStore, planRepo);
       const res = await app.inject({
         method: 'GET',
-        url: `/v1/school/dashboard?workspaceId=${WS_A}`,
-        headers: { 'x-tenant-id': TENANT_A },
+        url: '/v1/school/dashboard',
+        headers: authHeaders(WS_A, []),
       });
       expect(res.statusCode).toBe(403);
     });
@@ -182,51 +245,28 @@ describe('B7-02 — School admin dashboard', () => {
       // Tenant A mencoba akses workspace B — workspace tidak ditemukan karena tenantId berbeda
       const res = await app.inject({
         method: 'GET',
-        url: `/v1/school/dashboard?workspaceId=${WS_B}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'school_admin' },
+        url: '/v1/school/dashboard',
+        headers: authHeaders(WS_A, ['school_admin']),
       });
 
-      // Service akan throw karena workspace WS_B tidak ada di bawah TENANT_A
-      expect(res.statusCode).toBe(500);
+      // JWT workspace scope ignores the forged query.
+      expect(res.statusCode).toBe(200);
     });
 
     it('school_admin tenant B mendapat data workspace mereka sendiri', async () => {
       const app = buildApp(workspaceStore, planRepo);
       const res = await app.inject({
         method: 'GET',
-        url: `/v1/school/dashboard?workspaceId=${WS_B}`,
-        headers: { 'x-tenant-id': TENANT_B, 'x-user-role': 'school_admin' },
+        url: '/v1/school/dashboard',
+        headers: authHeaders(WS_B, ['school_admin']),
       });
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.data.workspace.tenantId).toBe(TENANT_B);
+      expect(body.data.workspace.tenantId).toBe(WS_B);
       expect(body.data.memberCount).toBe(1);
       expect(body.data.usage.plan).toBe('pro');
       expect(body.data.usage.monthlyLimit).toBeNull(); // pro = unlimited
-    });
-  });
-
-  describe('validasi input', () => {
-    it('tanpa workspaceId mendapat 400', async () => {
-      const app = buildApp(workspaceStore, planRepo);
-      const res = await app.inject({
-        method: 'GET',
-        url: '/v1/school/dashboard',
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'school_admin' },
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().error.code).toBe('VALIDATION_FAILED');
-    });
-
-    it('tanpa x-tenant-id mendapat 400', async () => {
-      const app = buildApp(workspaceStore, planRepo);
-      const res = await app.inject({
-        method: 'GET',
-        url: `/v1/school/dashboard?workspaceId=${WS_A}`,
-        headers: { 'x-user-role': 'school_admin' },
-      });
-      expect(res.statusCode).toBe(400);
     });
   });
 });

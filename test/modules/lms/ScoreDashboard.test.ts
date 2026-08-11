@@ -27,7 +27,7 @@ const questions: GradingQuestion[] = [
 
 function makeApp() {
   const store = new InMemoryAttemptStore();
-  const service = new AttemptService(store);
+  const service = new AttemptService({ guestStore: store });
   const app = Fastify();
   registerAttemptRoutes(app, service);
   return { app, service };

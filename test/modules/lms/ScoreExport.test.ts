@@ -29,7 +29,7 @@ const questions: GradingQuestion[] = [
 
 function makeApp() {
   const store = new InMemoryAttemptStore();
-  const service = new AttemptService(store);
+  const service = new AttemptService({ guestStore: store });
   const app = Fastify();
   registerAttemptRoutes(app, service);
   return { app, service };
@@ -80,8 +80,13 @@ describe('ScoreExport', () => {
     expect(lines).toHaveLength(4);
     expect(lines[0]).toBe(CSV_HEADER);
 
+    const [sitiRow, ahmadRow, budiRow] = lines.slice(1);
+    if (!sitiRow || !ahmadRow || !budiRow) {
+      throw new Error('Expected three score export rows');
+    }
+
     // Row 1: Siti 4/4 = 100%
-    const [nama1, kelas1, skor1, maks1, persen1] = lines[1].split(',');
+    const [nama1, kelas1, skor1, maks1, persen1] = sitiRow.split(',');
     expect(nama1).toBe('Siti');
     expect(kelas1).toBe('8B');
     expect(skor1).toBe('4');
@@ -89,13 +94,13 @@ describe('ScoreExport', () => {
     expect(persen1).toBe('100.00');
 
     // Row 2: Ahmad 3/4 = 75%
-    const [nama2, , skor2, , persen2] = lines[2].split(',');
+    const [nama2, , skor2, , persen2] = ahmadRow.split(',');
     expect(nama2).toBe('Ahmad');
     expect(skor2).toBe('3');
     expect(persen2).toBe('75.00');
 
     // Row 3: Budi 2/4 = 50%
-    const [nama3, , skor3, , persen3] = lines[3].split(',');
+    const [nama3, , skor3, , persen3] = budiRow.split(',');
     expect(nama3).toBe('Budi');
     expect(skor3).toBe('2');
     expect(persen3).toBe('50.00');

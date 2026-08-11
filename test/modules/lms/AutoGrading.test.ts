@@ -22,7 +22,7 @@ const ASSESSMENT_ID = 'assess-grading-001';
 
 function makeService() {
   const store = new InMemoryAttemptStore();
-  const service = new AttemptService(store);
+  const service = new AttemptService({ guestStore: store });
   return { store, service };
 }
 

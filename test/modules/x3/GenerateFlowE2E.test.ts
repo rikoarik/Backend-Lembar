@@ -1,17 +1,23 @@
 /**
  * X3-01 — Generate configuration & retrieval cross-repo integration gate.
  *
- * Validates that the three job handlers (source_ingestion, assessment_generation,
- * question_regeneration) produce valid JobResult outputs when given realistic
- * payloads and mock dependencies.
+ * Exercises current queue handler contracts with realistic in-memory fixtures.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { JobContext, JobResult } from '../../../../infrastructure/queue/domain/JobHandler.js';
-import { SourceIngestionHandler, type SourceIngestionHandlerDeps } from '../../../../infrastructure/queue/handlers/SourceIngestionHandler.js';
-import { AssessmentGenerationHandler, type AssessmentGenerationHandlerDeps } from '../../../../infrastructure/queue/handlers/AssessmentGenerationHandler.js';
-import { QuestionRegenerationHandler, type QuestionRegenerationHandlerDeps } from '../../../../infrastructure/queue/handlers/QuestionRegenerationHandler.js';
+import { describe, expect, it, vi } from 'vitest';
 
-// ── Mock factories ──────────────────────────────────────────────────
+import type { JobContext, JobResult } from '../../../src/infrastructure/queue/domain/JobHandler.js';
+import {
+  SourceIngestionHandler,
+  type SourceIngestionHandlerDeps,
+} from '../../../src/infrastructure/queue/handlers/SourceIngestionHandler.js';
+import {
+  AssessmentGenerationHandler,
+  type AssessmentGenerationHandlerOptions,
+} from '../../../src/infrastructure/queue/handlers/AssessmentGenerationHandler.js';
+import {
+  QuestionRegenerationHandler,
+  type QuestionRegenerationHandlerOptions,
+} from '../../../src/infrastructure/queue/handlers/QuestionRegenerationHandler.js';
 
 function makeContext(payload: Record<string, unknown>): JobContext {
   return {
@@ -26,36 +32,41 @@ function makeContext(payload: Record<string, unknown>): JobContext {
 
 function makeMockUploadsStore() {
   return {
-    getById: vi.fn().mockResolvedValue({
+    getUploadByIdForWorkspace: vi.fn().mockResolvedValue({
       id: 'upload-001',
+      tenantId: 'tenant-001',
       workspaceId: 'ws-001',
-      fileName: 'test.pdf',
-      mimeType: 'application/pdf',
-      storageKey: 'uploads/test.pdf',
+      uploaderUserId: 'actor-001',
+      filenameRedacted: '[redacted]',
+      contentType: 'application/pdf',
+      byteSize: 123,
+      pageCountHint: null,
+      magicSignature: null,
       status: 'verified',
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      failureCode: null,
+      currentVersion: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     }),
-    updateStatus: vi.fn().mockResolvedValue(undefined),
-  };
-}
-
-function makeMockStorage() {
-  return {
-    getBytes: vi.fn().mockResolvedValue(Buffer.from('fake pdf content')),
-    putBytes: vi.fn().mockResolvedValue(undefined),
-    delete: vi.fn().mockResolvedValue(undefined),
+    currentVersionForUpload: vi.fn().mockResolvedValue({
+      id: 'version-001',
+      uploadId: 'upload-001',
+      version: 1,
+      storageDriver: 'memory',
+      contentHash: 'hash',
+      redactionClassification: 'user_private',
+      createdAt: new Date().toISOString(),
+    }),
   };
 }
 
 function makeMockExtractionService() {
   return {
-    extractAndChunk: vi.fn().mockResolvedValue({
-      passages: [
-        { id: 'passage-1', content: 'Text content from the uploaded document.', sourceUploadId: 'upload-001', sequence: 0 },
-        { id: 'passage-2', content: 'Another passage for question generation.', sourceUploadId: 'upload-001', sequence: 1 },
-      ],
-      metadata: { totalPages: 5, totalPassages: 2, extractionMethod: 'mock' },
+    run: vi.fn().mockResolvedValue({
+      jobId: 'extraction-job-001',
+      pageCount: 2,
+      passageCount: 2,
+      passages: [],
     }),
   };
 }
@@ -66,193 +77,113 @@ function makeMockQuestionGenService() {
       questions: [
         {
           id: 'q-001',
+          blueprintSequence: 0,
           stem: 'What is the main topic?',
-          options: ['A', 'B', 'C', 'D'],
+          options: [{ key: 'A', text: 'A' }],
           answer: 'A',
           explanation: 'Based on the passage.',
           sourceIds: ['passage-1'],
           questionType: 'multiple_choice',
           difficulty: 'medium',
-          cognitiveLevel: 'remember',
-          sequence: 0,
         },
       ],
       hasFailures: false,
-      metadata: { generatedCount: 1, failedCount: 0 },
+      failures: [],
+      totalSchemaRepairAttempts: 0,
     }),
   };
 }
-
-function makeMockAssessmentStore() {
-  return {
-    getById: vi.fn().mockResolvedValue({
-      id: 'assessment-001',
-      workspaceId: 'ws-001',
-      title: 'Test Assessment',
-      blueprint: [
-        { sequence: 0, questionType: 'multiple_choice', difficulty: 'medium' },
-      ],
-      status: 'draft',
-      createdAt: new Date(),
-    }),
-    updateStatus: vi.fn().mockResolvedValue(undefined),
-    saveQuestions: vi.fn().mockResolvedValue(undefined),
-    listQuestions: vi.fn().mockResolvedValue([
-      { id: 'q-001', stem: 'What is the main topic?', questionType: 'multiple_choice', difficulty: 'medium' },
-    ]),
-  };
-}
-
-function makeMockBlueprintStore() {
-  return {
-    getByAssessmentId: vi.fn().mockResolvedValue([
-      { sequence: 0, questionType: 'multiple_choice', difficulty: 'medium', cognitiveLevel: 'remember', topicHint: 'main topic' },
-    ]),
-    save: vi.fn().mockResolvedValue(undefined),
-  };
-}
-
-function makeMockProductAiService() {
-  return {
-    run: vi.fn().mockResolvedValue({
-      status: 'succeeded',
-      outcome: 'succeeded',
-      promptTemplateId: 'tpl-001',
-      promptVersionId: 'v1',
-      rawOutput: 'AI generated content',
-      parsedOutput: {
-        questions: [
-          {
-            stem: 'What is the main topic?',
-            options: ['A', 'B', 'C', 'D'],
-            answer: 'A',
-            explanation: 'Based on the passage.',
-            sourceIds: ['passage-1'],
-          },
-        ],
-      },
-      usage: { inputTokens: 100, outputTokens: 50 },
-    }),
-  };
-}
-
-// ── Tests ───────────────────────────────────────────────────────────
 
 describe('X3-01: Generate configuration & retrieval integration gate', () => {
-
   describe('Source ingestion handler', () => {
-    it('should process a source_ingestion job and return success', async () => {
+    it('processes a source_ingestion job and returns success', async () => {
+      const uploadsStore = makeMockUploadsStore();
+      const extractionService = makeMockExtractionService();
       const deps: SourceIngestionHandlerDeps = {
-        uploadsStore: makeMockUploadsStore(),
-        storage: makeMockStorage(),
-        extractionService: makeMockExtractionService(),
+        uploadsStore: uploadsStore as never,
+        storage: {} as never,
+        extractionService: extractionService as never,
       };
-      const handler = new SourceIngestionHandler(deps);
-      const ctx = makeContext({ sourceId: 'upload-001' });
+      const result: JobResult = await new SourceIngestionHandler(deps).handle(
+        makeContext({ sourceId: 'upload-001' }),
+      );
 
-      const result: JobResult = await handler.handle(ctx);
       expect(result.status).toBe('success');
-      expect(deps.uploadsStore.getById).toHaveBeenCalledWith('upload-001');
-      expect(deps.extractionService.extractAndChunk).toHaveBeenCalled();
+      expect(uploadsStore.getUploadByIdForWorkspace).toHaveBeenCalledWith('ws-001', 'upload-001');
+      expect(extractionService.run).toHaveBeenCalled();
     });
 
-    it('should fail gracefully when uploadId is missing', async () => {
+    it('fails gracefully when uploadId is missing', async () => {
       const deps: SourceIngestionHandlerDeps = {
-        uploadsStore: makeMockUploadsStore(),
-        storage: makeMockStorage(),
-        extractionService: makeMockExtractionService(),
+        uploadsStore: makeMockUploadsStore() as never,
+        storage: {} as never,
+        extractionService: makeMockExtractionService() as never,
       };
-      const handler = new SourceIngestionHandler(deps);
-      const ctx = makeContext({}); // no sourceId
+      const result: JobResult = await new SourceIngestionHandler(deps).handle(makeContext({}));
 
-      const result: JobResult = await handler.handle(ctx);
       expect(result.status).toBe('failure');
       expect(result.error?.code).toBe('MISSING_UPLOAD_ID');
     });
   });
 
   describe('Assessment generation handler', () => {
-    it('should process an assessment_generation job and return success', async () => {
-      const mockQGS = makeMockQuestionGenService();
-      const mockAssessmentStore = makeMockAssessmentStore();
-      const mockBlueprintStore = makeMockBlueprintStore();
-      const mockProductAi = makeMockProductAiService();
-
-      const deps: AssessmentGenerationHandlerDeps = {
-        questionGenerationService: mockQGS,
-        assessmentStore: mockAssessmentStore,
-        blueprintStore: mockBlueprintStore,
-        productAiService: mockProductAi,
+    it('processes an assessment_generation job and returns success', async () => {
+      const questionGenerationService = makeMockQuestionGenService();
+      const options: AssessmentGenerationHandlerOptions = {
+        questionGenerationService: questionGenerationService as never,
       };
-      const handler = new AssessmentGenerationHandler(deps);
-      const ctx = makeContext({
+      const result: JobResult = await new AssessmentGenerationHandler(options).handle(makeContext({
         assessmentId: 'assessment-001',
-        workspaceId: 'ws-001',
-        blueprint: [{ sequence: 0, questionType: 'multiple_choice', difficulty: 'medium' }],
-      });
+        assessmentVersionId: 'assessment-version-001',
+        blueprintItems: [{ sequence: 0, questionType: 'multiple_choice', difficulty: 'medium' }],
+      }));
 
-      const result: JobResult = await handler.handle(ctx);
       expect(result.status).toBe('success');
+      expect(questionGenerationService.generateQuestions).toHaveBeenCalledWith(expect.objectContaining({
+        assessmentVersionId: 'assessment-version-001',
+      }));
     });
   });
 
   describe('Question regeneration handler', () => {
-    it('should process a question_regeneration job and return success', async () => {
-      const mockQGS = makeMockQuestionGenService();
-      const deps: QuestionRegenerationHandlerDeps = {
-        questionGenerationService: mockQGS,
+    it('processes a question_regeneration job and returns success', async () => {
+      const options: QuestionRegenerationHandlerOptions = {
+        questionGenerationService: makeMockQuestionGenService() as never,
       };
-      const handler = new QuestionRegenerationHandler(deps);
-      const ctx = makeContext({
+      const result: JobResult = await new QuestionRegenerationHandler(options).handle(makeContext({
         assessmentVersionId: 'assessment-001',
         questionId: 'q-001',
         questionType: 'multiple_choice',
         difficulty: 'medium',
         topicHint: 'regenerate this question',
-      });
+      }));
 
-      const result: JobResult = await handler.handle(ctx);
       expect(result.status).toBe('success');
       expect(result.output?.regenerated).toBe(true);
     });
   });
 
   describe('End-to-end: source → generate → questions', () => {
-    it('should chain source ingestion → assessment generation and produce questions', async () => {
-      // Step 1: Source ingestion
-      const sourceDeps: SourceIngestionHandlerDeps = {
-        uploadsStore: makeMockUploadsStore(),
-        storage: makeMockStorage(),
-        extractionService: makeMockExtractionService(),
-      };
-      const sourceHandler = new SourceIngestionHandler(sourceDeps);
-      const sourceCtx = makeContext({ sourceId: 'upload-001' });
-      const sourceResult = await sourceHandler.handle(sourceCtx);
+    it('chains source ingestion and assessment generation with valid current fixtures', async () => {
+      const sourceResult = await new SourceIngestionHandler({
+        uploadsStore: makeMockUploadsStore() as never,
+        storage: {} as never,
+        extractionService: makeMockExtractionService() as never,
+      }).handle(makeContext({ sourceId: 'upload-001' }));
       expect(sourceResult.status).toBe('success');
 
-      // Step 2: Assessment generation (uses passages from step 1)
-      const mockQGS = makeMockQuestionGenService();
-      const genDeps: AssessmentGenerationHandlerDeps = {
-        questionGenerationService: mockQGS,
-        assessmentStore: makeMockAssessmentStore(),
-        blueprintStore: makeMockBlueprintStore(),
-        productAiService: makeMockProductAiService(),
-      };
-      const genHandler = new AssessmentGenerationHandler(genDeps);
-      const genCtx = makeContext({
+      const questionGenerationService = makeMockQuestionGenService();
+      const generationResult = await new AssessmentGenerationHandler({
+        questionGenerationService: questionGenerationService as never,
+      }).handle(makeContext({
         assessmentId: 'assessment-001',
-        workspaceId: 'ws-001',
-        blueprint: [{ sequence: 0, questionType: 'multiple_choice', difficulty: 'medium' }],
-      });
-      const genResult = await genHandler.handle(genCtx);
-      expect(genResult.status).toBe('success');
+        blueprintItems: [{ sequence: 0, questionType: 'multiple_choice', difficulty: 'medium' }],
+      }));
 
-      // Step 3: Verify mock question generation produced questions
-      expect(mockQGS.generateQuestions).toHaveBeenCalled();
-      const questions = mockQGS.generateQuestions.mock.results[0].value.questions;
-      expect(questions.length).toBeGreaterThan(0);
-      expect(questions[0].stem).toBeDefined();
-      expect(questions[0].answer).toBeDefined();
+      expect(generationResult.status).toBe('success');
+      await expect(questionGenerationService.generateQuestions.mock.results[0]?.value).resolves.toMatchObject({
+        questions: [expect.objectContaining({ stem: expect.any(String), answer: expect.any(String) })],
+      });
     });
   });
 });

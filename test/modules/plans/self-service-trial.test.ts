@@ -5,6 +5,10 @@ import { generateJwt } from '../../../src/modules/auth/infrastructure/jwtMultiRo
 import { registerPlanRoutes } from '../../../src/modules/plans/adapters/http/planRoutes.js';
 import { PlanService } from '../../../src/modules/plans/application/PlanService.js';
 import {
+  FREE_MONTHLY_LIMIT,
+  FREE_MONTHLY_TOKEN_LIMIT,
+} from '../../../src/modules/plans/persistence/schema.js';
+import {
   hashDeviceToken,
   hashIdentity,
   TrialService,
@@ -23,6 +27,8 @@ function planRepo(plan: 'free' | 'pro' = 'free') {
         workspaceId,
         plan,
         generationsUsedThisMonth: 10,
+        tokensUsedThisMonth: 0,
+        tokenMonthlyLimit: null,
         billingCycleStartedAt: now,
         active: true,
         createdAt: now,
@@ -65,7 +71,8 @@ describe('60-day self-service Pro trial', () => {
     ).resolves.toMatchObject({
       plan: 'free',
       entitlementSource: 'free',
-      monthlyLimit: 10,
+      monthlyLimit: FREE_MONTHLY_LIMIT,
+      tokenMonthlyLimit: FREE_MONTHLY_TOKEN_LIMIT,
       trial: { claimed: true, activeOnThisDevice: false },
     });
   });
@@ -101,14 +108,14 @@ describe('60-day self-service Pro trial', () => {
     });
   });
 
-  it('allows quota only for the claimed trial device', async () => {
+  it('keeps the free token quota available on another device during a device-bound trial', async () => {
     const service = new PlanService(planRepo() as never, trialRepo(), () => now);
     await expect(
       service.assertQuota('tenant-1', 'workspace-1', 'claimed-device'),
     ).resolves.toBeUndefined();
     await expect(
       service.assertQuota('tenant-1', 'workspace-1', 'other-device'),
-    ).rejects.toBeInstanceOf(Error);
+    ).resolves.toBeUndefined();
   });
 
   it('normalizes full identifiers and hashes them without collisions from masking', () => {

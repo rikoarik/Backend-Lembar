@@ -45,7 +45,7 @@ describe('AttemptService', () => {
 
     const results = await store.findByAssessment(WS, ASSESSMENT_ID);
     expect(results).toHaveLength(1);
-    expect(results[0].workspaceId).toBe(WS);
+    expect(results[0]!.workspaceId).toBe(WS);
   });
 
   it('submitMemberAttempt records answers and sets submittedAt', async () => {

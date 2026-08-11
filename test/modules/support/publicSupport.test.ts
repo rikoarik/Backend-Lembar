@@ -106,11 +106,14 @@ describe('POST /v1/public/support/chat', () => {
       const runner = vi.fn(async () => 'ok');
       const app = Fastify({ logger: false });
       await registerPublicSupportRoutes(app, { runner, rateLimitMax: 100 });
-      const response = await app.inject({
-        method: 'POST',
-        url: '/v1/public/support/chat',
-        ...(body === undefined ? {} : { payload: body }),
-      });
+      const response = body === undefined
+        ? await app.inject({ method: 'POST', url: '/v1/public/support/chat' })
+        : await app.inject({
+          method: 'POST',
+          url: '/v1/public/support/chat',
+          headers: { 'content-type': 'application/json' },
+          payload: JSON.stringify(body),
+        });
       expect(response.statusCode).toBe(400);
       expect(response.json()).toEqual(fallback);
       expect(runner).not.toHaveBeenCalled();

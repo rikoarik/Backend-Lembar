@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import Fastify from 'fastify';
+import { generateJwt } from '../../../src/modules/auth/infrastructure/jwtMultiRole.js';
 
 import { SchoolService } from '../../../src/modules/school/application/SchoolService.js';
 import { SchoolDashboardService } from '../../../src/modules/school/application/SchoolDashboardService.js';
@@ -64,6 +65,29 @@ class StubWorkspaceStore implements SchoolWorkspaceStore {
 
   async listMembers(tenantId: string, workspaceId: string): Promise<SchoolMember[]> {
     return this.members.get(`${tenantId}::${workspaceId}`) ?? [];
+  }
+
+  async updateMemberRole(
+    tenantId: string,
+    workspaceId: string,
+    memberId: string,
+    role: SchoolMember['role'],
+  ): Promise<SchoolMember | null> {
+    const members = this.members.get(`${tenantId}::${workspaceId}`) ?? [];
+    const member = members.find((candidate) => candidate.id === memberId);
+    if (!member) return null;
+    member.role = role;
+    return member;
+  }
+
+  async removeMember(tenantId: string, workspaceId: string, memberId: string): Promise<boolean> {
+    const key = `${tenantId}::${workspaceId}`;
+    const members = this.members.get(key) ?? [];
+    const index = members.findIndex((member) => member.id === memberId);
+    if (index === -1) return false;
+    members.splice(index, 1);
+    this.members.set(key, members);
+    return true;
   }
 }
 
@@ -181,6 +205,18 @@ const TENANT_A = 'tenant-school-a';
 const TENANT_B = 'tenant-school-b';
 const WS_A = 'ws-alpha';
 const WS_B = 'ws-beta';
+const JWT_SECRET = 'school-security-gate-test-secret';
+
+function authorization(
+  userId: string,
+  roles: ('school_admin' | 'teacher' | 'subscriber')[],
+  workspaceId: string,
+): string {
+  return `Bearer ${generateJwt(
+    { userId, email: `${userId}@example.test`, roles, workspaceId },
+    { secret: JWT_SECRET, expiryDays: 1 },
+  )}`;
+}
 
 function buildFullApp(
   workspaceStore: StubWorkspaceStore,
@@ -201,10 +237,10 @@ function buildFullApp(
     planRepo as unknown as WorkspacePlanRepository,
   );
 
-  void registerSchoolRoutes(app, { service: schoolService });
-  void registerDashboardRoutes(app, { dashboardService });
+  void registerSchoolRoutes(app, { service: schoolService, jwtSecret: JWT_SECRET });
+  void registerDashboardRoutes(app, { dashboardService, jwtSecret: JWT_SECRET });
   void registerOnboardingRoutes(app, { onboardingService });
-  void registerBillingRoutes(app, { billingService });
+  void registerBillingRoutes(app, { billingService, jwtSecret: JWT_SECRET });
 
   return app;
 }
@@ -225,22 +261,52 @@ describe('B7-05 — School security gate (integration)', () => {
 
     // Seed workspace A dengan 2 member
     workspaceStore.seed(
-      { id: WS_A, tenantId: TENANT_A, name: 'SMA Negeri 1', level: 'SMA', createdAt: new Date().toISOString() },
+      {
+        id: WS_A,
+        tenantId: WS_A,
+        name: 'SMA Negeri 1',
+        level: 'SMA',
+        createdAt: new Date().toISOString(),
+      },
       [
-        { id: 'u-1', email: 'admin@sma1.id', role: 'school_admin', state: 'active', joinedAt: new Date().toISOString() },
-        { id: 'u-2', email: 'guru@sma1.id', role: 'teacher', state: 'active', joinedAt: new Date().toISOString() },
+        {
+          id: 'u-1',
+          email: 'admin@sma1.id',
+          role: 'school_admin',
+          state: 'active',
+          joinedAt: new Date().toISOString(),
+        },
+        {
+          id: 'u-2',
+          email: 'guru@sma1.id',
+          role: 'teacher',
+          state: 'active',
+          joinedAt: new Date().toISOString(),
+        },
       ],
     );
-    planRepo.seed(TENANT_A, WS_A, { plan: 'free', generationsUsedThisMonth: 3 });
+    planRepo.seed(WS_A, WS_A, { plan: 'free', generationsUsedThisMonth: 3 });
 
     // Seed workspace B (tenant berbeda)
     workspaceStore.seed(
-      { id: WS_B, tenantId: TENANT_B, name: 'SMK Negeri 2', level: 'SMK', createdAt: new Date().toISOString() },
+      {
+        id: WS_B,
+        tenantId: WS_B,
+        name: 'SMK Negeri 2',
+        level: 'SMK',
+        createdAt: new Date().toISOString(),
+      },
       [
-        { id: 'u-10', email: 'admin@smk2.id', role: 'school_admin', state: 'active', joinedAt: new Date().toISOString() },
+        {
+          id: 'u-10',
+          email: 'admin@smk2.id',
+          role: 'school_admin',
+          state: 'active',
+          joinedAt: new Date().toISOString(),
+        },
       ],
     );
-    planRepo.seed(TENANT_B, WS_B, { plan: 'pro', generationsUsedThisMonth: 7 });
+    planRepo.seed(WS_B, WS_B, { plan: 'pro', generationsUsedThisMonth: 7 });
   });
 
   describe('tenant isolation end-to-end', () => {
@@ -251,12 +317,12 @@ describe('B7-05 — School security gate (integration)', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/v1/school/${WS_B}/members`,
-        headers: { 'x-tenant-id': TENANT_A },
+        headers: { authorization: authorization('u-1', ['school_admin'], WS_A) },
       });
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.data).toEqual([]); // tidak ada members karena tenant mismatch
+      expect(body.data).toHaveLength(2); // route scope comes only from JWT workspace
     });
 
     it('dashboard tidak bocor data cross-tenant', async () => {
@@ -266,11 +332,11 @@ describe('B7-05 — School security gate (integration)', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/v1/school/dashboard?workspaceId=${WS_B}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'school_admin' },
+        headers: { authorization: authorization('u-1', ['school_admin'], WS_A) },
       });
 
       // Workspace tidak ditemukan di tenant A → error atau memberCount=0
-      expect(res.statusCode).toBe(500); // service throws karena workspace tidak ditemukan
+      expect(res.statusCode).toBe(200);
     });
 
     it('billing tidak bocor data cross-tenant', async () => {
@@ -279,12 +345,12 @@ describe('B7-05 — School security gate (integration)', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/v1/school/billing?workspaceId=${WS_B}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'school_admin' },
+        headers: { authorization: authorization('u-1', ['school_admin'], WS_A) },
       });
 
       expect(res.statusCode).toBe(200);
       // seatCount=0 karena listMembers(TENANT_A, WS_B) kosong
-      expect(res.json().data.seatCount).toBe(0);
+      expect(res.json().data.seatCount).toBe(2);
     });
 
     it('onboarding terisolasi per user+workspace', async () => {
@@ -315,10 +381,10 @@ describe('B7-05 — School security gate (integration)', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/v1/school/dashboard?workspaceId=${WS_A}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'teacher' },
+        headers: { authorization: authorization('u-2', ['teacher'], WS_A) },
       });
       expect(res.statusCode).toBe(403);
-      expect(res.json().error.code).toBe('PERMISSION_DENIED');
+      expect(res.json().code).toBe('PERMISSION_DENIED');
     });
 
     it('GET /v1/school/billing: teacher → 403', async () => {
@@ -326,10 +392,10 @@ describe('B7-05 — School security gate (integration)', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/v1/school/billing?workspaceId=${WS_A}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'teacher' },
+        headers: { authorization: authorization('u-2', ['teacher'], WS_A) },
       });
       expect(res.statusCode).toBe(403);
-      expect(res.json().error.code).toBe('PERMISSION_DENIED');
+      expect(res.json().code).toBe('PERMISSION_DENIED');
     });
 
     it('GET /v1/school/dashboard: subscriber → 403', async () => {
@@ -337,7 +403,7 @@ describe('B7-05 — School security gate (integration)', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/v1/school/dashboard?workspaceId=${WS_A}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'subscriber' },
+        headers: { authorization: authorization('u-3', ['subscriber'], WS_A) },
       });
       expect(res.statusCode).toBe(403);
     });
@@ -347,7 +413,7 @@ describe('B7-05 — School security gate (integration)', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/v1/school/billing?workspaceId=${WS_A}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'subscriber' },
+        headers: { authorization: authorization('u-3', ['subscriber'], WS_A) },
       });
       expect(res.statusCode).toBe(403);
     });
@@ -357,7 +423,7 @@ describe('B7-05 — School security gate (integration)', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/v1/school/dashboard?workspaceId=${WS_A}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'school_admin' },
+        headers: { authorization: authorization('u-1', ['school_admin'], WS_A) },
       });
       expect(res.statusCode).toBe(200);
     });
@@ -367,7 +433,7 @@ describe('B7-05 — School security gate (integration)', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/v1/school/billing?workspaceId=${WS_A}`,
-        headers: { 'x-tenant-id': TENANT_A, 'x-user-role': 'school_admin' },
+        headers: { authorization: authorization('u-1', ['school_admin'], WS_A) },
       });
       expect(res.statusCode).toBe(200);
     });
@@ -381,12 +447,15 @@ describe('B7-05 — School security gate (integration)', () => {
       const inviteRes = await app.inject({
         method: 'POST',
         url: '/v1/invitations',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          ...{ 'content-type': 'application/json' },
+          authorization: authorization('u-1', ['school_admin'], WS_A),
+        },
         body: JSON.stringify({
           workspaceId: WS_A,
           email: 'newteacher@sma1.id',
           role: 'teacher',
-          tenantId: TENANT_A,
+          tenantId: WS_A,
           createdByUserId: 'u-1',
         }),
       });
@@ -396,7 +465,10 @@ describe('B7-05 — School security gate (integration)', () => {
       const accept1 = await app.inject({
         method: 'POST',
         url: '/v1/invitations/accept',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          ...{ 'content-type': 'application/json' },
+          authorization: authorization('u-1', ['school_admin'], WS_A),
+        },
         body: JSON.stringify({ token, password: 'Pass123' }),
       });
       expect(accept1.statusCode).toBe(200);
@@ -405,7 +477,10 @@ describe('B7-05 — School security gate (integration)', () => {
       const accept2 = await app.inject({
         method: 'POST',
         url: '/v1/invitations/accept',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          ...{ 'content-type': 'application/json' },
+          authorization: authorization('u-1', ['school_admin'], WS_A),
+        },
         body: JSON.stringify({ token, password: 'Pass123' }),
       });
       expect(accept2.statusCode).toBe(404);
@@ -418,7 +493,10 @@ describe('B7-05 — School security gate (integration)', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/invitations/accept',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          ...{ 'content-type': 'application/json' },
+          authorization: authorization('u-1', ['school_admin'], WS_A),
+        },
         body: JSON.stringify({ token: 'invalid-token-12345678', password: 'Pass123' }),
       });
 
@@ -445,10 +523,10 @@ describe('B7-05 — School security gate (integration)', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/v1/school/${WS_A}/members`,
-        headers: { 'x-tenant-id': TENANT_A },
+        headers: { authorization: authorization('u-1', ['school_admin'], WS_A) },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json().data.length).toBe(2);
+      expect(res.json().data).toHaveLength(2);
     });
   });
 });

@@ -117,7 +117,7 @@ describeDb('X1-01 — Identity & workspace integration gate', () => {
         };
         expect(regBody.token).toBeTruthy();
         expect(regBody.user.email).toBe(`x1-reg-${ts}@test.example`);
-        expect(regBody.user.roles).toContain('subscriber');
+        expect(regBody.user.roles).toContain('teacher');
         expect(regBody.user.workspaceId).toBeTruthy();
 
         // Step 2: Login (by email)
@@ -154,7 +154,7 @@ describeDb('X1-01 — Identity & workspace integration gate', () => {
         };
         expect(decoded.userId).toBe(regBody.user.id);
         expect(decoded.email).toBe(`x1-reg-${ts}@test.example`);
-        expect(decoded.roles).toContain('subscriber');
+        expect(decoded.roles).toContain('teacher');
         expect(decoded.workspaceId).toBe(regBody.user.workspaceId);
         expect(decoded.iat).toBeTypeOf('number');
         expect(decoded.exp).toBeTypeOf('number');
@@ -179,7 +179,7 @@ describeDb('X1-01 — Identity & workspace integration gate', () => {
         };
         expect(meBody.data.id).toBe(regBody.user.id);
         expect(meBody.data.email).toBe(`x1-reg-${ts}@test.example`);
-        expect(meBody.data.roles).toContain('subscriber');
+        expect(meBody.data.roles).toContain('teacher');
         expect(meBody.data.workspaceId).toBe(regBody.user.workspaceId);
 
         // Step 5: GET /v1/auth/me (no data wrapper)
@@ -316,7 +316,7 @@ describeDb('X1-01 — Identity & workspace integration gate', () => {
         };
         expect(dashBody.data.activeWorkspaceId).toBe(regBody.user.workspaceId);
         expect(dashBody.data.user.id).toBe(regBody.user.id);
-        expect(dashBody.data.user.roles).toContain('subscriber');
+        expect(dashBody.data.user.roles).toContain('teacher');
       } finally {
         await app.close();
         await closeDb();
@@ -339,7 +339,7 @@ describeDb('X1-01 — Identity & workspace integration gate', () => {
 
   describe('Scenario 3 — Role verification in JWT and endpoints', () => {
 
-    test('default registration assigns subscriber role', async () => {
+    test('personal registration assigns teacher role', async () => {
       const app = await makeApp();
       try {
         const ts = uniqueSuffix();
@@ -359,13 +359,13 @@ describeDb('X1-01 — Identity & workspace integration gate', () => {
         const regBody = regRes.json() as { token: string; user: { roles: string[] } };
 
         // Verify in register response
-        expect(regBody.user.roles).toEqual(['subscriber']);
+        expect(regBody.user.roles).toEqual(['teacher']);
 
         // Verify in decoded JWT
         const decoded = jwt.verify(regBody.token, JWT_SECRET, { algorithms: ['HS256'] }) as {
           roles: string[];
         };
-        expect(decoded.roles).toEqual(['subscriber']);
+        expect(decoded.roles).toEqual(['teacher']);
 
         // Verify in GET /v1/auth/me
         const meRes = await app.inject({
@@ -375,14 +375,14 @@ describeDb('X1-01 — Identity & workspace integration gate', () => {
         });
         expect(meRes.statusCode).toBe(200);
         const meBody = meRes.json() as { roles: string[] };
-        expect(meBody.roles).toEqual(['subscriber']);
+        expect(meBody.roles).toEqual(['teacher']);
       } finally {
         await app.close();
         await closeDb();
       }
     });
 
-    test('registration with explicit roles persists roles in JWT', async () => {
+    test('registration ignores explicit client role claims and persists teacher in JWT', async () => {
       const app = await makeApp();
       try {
         const ts = uniqueSuffix();
@@ -402,13 +402,13 @@ describeDb('X1-01 — Identity & workspace integration gate', () => {
         expect(regRes.statusCode).toBe(201);
         const regBody = regRes.json() as { token: string; user: { roles: string[] } };
 
-        expect(regBody.user.roles).toContain('teacher');
+        expect(regBody.user.roles).toEqual(['teacher']);
 
         // Verify JWT carries the role
         const decoded = jwt.verify(regBody.token, JWT_SECRET, { algorithms: ['HS256'] }) as {
           roles: string[];
         };
-        expect(decoded.roles).toContain('teacher');
+        expect(decoded.roles).toEqual(['teacher']);
       } finally {
         await app.close();
         await closeDb();

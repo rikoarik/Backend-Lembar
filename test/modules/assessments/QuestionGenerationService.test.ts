@@ -23,6 +23,11 @@ const TEST_AI_ENV: AiEnv = {
   baseUrl: null,
   apiKeyPresent: false,
   timeoutMs: 30_000,
+  hermesApiKey: null,
+  hermesBaseUrl: 'https://api.nousresearch.com',
+  openaiApiKey: null,
+  openaiBaseUrl: 'https://api.openai.com',
+  openaiModelId: 'gpt-4o-mini',
 };
 
 const VALID_BLUEPRINT: BlueprintSnapshot = {
@@ -421,7 +426,7 @@ describe('B3-03 QuestionGenerationService', () => {
       expect(second.totalSchemaRepairAttempts).toBe(0);
     });
 
-    it('should throw RESOURCE_NOT_FOUND when blueprint missing', async () => {
+    it('uses supplied blueprint items when no saved blueprint snapshot exists', async () => {
       const aiService = createMockAiService([makeValidAiResponse()]);
       const blueprintService = createMockBlueprintService(null);
       const service = new QuestionGenerationService({
@@ -431,16 +436,16 @@ describe('B3-03 QuestionGenerationService', () => {
         env: TEST_AI_ENV,
       });
 
-      await expect(
-        service.generateQuestions({
-          workspaceId: WORKSPACE_ID,
-          assessmentVersionId: ASSESSMENT_VERSION_ID,
-          blueprintItems: [VALID_BLUEPRINT.items[0]!],
-          blueprintSchemaVersion: '1.0.0',
-          coverageTargets: { minTotalItems: 1, maxTotalItems: 10 },
-          requestId: 'req-1',
-        }),
-      ).rejects.toMatchObject({ code: 'RESOURCE_NOT_FOUND' });
+      const result = await service.generateQuestions({
+        workspaceId: WORKSPACE_ID,
+        assessmentVersionId: ASSESSMENT_VERSION_ID,
+        blueprintItems: [VALID_BLUEPRINT.items[0]!],
+        blueprintSchemaVersion: '1.0.0',
+        coverageTargets: { minTotalItems: 1, maxTotalItems: 10 },
+        requestId: 'req-1',
+      });
+
+      expect(result.questions).toHaveLength(1);
     });
   });
 

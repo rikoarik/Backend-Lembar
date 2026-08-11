@@ -8,8 +8,9 @@
  * - membership: listMembers returns invited user
  * - expired invite: accept fails with 404
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
+import { generateJwt } from '../../../src/modules/auth/infrastructure/jwtMultiRole.js';
 
 import { SchoolService } from '../../../src/modules/school/application/SchoolService.js';
 import { registerSchoolRoutes } from '../../../src/modules/school/adapters/http/schoolRoutes.js';
@@ -43,6 +44,29 @@ class InMemorySchoolWorkspaceStore implements SchoolWorkspaceStore {
 
   async listMembers(tenantId: string, workspaceId: string): Promise<SchoolMember[]> {
     return this.members.get(`${tenantId}::${workspaceId}`) ?? [];
+  }
+
+  async updateMemberRole(
+    tenantId: string,
+    workspaceId: string,
+    memberId: string,
+    role: SchoolMember['role'],
+  ): Promise<SchoolMember | null> {
+    const members = this.members.get(`${tenantId}::${workspaceId}`) ?? [];
+    const member = members.find((candidate) => candidate.id === memberId);
+    if (!member) return null;
+    member.role = role;
+    return member;
+  }
+
+  async removeMember(tenantId: string, workspaceId: string, memberId: string): Promise<boolean> {
+    const key = `${tenantId}::${workspaceId}`;
+    const members = this.members.get(key) ?? [];
+    const index = members.findIndex((member) => member.id === memberId);
+    if (index === -1) return false;
+    members.splice(index, 1);
+    this.members.set(key, members);
+    return true;
   }
 
   addMember(tenantId: string, workspaceId: string, member: SchoolMember): void {
@@ -121,6 +145,14 @@ class InMemorySchoolInvitationStore implements SchoolInvitationStore {
 
 const TENANT = 'tenant-school-001';
 const WS = 'ws-school-001';
+const JWT_SECRET = 'school-invitation-test-secret';
+
+function adminHeaders() {
+  return {
+    authorization: `Bearer ${generateJwt({ userId: 'admin-001', email: 'admin@example.test', roles: ['school_admin'], workspaceId: WS }, { secret: JWT_SECRET, expiryDays: 1 })}`,
+    'content-type': 'application/json',
+  };
+}
 
 async function buildApp(clock?: () => Date) {
   const wsStore = new InMemorySchoolWorkspaceStore();
@@ -128,10 +160,12 @@ async function buildApp(clock?: () => Date) {
   const service = new SchoolService(wsStore, invStore, clock);
 
   // Pre-create workspace
-  await wsStore.createWorkspace(TENANT, 'SMA Negeri 1', 'high_school');
+  await wsStore.createWorkspace(WS, 'SMA Negeri 1', 'high_school');
 
   const app = Fastify({ logger: false });
-  await app.register((instance) => registerSchoolRoutes(instance, { service }));
+  await app.register((instance) =>
+    registerSchoolRoutes(instance, { service, jwtSecret: JWT_SECRET }),
+  );
   await app.ready();
   return { app, service, wsStore, invStore };
 }
@@ -147,7 +181,7 @@ describe('B7-01 — School workspace & invitation', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/invitations',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(),
         body: JSON.stringify({
           workspaceId: WS,
           email: 'teacher@school.id',
@@ -170,7 +204,7 @@ describe('B7-01 — School workspace & invitation', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/v1/invitations',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(),
         body: JSON.stringify({ workspaceId: WS }),
       });
       expect(res.statusCode).toBe(400);
@@ -185,7 +219,7 @@ describe('B7-01 — School workspace & invitation', () => {
       const inviteRes = await app.inject({
         method: 'POST',
         url: '/v1/invitations',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(),
         body: JSON.stringify({
           workspaceId: WS,
           email: 'new@school.id',
@@ -199,7 +233,7 @@ describe('B7-01 — School workspace & invitation', () => {
       const acceptRes = await app.inject({
         method: 'POST',
         url: '/v1/invitations/accept',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(),
         body: JSON.stringify({ token, password: 'SecurePass123!' }),
       });
       expect(acceptRes.statusCode).toBe(200);
@@ -208,7 +242,7 @@ describe('B7-01 — School workspace & invitation', () => {
       expect(body.data.workspaceId).toBe(WS);
 
       // Verify member added
-      const members = await wsStore.listMembers(TENANT, WS);
+      const members = await wsStore.listMembers(WS, WS);
       expect(members.length).toBe(1);
       expect(members[0]?.email).toBe('new@school.id');
     });
@@ -218,7 +252,7 @@ describe('B7-01 — School workspace & invitation', () => {
       const inviteRes = await app.inject({
         method: 'POST',
         url: '/v1/invitations',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(),
         body: JSON.stringify({
           workspaceId: WS,
           email: 'once@school.id',
@@ -233,7 +267,7 @@ describe('B7-01 — School workspace & invitation', () => {
       const accept1 = await app.inject({
         method: 'POST',
         url: '/v1/invitations/accept',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(),
         body: JSON.stringify({ token, password: 'Pass123' }),
       });
       expect(accept1.statusCode).toBe(200);
@@ -242,7 +276,7 @@ describe('B7-01 — School workspace & invitation', () => {
       const accept2 = await app.inject({
         method: 'POST',
         url: '/v1/invitations/accept',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(),
         body: JSON.stringify({ token, password: 'Pass123' }),
       });
       expect(accept2.statusCode).toBe(404);
@@ -255,7 +289,7 @@ describe('B7-01 — School workspace & invitation', () => {
       const inviteRes = await app.inject({
         method: 'POST',
         url: '/v1/invitations',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(),
         body: JSON.stringify({
           workspaceId: WS,
           email: 'expired@school.id',
@@ -272,7 +306,7 @@ describe('B7-01 — School workspace & invitation', () => {
       const acceptRes = await futureApp.inject({
         method: 'POST',
         url: '/v1/invitations/accept',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(),
         body: JSON.stringify({ token, password: 'Pass123' }),
       });
       expect(acceptRes.statusCode).toBe(404);
@@ -287,7 +321,7 @@ describe('B7-01 — School workspace & invitation', () => {
       const inviteRes = await app.inject({
         method: 'POST',
         url: '/v1/invitations',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(),
         body: JSON.stringify({
           workspaceId: WS,
           email: 'member@school.id',
@@ -301,14 +335,14 @@ describe('B7-01 — School workspace & invitation', () => {
       await app.inject({
         method: 'POST',
         url: '/v1/invitations/accept',
-        headers: { 'content-type': 'application/json' },
+        headers: adminHeaders(),
         body: JSON.stringify({ token, password: 'Pass123' }),
       });
 
       const membersRes = await app.inject({
         method: 'GET',
         url: `/v1/school/${WS}/members`,
-        headers: { 'x-tenant-id': TENANT },
+        headers: adminHeaders(),
       });
       expect(membersRes.statusCode).toBe(200);
       const body = membersRes.json();

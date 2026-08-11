@@ -41,6 +41,8 @@ interface PlanRow {
   workspaceId: string;
   plan: 'free' | 'pro';
   generationsUsedThisMonth: number;
+  tokensUsedThisMonth: number;
+  tokenMonthlyLimit: number | null;
   billingCycleStartedAt: Date;
   active: boolean;
   createdAt: Date;
@@ -64,6 +66,8 @@ class InMemoryPlanRepo {
         workspaceId,
         plan: 'free',
         generationsUsedThisMonth: 0,
+        tokensUsedThisMonth: 0,
+        tokenMonthlyLimit: null,
         billingCycleStartedAt: now,
         active: true,
         createdAt: now,
@@ -80,6 +84,7 @@ class InMemoryPlanRepo {
   async incrementUsage(tenantId: string, workspaceId: string): Promise<PlanRow> {
     const row = await this.findOrCreate(tenantId, workspaceId);
     row.generationsUsedThisMonth += 1;
+    row.tokensUsedThisMonth += 1;
     row.updatedAt = new Date();
     return row;
   }
@@ -104,7 +109,17 @@ class IntegrationAdminDataStore implements AdminDataStore {
   constructor(private readonly planRepo: InMemoryPlanRepo) {}
 
   async listAccounts(): Promise<AdminAccountSummary[]> {
-    return [{ id: 'acc-1', email: 'user@test.id', role: 'teacher', workspaceId: 'ws-1', membershipState: 'active', createdAt: new Date().toISOString() }];
+    return [{
+      id: 'acc-1',
+      email: 'user@test.id',
+      name: 'Pilot Teacher',
+      displayName: 'Pilot Teacher',
+      role: 'teacher',
+      status: 'aktif',
+      school: 'Pilot School',
+      workspaceId: 'ws-1',
+      createdAt: new Date().toISOString(),
+    }];
   }
 
   async listJobs(): Promise<AdminJobSummary[]> {
@@ -138,7 +153,20 @@ describe('B6-05 — Paid pilot gate (integration)', () => {
 
   beforeEach(() => {
     planRepo = new InMemoryPlanRepo();
-    planService = new PlanService(planRepo as unknown as WorkspacePlanRepository);
+    const catalog = { find: async (key: 'free' | 'pro') => ({
+      key,
+      displayName: key === 'free' ? 'Free' : 'Pro',
+      priceAmount: 0,
+      currency: 'IDR' as const,
+      billingPeriod: null,
+      tokenMonthlyLimit: key === 'free' ? FREE_MONTHLY_LIMIT : null,
+      features: [],
+      active: true,
+      revision: 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: null,
+    }) };
+    planService = new PlanService(planRepo as unknown as WorkspacePlanRepository, undefined, undefined, catalog);
     adminDataStore = new IntegrationAdminDataStore(planRepo);
     auditStore = new InMemoryAdminAuditStore();
     adminService = new AdminService(adminDataStore, auditStore);

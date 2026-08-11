@@ -32,7 +32,6 @@ export async function registerJwtMultiRoleRoutes(
       name?: string;
       username?: string;
       phone?: string;
-      roles?: string[] | undefined;
       captchaToken?: string;
     };
 

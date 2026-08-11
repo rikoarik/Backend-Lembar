@@ -40,7 +40,7 @@ describeDb('JWT auth routes', () => {
     try { await closeDatabase(db); } catch { /* */ }
   }
 
-  test('register creates subscriber user with full fields', async () => {
+  test('register creates teacher user with full fields', async () => {
     const { app } = await makeApp();
     try {
       const ts = Date.now();
@@ -60,7 +60,7 @@ describeDb('JWT auth routes', () => {
       const body = res.json();
       expect(body).toHaveProperty('token');
       expect(body).toHaveProperty('user');
-      expect(body.user.roles).toContain('subscriber');
+      expect(body.user.roles).toEqual(['teacher']);
       expect(body.user.username).toBeTruthy();
       expect(body.user.phone).toBeTruthy();
     } finally {
@@ -79,20 +79,20 @@ describeDb('JWT auth routes', () => {
       });
       expect(res.statusCode).toBe(201);
       expect(res.json().user.username).toMatch(/^[a-zA-Z0-9_.]{3,24}$/);
-      expect(res.json().user.roles).toEqual(['subscriber']);
+      expect(res.json().user.roles).toEqual(['teacher']);
     } finally { await app.close(); await closeDb(); }
   });
 
-  test('public register without username ignores privileged client roles', async () => {
+  test('public register assigns teacher and ignores client-supplied privileged roles', async () => {
     const { app } = await makeApp();
     try {
       const ts = Date.now();
       const res = await app.inject({
         method: 'POST', url: '/v1/auth/register',
-        payload: { email: `role-escalation-${ts}@test.example`, password: 'Test1234!@#A', name: 'Safe Subscriber', roles: ['superadmin', 'school_admin'] },
+        payload: { email: `role-escalation-${ts}@test.example`, password: 'Test1234!@#A', name: 'Safe Teacher', roles: ['superadmin', 'school_admin'] },
       });
       expect(res.statusCode).toBe(201);
-      expect(res.json().user.roles).toEqual(['subscriber']);
+      expect(res.json().user.roles).toEqual(['teacher']);
     } finally { await app.close(); await closeDb(); }
   });
 

@@ -28,6 +28,7 @@ function makeAttempt(
     submittedAt: new Date().toISOString(),
     gradingResult: {
       totalScore: hasNeedsReview ? 0 : 1,
+      maxScore: hasNeedsReview ? 0 : 1,
       gradedAnswers: hasNeedsReview
         ? [{ questionId: 'q-1', given: 'Jawaban essay', correct: 'needs_review' }]
         : [{ questionId: 'q-1', given: 'A', correct: true, score: 1 }],
@@ -52,7 +53,7 @@ describe('LMS-E: essay review queue', () => {
     const result = await service.getPendingEssayReviews();
 
     expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('a1');
+    expect(result[0]!.id).toBe('a1');
   });
 
   it('getPendingEssayReviews excludes attempts with no needs_review answers', async () => {
@@ -76,8 +77,8 @@ describe('LMS-E: essay review queue', () => {
     expect(ga.correct).toBe(true);
     // persisted
     const persisted = await store.findById('c1');
-    expect(persisted!.gradingResult!.gradedAnswers[0].score).toBe(3);
-    expect(persisted!.gradingResult!.gradedAnswers[0].correct).toBe(true);
+    expect(persisted!.gradingResult!.gradedAnswers[0]!.score).toBe(3);
+    expect(persisted!.gradingResult!.gradedAnswers[0]!.correct).toBe(true);
   });
 
   it('manualGradeAnswer throws when attemptId is not found', async () => {

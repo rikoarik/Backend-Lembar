@@ -133,11 +133,6 @@ paths:
                 email: { type: string, format: email }
                 password: { type: string, minLength: 8 }
                 name: { type: string, minLength: 1 }
-                roles:
-                  type: array
-                  items: { type: string }
-                  default: ["subscriber"]
-                  description: User roles (default ["subscriber"])
       responses:
         "201":
           description: User registered successfully

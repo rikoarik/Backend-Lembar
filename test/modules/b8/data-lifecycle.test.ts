@@ -58,7 +58,7 @@ function buildApp() {
   const service = new AdminService(dataStore, auditStore);
 
   // Inject header untuk auth mock (pola dari adminRoutes)
-  app.decorateRequest('jwtUser', null);
+  app.decorateRequest('jwtUser');
   app.addHook('preHandler', async (request: any) => {
     const auth = request.headers['authorization'] ?? '';
     if (auth === `Bearer ${SUPERADMIN_TOKEN}`) {
@@ -330,6 +330,6 @@ describe('B8-02 — InMemoryLifecycleStore', () => {
 
     const pending = await store.listPendingSchedules();
     expect(pending.length).toBe(1);
-    expect(pending[0].accountId).toBe('acc-store-002');
+    expect(pending[0]?.accountId).toBe('acc-store-002');
   });
 });

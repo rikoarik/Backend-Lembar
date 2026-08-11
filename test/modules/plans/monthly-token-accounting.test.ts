@@ -28,7 +28,20 @@ describe('monthly token accounting', () => {
       generationsUsedThisMonth: 0, tokensUsedThisMonth: 123, tokenMonthlyLimit: 123,
       billingCycleStartedAt: new Date(), active: true, createdAt: new Date(), updatedAt: new Date() };
     const repo = { findOrCreate: async () => row, hasQuota: async () => false };
-    const service = new PlanService(repo as never);
+    const catalog = { find: async (key: 'free' | 'pro') => ({
+      key,
+      displayName: key === 'free' ? 'Free' : 'Pro',
+      priceAmount: 0,
+      currency: 'IDR' as const,
+      billingPeriod: null,
+      tokenMonthlyLimit: key === 'free' ? 123 : null,
+      features: [],
+      active: true,
+      revision: 1,
+      updatedAt: new Date().toISOString(),
+      updatedBy: null,
+    }) };
+    const service = new PlanService(repo as never, undefined, undefined, catalog);
     expect(await service.getPlanSummary('t', 'w')).toMatchObject({ tokenUsedThisMonth: 123, tokenMonthlyLimit: 123, entitlementState: 'blocked' });
     await expect(service.assertQuota('t', 'w')).rejects.toMatchObject({ used: 123, limit: 123 });
     expect(FREE_MONTHLY_TOKEN_LIMIT).toBe(60_000);
