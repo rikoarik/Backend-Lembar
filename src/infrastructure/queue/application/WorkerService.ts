@@ -46,6 +46,7 @@ import { MockAiAdapter } from '../../ai/adapters/mock/MockAiAdapter.js';
 import { HermesAdapter } from '../../ai/adapters/hermes/HermesAdapter.js';
 import { closeDatabase, createDatabase, getPool, type Database } from '../../database/db.js';
 import { QUESTION_OUTPUT_SCHEMA } from '../../../modules/assessments/application/QuestionGenerationService.js';
+import { WorkspacePlanRepository } from '../../../modules/plans/persistence/repository.js';
 
 export interface WorkerServiceOptions {
   workerId: string;
@@ -153,6 +154,25 @@ export class WorkerService {
       env: aiEnv,
       schemas,
       audit,
+      ...(this.managedDb
+        ? {
+            tokenUsage: {
+              recordTokenUsage: (
+                workspaceId: string,
+                providerCallId: string,
+                tokens: number,
+                source: 'actual' | 'estimated',
+              ) =>
+                new WorkspacePlanRepository(this.managedDb!).recordTokenUsage(
+                  workspaceId,
+                  workspaceId,
+                  providerCallId,
+                  tokens,
+                  source,
+                ),
+            },
+          }
+        : {}),
     });
 
     const uploadsStore = new InMemorySourceUploadsStore();

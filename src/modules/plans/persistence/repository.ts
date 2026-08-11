@@ -8,7 +8,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { getPool, type Database } from '../../../infrastructure/database/db.js';
 import type { PlanType, WorkspacePlan } from './schema.js';
 import { workspacePlans } from './schema.js';
-import { FREE_MONTHLY_LIMIT } from './schema.js';
+import { FREE_MONTHLY_TOKEN_LIMIT } from './schema.js';
 
 export class WorkspacePlanRepository {
   constructor(private readonly db: Database) {}
@@ -18,7 +18,6 @@ export class WorkspacePlanRepository {
    * Returns a default free plan if DB query fails (e.g., demo workspaces).
    */
   async findOrCreate(tenantId: string, workspaceId: string): Promise<WorkspacePlan> {
-    try {
       const existing = await this.db
         .select()
         .from(workspacePlans)
@@ -48,20 +47,7 @@ export class WorkspacePlanRepository {
 
       if (!fetched) throw new Error(`Failed to find or create plan for workspace ${workspaceId}`);
       return fetched;
-    } catch {
-      // Fallback: return default free plan for demo workspaces
-      return {
-        id: 'demo-plan',
-        tenantId,
-        workspaceId,
-        plan: 'free' as PlanType,
-        generationsUsedThisMonth: 0,
-        billingCycleStartedAt: new Date(),
-        active: true,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-    }
+
   }
 
   async findByWorkspace(tenantId: string, workspaceId: string): Promise<WorkspacePlan | null> {
@@ -168,17 +154,31 @@ export class WorkspacePlanRepository {
    * Pro plan: always true. Free plan: true if used < 10.
    */
   async hasQuota(tenantId: string, workspaceId: string): Promise<boolean> {
-    const plan = await this.findOrCreate(tenantId, workspaceId);
+    const pool = getPool(this.db);
+    if (!pool) throw new Error('Database pool unavailable');
+    const result = await pool.query<{ plan: PlanType; tokens_used_this_month: string; token_monthly_limit: string | null }>(
+      `UPDATE workspace_plans SET
+         tokens_used_this_month=CASE WHEN date_trunc('month',billing_cycle_started_at)<date_trunc('month',now()) THEN 0 ELSE tokens_used_this_month END,
+         billing_cycle_started_at=CASE WHEN date_trunc('month',billing_cycle_started_at)<date_trunc('month',now()) THEN date_trunc('month',now()) ELSE billing_cycle_started_at END
+       WHERE tenant_id=$1 AND workspace_id=$2
+       RETURNING plan,tokens_used_this_month,token_monthly_limit`, [tenantId, workspaceId]);
+    const row = result.rows[0];
+    if (!row) throw new Error(`Plan not found for workspace ${workspaceId}`);
+    return row.plan === 'pro' || Number(row.tokens_used_this_month) < Number(row.token_monthly_limit ?? FREE_MONTHLY_TOKEN_LIMIT);
+  }
 
-    // Reset if new billing cycle
-    const now = new Date();
-    const cycleMonth = plan.billingCycleStartedAt.getMonth();
-    const cycleYear = plan.billingCycleStartedAt.getFullYear();
-    if (now.getMonth() !== cycleMonth || now.getFullYear() !== cycleYear) {
-      return true; // Will reset on next increment
-    }
-
-    if (plan.plan === 'pro') return true;
-    return plan.generationsUsedThisMonth < FREE_MONTHLY_LIMIT;
+  async recordTokenUsage(tenantId: string, workspaceId: string, providerCallId: string, tokens: number, source: 'actual' | 'estimated'): Promise<void> {
+    const pool = getPool(this.db);
+    if (!pool) throw new Error('Database pool unavailable');
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const inserted = await client.query(`INSERT INTO ai_token_usage_ledger (tenant_id,workspace_id,provider_call_id,tokens,usage_source) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING RETURNING 1`, [tenantId, workspaceId, providerCallId, tokens, source]);
+      if (inserted.rowCount) {
+        const updated = await client.query(`UPDATE workspace_plans SET tokens_used_this_month=CASE WHEN date_trunc('month',billing_cycle_started_at)<date_trunc('month',now()) THEN $3 ELSE tokens_used_this_month+$3 END,billing_cycle_started_at=CASE WHEN date_trunc('month',billing_cycle_started_at)<date_trunc('month',now()) THEN date_trunc('month',now()) ELSE billing_cycle_started_at END,updated_at=now() WHERE tenant_id=$1 AND workspace_id=$2`, [tenantId, workspaceId, tokens]);
+        if (!updated.rowCount) throw new Error(`Plan not found for workspace ${workspaceId}`);
+      }
+      await client.query('COMMIT');
+    } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
   }
 }

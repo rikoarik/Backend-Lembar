@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 
 import { PlanService } from '../../../src/modules/plans/application/PlanService.js';
 import { QuotaExceededError } from '../../../src/modules/plans/domain/errors.js';
-import { FREE_MONTHLY_LIMIT } from '../../../src/modules/plans/persistence/schema.js';
+import { FREE_MONTHLY_LIMIT, FREE_MONTHLY_TOKEN_LIMIT } from '../../../src/modules/plans/persistence/schema.js';
 
 // ─── In-memory plan store ─────────────────────────────────────────────────────
 
@@ -22,6 +22,8 @@ interface PlanRow {
   workspaceId: string;
   plan: 'free' | 'pro';
   generationsUsedThisMonth: number;
+  tokensUsedThisMonth: number;
+  tokenMonthlyLimit: number | null;
   billingCycleStartedAt: Date;
   active: boolean;
   createdAt: Date;
@@ -45,6 +47,8 @@ class InMemoryPlanRepository {
         workspaceId,
         plan: 'free',
         generationsUsedThisMonth: 0,
+        tokensUsedThisMonth: 0,
+        tokenMonthlyLimit: null,
         billingCycleStartedAt: now,
         active: true,
         createdAt: now,
@@ -91,7 +95,7 @@ class InMemoryPlanRepository {
       return true; // Will reset on next increment
     }
     if (row.plan === 'pro') return true;
-    return row.generationsUsedThisMonth < FREE_MONTHLY_LIMIT;
+    return row.tokensUsedThisMonth < (row.tokenMonthlyLimit ?? FREE_MONTHLY_TOKEN_LIMIT);
   }
 }
 
@@ -135,36 +139,35 @@ describe('B6-01 — Entitlement & quota', () => {
 
   describe('assertQuota — free plan', () => {
     it('allows generations below limit', async () => {
-      // Seed 9 uses
-      for (let i = 0; i < 9; i++) {
-        await repo.incrementUsage(TENANT, WS_FREE);
-      }
-      // 10th should still pass assertQuota (9 used, limit 10)
+      // Seed tokens well below the 60k token limit — quota should pass
+      const row = await repo.findOrCreate(TENANT, WS_FREE);
+      row.tokensUsedThisMonth = FREE_MONTHLY_TOKEN_LIMIT - 1;
       await expect(service.assertQuota(TENANT, WS_FREE)).resolves.toBeUndefined();
     });
 
     it('throws QuotaExceededError after limit reached', async () => {
-      // Use up all 10
+      // Use up all tokens
       for (let i = 0; i < FREE_MONTHLY_LIMIT; i++) {
         await repo.incrementUsage(TENANT, WS_FREE);
       }
+      const row = await repo.findOrCreate(TENANT, WS_FREE);
+      row.tokensUsedThisMonth = FREE_MONTHLY_TOKEN_LIMIT;
       await expect(service.assertQuota(TENANT, WS_FREE)).rejects.toBeInstanceOf(
         QuotaExceededError,
       );
     });
 
     it('QuotaExceededError carries used/limit metadata', async () => {
-      for (let i = 0; i < FREE_MONTHLY_LIMIT; i++) {
-        await repo.incrementUsage(TENANT, WS_FREE);
-      }
+      const row = await repo.findOrCreate(TENANT, WS_FREE);
+      row.tokensUsedThisMonth = FREE_MONTHLY_TOKEN_LIMIT;
       try {
         await service.assertQuota(TENANT, WS_FREE);
         expect.fail('should have thrown');
       } catch (err) {
         expect(err).toBeInstanceOf(QuotaExceededError);
         const qe = err as QuotaExceededError;
-        expect(qe.used).toBe(FREE_MONTHLY_LIMIT);
-        expect(qe.limit).toBe(FREE_MONTHLY_LIMIT);
+        expect(qe.used).toBe(FREE_MONTHLY_TOKEN_LIMIT);
+        expect(qe.limit).toBe(FREE_MONTHLY_TOKEN_LIMIT);
         expect(qe.workspaceId).toBe(WS_FREE);
       }
     });
@@ -219,9 +222,10 @@ describe('B6-01 — Entitlement & quota', () => {
     });
   });
 
-  // ─── FREE_MONTHLY_LIMIT constant ──────────────────────────────────────────
+  // ─── Compatibility and canonical token constants ─────────────────────────
 
-  it('FREE_MONTHLY_LIMIT is 10', () => {
-    expect(FREE_MONTHLY_LIMIT).toBe(10);
+  it('keeps deprecated generation limit and exposes the canonical token pool', () => {
+    expect(FREE_MONTHLY_LIMIT).toBe(3);
+    expect(FREE_MONTHLY_TOKEN_LIMIT).toBe(60_000);
   });
 });

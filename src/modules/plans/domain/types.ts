@@ -10,6 +10,8 @@ export interface WorkspacePlanSummary {
   entitlementState: EntitlementState;
   generationsUsedThisMonth: number;
   monthlyLimit: number | null;
+  tokenUsedThisMonth: number;
+  tokenMonthlyLimit: number | null;
   billingCycleStartedAt: string;
   trial: {
     eligible: boolean;

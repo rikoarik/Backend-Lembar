@@ -82,7 +82,7 @@ describe('POST /v1/jobs assessment generation access boundary', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/v1/jobs',
-      headers: { authorization: `Bearer ${token()}` },
+      headers: { authorization: 'Bearer ' + token() },
       payload: body({ workspaceId: '33333333-3333-4333-8333-333333333333' }),
     });
     expect(response.statusCode).toBe(403);
@@ -113,7 +113,7 @@ describe('POST /v1/jobs assessment generation access boundary', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/v1/jobs',
-      headers: { authorization: `Bearer ${token()}` },
+      headers: { authorization: 'Bearer ' + token() },
       payload: body(),
     });
     expect(response.statusCode).toBe(429);
@@ -121,14 +121,14 @@ describe('POST /v1/jobs assessment generation access boundary', () => {
     expect(gate.recorded).toHaveLength(0);
   });
 
-  it('records one usage idempotently by accepted job id', async () => {
+  it('does not call recordGeneration at job creation (token accounting moved to AI outcome)', async () => {
     const gate = access();
     const app = await appWith(gate.service);
     apps.push(app);
     const request = {
       method: 'POST' as const,
       url: '/v1/jobs',
-      headers: { authorization: `Bearer ${token()}` },
+      headers: { authorization: 'Bearer ' + token() },
       payload: body(),
     };
     const first = await app.inject(request);
@@ -136,24 +136,25 @@ describe('POST /v1/jobs assessment generation access boundary', () => {
     expect(first.statusCode).toBe(202);
     expect(retry.statusCode).toBe(200);
     expect(retry.json().jobId).toBe(first.json().jobId);
-    expect(gate.recorded).toHaveLength(1);
-    expect(gate.recorded[0]).toMatchObject({ tenantId: workspaceId, workspaceId, userId });
+    // recordGeneration is no longer called at job creation; token usage is
+    // recorded by ProductAiService after a successful provider call.
+    expect(gate.recorded).toHaveLength(0);
   });
 
-  it('records once for concurrent submissions with the same idempotency key', async () => {
+  it('idempotency check: concurrent submissions return same jobId, no generation recorded', async () => {
     const gate = access();
     const app = await appWith(gate.service);
     apps.push(app);
     const request = {
       method: 'POST' as const,
       url: '/v1/jobs',
-      headers: { authorization: `Bearer ${token()}` },
+      headers: { authorization: 'Bearer ' + token() },
       payload: body(),
     };
     const responses = await Promise.all([app.inject(request), app.inject(request)]);
     expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 202]);
     expect(new Set(responses.map((response) => response.json().jobId)).size).toBe(1);
-    expect(gate.recorded).toHaveLength(1);
+    expect(gate.recorded).toHaveLength(0);
   });
 
   it('does not quota-gate other job operations', async () => {
@@ -163,7 +164,7 @@ describe('POST /v1/jobs assessment generation access boundary', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/v1/jobs',
-      headers: { authorization: `Bearer ${token()}` },
+      headers: { authorization: 'Bearer ' + token() },
       payload: body({ operation: 'export_pdf' }),
     });
     expect(response.statusCode).toBe(202);

@@ -43,23 +43,27 @@ interface ProviderResult {
 }
 
 function parseSseResponse(body: string): {
+  id?: string;
   choices: Array<{ message: { content: string } }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number };
 } {
   let content = '';
+  let id: string | undefined;
   let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
   for (const line of body.split('\n')) {
     if (!line.startsWith('data: ')) continue;
     const payload = line.slice(6).trim();
     if (!payload || payload === '[DONE]') continue;
     const chunk = JSON.parse(payload) as {
+      id?: string;
       choices?: Array<{ delta?: { content?: string }; message?: { content?: string } }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
     content += chunk.choices?.[0]?.delta?.content ?? chunk.choices?.[0]?.message?.content ?? '';
+    id = chunk.id ?? id;
     usage = chunk.usage ?? usage;
   }
-  return { choices: [{ message: { content } }], ...(usage ? { usage } : {}) };
+  return { ...(id ? { id } : {}), choices: [{ message: { content } }], ...(usage ? { usage } : {}) };
 }
 
 /**
@@ -213,7 +217,9 @@ export class HermesAdapter implements ProductAiAdapter {
           requestTokensEstimate: data.usage?.prompt_tokens ?? input.tokenEstimateHint ?? Math.ceil(input.prompt.length / 4),
           responseText,
           providerModelId: provider.modelId,
-          providerRequestId: null,
+          providerRequestId: typeof (data as { id?: unknown }).id === 'string' ? (data as { id: string }).id : null,
+          ...(data.usage?.prompt_tokens !== undefined ? { promptTokensActual: data.usage.prompt_tokens } : {}),
+          ...(data.usage?.completion_tokens !== undefined ? { completionTokensActual: data.usage.completion_tokens } : {}),
         },
         provider: providerName,
       };

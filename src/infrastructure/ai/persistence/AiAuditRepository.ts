@@ -22,6 +22,8 @@ export interface AiAuditInput {
   schemaRepairAttempts: number;
   requestTokenEstimate: number;
   responseTokenCount: number | null;
+  promptTokensActual?: number | null | undefined;
+  completionTokensActual?: number | null | undefined;
   tokensInEstimate: number;
   promptFingerprint: string;
   promptByteLength: number;
@@ -52,6 +54,8 @@ export class AiAuditRepository {
       schemaRepairAttempts: input.schemaRepairAttempts,
       requestTokenEstimate: input.requestTokenEstimate,
       responseTokenCount: input.responseTokenCount,
+      promptTokensActual: input.promptTokensActual ?? null,
+      completionTokensActual: input.completionTokensActual ?? null,
       tokensInEstimate: input.tokensInEstimate,
       promptFingerprint: input.promptFingerprint,
       promptByteLength: input.promptByteLength,
@@ -67,7 +71,8 @@ export class AiAuditRepository {
       INSERT INTO "ai_jobs_audit" (
         "id", "workspace_id", "actor_id", "prompt_template_id", "schema_version",
         "provider_model_id", "driver", "outcome", "schema_repair_attempts",
-        "request_token_estimate", "response_token_count", "tokens_in_estimate",
+        "request_token_estimate", "response_token_count", "prompt_tokens_actual",
+        "completion_tokens_actual", "tokens_in_estimate",
         "prompt_fingerprint", "prompt_byte_length", "response_fingerprint",
         "response_byte_length", "redacted_error", "latency_ms", "job_id",
         "redacted_detail", "created_at"
@@ -75,7 +80,8 @@ export class AiAuditRepository {
         ${row.id}, ${row.workspaceId}, ${row.actorId}, ${row.promptTemplateId},
         ${row.schemaVersion}, ${row.providerModelId}, ${row.driver}, ${row.outcome},
         ${row.schemaRepairAttempts}, ${row.requestTokenEstimate},
-        ${row.responseTokenCount}, ${row.tokensInEstimate}, ${row.promptFingerprint},
+        ${row.responseTokenCount}, ${row.promptTokensActual}, ${row.completionTokensActual},
+        ${row.tokensInEstimate}, ${row.promptFingerprint},
         ${row.promptByteLength}, ${row.responseFingerprint}, ${row.responseByteLength},
         ${row.redactedError}, ${row.latencyMs}, ${row.jobId}, ${row.redactedDetail},
         ${row.createdAt}

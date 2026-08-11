@@ -42,6 +42,9 @@ export interface ProductAiServiceDeps {
    * `InMemoryAiAuditRecorder` for tests + smoke without DATABASE_URL.
    */
   audit: { record: (input: AiAuditInput) => Promise<void> } | InMemoryAiAuditRecorder;
+  tokenUsage?: {
+    recordTokenUsage(workspaceId: string, providerCallId: string, tokens: number, source: 'actual' | 'estimated'): Promise<void>;
+  } | undefined;
   clock?: () => Date;
 }
 
@@ -207,6 +210,7 @@ export class ProductAiService {
         const validation = this.validator.validate(schema, normalized);
         if (validation.ok) {
           const latencyMs = this.clock().getTime() - startedAt;
+          const responseTokenCount = this.countResponseTokens(normalized);
           await this.audit.record({
             workspaceId: request.workspaceId,
             actorId: request.actorId,
@@ -217,7 +221,9 @@ export class ProductAiService {
             outcome: 'succeeded',
             schemaRepairAttempts: repairAttempts,
             requestTokenEstimate,
-            responseTokenCount: this.countResponseTokens(normalized),
+            responseTokenCount,
+            promptTokensActual: outcome.promptTokensActual ?? null,
+            completionTokensActual: outcome.completionTokensActual ?? null,
             tokensInEstimate: requestTokenEstimate,
             promptFingerprint,
             promptByteLength,
@@ -227,6 +233,24 @@ export class ProductAiService {
             latencyMs,
             ...(request.jobId ? { jobId: request.jobId } : {}),
           });
+          if (this.deps.tokenUsage) {
+            const hasActual =
+              outcome.promptTokensActual !== undefined &&
+              outcome.completionTokensActual !== undefined;
+            const totalTokens = hasActual
+              ? outcome.promptTokensActual! + outcome.completionTokensActual!
+              : requestTokenEstimate + responseTokenCount;
+            // Stable per logical provider call: retry-safe without collapsing every question in one job.
+            const callId =
+              outcome.providerRequestId ??
+              `${request.workspaceId}:${request.jobId ?? 'direct'}:${request.promptTemplateId}:${promptFingerprint}:${repairAttempts}`;
+            await this.deps.tokenUsage.recordTokenUsage(
+              request.workspaceId,
+              callId,
+              totalTokens,
+              hasActual ? 'actual' : 'estimated',
+            );
+          }
           return {
             status: 'succeeded',
             outcome: 'succeeded',
@@ -234,7 +258,7 @@ export class ProductAiService {
             providerModelId: outcome.providerModelId,
             schemaRepairAttempts: repairAttempts,
             requestTokenEstimate,
-            responseTokenCount: this.countResponseTokens(normalized),
+            responseTokenCount,
             validated: normalized as Record<string, unknown>,
             latencyMs,
           };

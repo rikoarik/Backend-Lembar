@@ -351,12 +351,6 @@ export async function buildApp(
                 input.workspaceId,
                 input.deviceToken,
               ),
-            recordGeneration: async (input) =>
-              generationPlanService.recordGeneration(
-                input.tenantId,
-                input.workspaceId,
-                input.idempotencyKey,
-              ),
           },
         }
       : {}),

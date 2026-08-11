@@ -1,5 +1,5 @@
 /** Plan queries, quota checks, and transitions. */
-import { FREE_MONTHLY_LIMIT } from '../persistence/schema.js';
+import { FREE_MONTHLY_LIMIT, FREE_MONTHLY_TOKEN_LIMIT } from '../persistence/schema.js';
 import { WorkspacePlanRepository } from '../persistence/repository.js';
 import type { WorkspacePlanSummary, PlanTransitionInput, EntitlementState } from '../domain/types.js';
 import { QuotaExceededError } from '../domain/errors.js';
@@ -38,7 +38,9 @@ export class PlanService {
       ? Math.max(0, Math.ceil((trial.endsAt.getTime() - current.getTime()) / 86_400_000))
       : null;
     const quotaBlocked =
-      !paid && !deviceMatches && plan.generationsUsedThisMonth >= FREE_MONTHLY_LIMIT;
+      !paid &&
+      !deviceMatches &&
+      (plan.tokensUsedThisMonth ?? 0) >= (plan.tokenMonthlyLimit ?? FREE_MONTHLY_TOKEN_LIMIT);
     const trialExpired = Boolean(trial && !dateActive);
     const entitlementState: EntitlementState =
       paid || deviceMatches ? 'active'
@@ -52,6 +54,9 @@ export class PlanService {
       entitlementState,
       generationsUsedThisMonth: plan.generationsUsedThisMonth,
       monthlyLimit: effectivePlan === 'pro' ? null : FREE_MONTHLY_LIMIT,
+      tokenUsedThisMonth: plan.tokensUsedThisMonth ?? 0,
+      tokenMonthlyLimit:
+        effectivePlan === 'pro' ? null : plan.tokenMonthlyLimit ?? FREE_MONTHLY_TOKEN_LIMIT,
       billingCycleStartedAt: plan.billingCycleStartedAt.toISOString(),
       trial: {
         eligible: !paid && !trial,
@@ -78,7 +83,11 @@ export class PlanService {
     )
       return;
     if (!(await this.repo.hasQuota(tenantId, workspaceId))) {
-      throw new QuotaExceededError(workspaceId, plan.generationsUsedThisMonth, FREE_MONTHLY_LIMIT);
+      throw new QuotaExceededError(
+        workspaceId,
+        plan.tokensUsedThisMonth ?? 0,
+        plan.tokenMonthlyLimit ?? FREE_MONTHLY_TOKEN_LIMIT,
+      );
     }
   }
 
@@ -103,6 +112,9 @@ export class PlanService {
       entitlementState: updated.plan === 'pro' ? 'active' : 'free',
       generationsUsedThisMonth: updated.generationsUsedThisMonth,
       monthlyLimit: updated.plan === 'pro' ? null : FREE_MONTHLY_LIMIT,
+      tokenUsedThisMonth: updated.tokensUsedThisMonth ?? 0,
+      tokenMonthlyLimit:
+        updated.plan === 'pro' ? null : updated.tokenMonthlyLimit ?? FREE_MONTHLY_TOKEN_LIMIT,
       billingCycleStartedAt: updated.billingCycleStartedAt.toISOString(),
       trial: {
         eligible: updated.plan === 'free',

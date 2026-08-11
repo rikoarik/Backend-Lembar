@@ -12,6 +12,7 @@
 import { sql } from 'drizzle-orm';
 import {
   boolean,
+  bigint,
   check,
   index,
   integer,
@@ -27,6 +28,9 @@ import { tenants } from '../../../infrastructure/database/schema.js';
 export const PLAN_TYPES = ['free', 'pro'] as const;
 export type PlanType = (typeof PLAN_TYPES)[number];
 
+/** ponytail: conservative replacement for the old three-generation pool; admin-managed next. */
+export const FREE_MONTHLY_TOKEN_LIMIT = 60_000;
+/** @deprecated compatibility only. */
 export const FREE_MONTHLY_LIMIT = 3;
 
 export const workspacePlans = pgTable(
@@ -39,6 +43,8 @@ export const workspacePlans = pgTable(
     workspaceId: text('workspace_id').notNull(),
     plan: text('plan').$type<PlanType>().notNull().default('free'),
     generationsUsedThisMonth: integer('generations_used_this_month').notNull().default(0),
+    tokensUsedThisMonth: bigint('tokens_used_this_month', { mode: 'number' }).notNull().default(0),
+    tokenMonthlyLimit: bigint('token_monthly_limit', { mode: 'number' }),
     billingCycleStartedAt: timestamp('billing_cycle_started_at', {
       withTimezone: true,
       mode: 'date',

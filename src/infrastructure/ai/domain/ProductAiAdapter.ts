@@ -18,6 +18,8 @@ export type AiGenerateOutcome =
       responseText: string;
       providerModelId: string;
       providerRequestId: string | null;
+      promptTokensActual?: number | undefined;
+      completionTokensActual?: number | undefined;
     }
   | {
       kind: 'schema_invalid';

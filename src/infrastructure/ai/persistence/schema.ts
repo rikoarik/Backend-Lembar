@@ -49,6 +49,8 @@ export const aiJobsAudit = pgTable(
     schemaRepairAttempts: integer('schema_repair_attempts').notNull().default(0),
     requestTokenEstimate: integer('request_token_estimate').notNull().default(0),
     responseTokenCount: integer('response_token_count'),
+    promptTokensActual: integer('prompt_tokens_actual'),
+    completionTokensActual: integer('completion_tokens_actual'),
     tokensInEstimate: bigint('tokens_in_estimate', { mode: 'number' }).notNull().default(0),
     promptFingerprint: text('prompt_fingerprint').notNull(),
     promptByteLength: integer('prompt_byte_length').notNull(),
@@ -65,7 +67,7 @@ export const aiJobsAudit = pgTable(
   (t) => ({
     workspaceIdx: index('ai_jobs_audit_workspace_idx').on(t.workspaceId),
     outcomeIdx: index('ai_jobs_audit_outcome_idx').on(t.outcome),
-    driverCheck: check('ai_jobs_audit_driver_check', sql`${t.driver} in ('mock','openai')`),
+    driverCheck: check('ai_jobs_audit_driver_check', sql`${t.driver} in ('mock','openai','hermes')`),
     outcomeCheck: check(
       'ai_jobs_audit_outcome_check',
       sql`${t.outcome} in ('succeeded','schema_repair','rate_limited','refused','error')`,

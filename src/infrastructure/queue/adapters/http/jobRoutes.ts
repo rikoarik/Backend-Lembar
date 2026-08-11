@@ -50,13 +50,6 @@ export interface GenerationAccess {
     userId: string;
     deviceToken?: string;
   }): Promise<void>;
-  recordGeneration(input: {
-    tenantId: string;
-    workspaceId: string;
-    userId: string;
-    jobId: string;
-    idempotencyKey: string;
-  }): Promise<void>;
 }
 
 interface SubmitViaStoreInput {
@@ -265,17 +258,6 @@ export const registerJobRoutes: FastifyPluginAsync<{
             fingerprint: body.payload ?? {},
             quotaUnits: body.quotaUnits ?? 1,
           });
-      if (body.operation === 'assessment_generation') {
-        // Must be idempotent by workspace + idempotencyKey: retrying closes the
-        // job-created/usage-recorded gap and concurrent submissions cannot double count.
-        await options.generationAccess!.recordGeneration({
-          tenantId: workspaceId,
-          workspaceId,
-          userId: actorId,
-          jobId: result.jobId,
-          idempotencyKey: body.idempotencyKey!,
-        });
-      }
       const status = result.duplicate ? 200 : 202;
       void reply.header(REQUEST_ID_HEADER, requestId).status(status).send(result);
     } catch (err) {
