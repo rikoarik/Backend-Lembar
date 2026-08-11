@@ -8,7 +8,10 @@ import { eq, desc, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { getPool, type Database } from '../../../../infrastructure/database/db.js';
 import { jwtUsers } from '../../../auth/persistence/jwtUsersSchema.js';
-import { createJwtAuthMiddleware, requireRole } from '../../../../common/middleware/jwtMultiRoleAuth.js';
+import {
+  createJwtAuthMiddleware,
+  requireRole,
+} from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import {
   adminFlags,
   adminPrompts,
@@ -18,7 +21,7 @@ import {
 } from '../../persistence/adminOpsSchema.js';
 import type { AdminService } from '../../application/AdminService.js';
 import { PasswordResetService } from '../../../auth/application/PasswordResetService.js';
-import { tenants } from "../../../../infrastructure/database/schema.js";
+import { tenants } from '../../../../infrastructure/database/schema.js';
 import jwt from 'jsonwebtoken';
 
 function getRequestId(req: FastifyRequest): string {
@@ -40,7 +43,13 @@ export async function registerAdminRoutes(
   const superadmin = requireRole(['superadmin']);
   const passwordResetService = new PasswordResetService(db);
 
-  const auditLog = async (actorId: string, action: string, targetType: string, targetId: string, metadata: Record<string, unknown> = {}) => {
+  const auditLog = async (
+    actorId: string,
+    action: string,
+    targetType: string,
+    targetId: string,
+    metadata: Record<string, unknown> = {},
+  ) => {
     const pool = getPool(db);
     if (!pool) return;
     try {
@@ -49,21 +58,47 @@ export async function registerAdminRoutes(
          VALUES ($1, $2, $3, $4, $5)`,
         [actorId, action, targetType, targetId, JSON.stringify(metadata)],
       );
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
   };
 
   // ── Dashboard KPI ────────────────────────────────────
   app.get('/v1/admin/dashboard', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: { users: 0, schools: 0, jobsActive: 0, jobsFailed: 0, qualityOpen: 0, flagsEnabled: 0 } });
-    const usersRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM jwt_users');
-    const tenantsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM tenants');
-    const jobsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM spike_jobs WHERE status IN ($1, $2)', ['running', 'queued']);
-    const jobsFailedRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM spike_jobs WHERE status = $1', ['failed']);
+    if (!pool)
+      return reply
+        .status(200)
+        .send({
+          data: {
+            users: 0,
+            schools: 0,
+            jobsActive: 0,
+            jobsFailed: 0,
+            qualityOpen: 0,
+            flagsEnabled: 0,
+          },
+        });
+    const usersRes = await pool.query<{ count: string }>(
+      'SELECT count(*)::text as count FROM jwt_users',
+    );
+    const tenantsRes = await pool.query<{ count: string }>(
+      'SELECT count(*)::text as count FROM tenants',
+    );
+    const jobsRes = await pool.query<{ count: string }>(
+      'SELECT count(*)::text as count FROM spike_jobs WHERE status IN ($1, $2)',
+      ['running', 'queued'],
+    );
+    const jobsFailedRes = await pool.query<{ count: string }>(
+      'SELECT count(*)::text as count FROM spike_jobs WHERE status = $1',
+      ['failed'],
+    );
     const qualityRes = await pool.query<{ count: string }>(
       "SELECT count(*)::text as count FROM admin_quality_reports WHERE status IN ('open', 'triaged')",
     );
-    const flagsRes = await pool.query<{ count: string }>('SELECT count(*)::text as count FROM admin_flags WHERE enabled = true');
+    const flagsRes = await pool.query<{ count: string }>(
+      'SELECT count(*)::text as count FROM admin_flags WHERE enabled = true',
+    );
     await auditLog(request.jwtUser!.userId, 'dashboard.read', 'dashboard', 'overview');
     return reply.status(200).send({
       data: {
@@ -77,37 +112,42 @@ export async function registerAdminRoutes(
     });
   });
 
-  app.get('/v1/admin/dashboard/trends', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: { jobs: [], quality: [] } });
+  app.get(
+    '/v1/admin/dashboard/trends',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const pool = getPool(db);
+      if (!pool) return reply.status(200).send({ data: { jobs: [], quality: [] } });
 
-    const jobsTrend = await pool.query<{ day: string; count: string }>(
-      `SELECT date_trunc('day', created_at)::date::text as day, count(*)::text as count
+      const jobsTrend = await pool.query<{ day: string; count: string }>(
+        `SELECT date_trunc('day', created_at)::date::text as day, count(*)::text as count
        FROM spike_jobs
        WHERE created_at >= now() - interval '7 days'
        GROUP BY 1 ORDER BY 1`,
-    );
-    const qualityTrend = await pool.query<{ day: string; count: string }>(
-      `SELECT date_trunc('day', created_at)::date::text as day, count(*)::text as count
+      );
+      const qualityTrend = await pool.query<{ day: string; count: string }>(
+        `SELECT date_trunc('day', created_at)::date::text as day, count(*)::text as count
        FROM admin_quality_reports
        WHERE created_at >= now() - interval '7 days'
        GROUP BY 1 ORDER BY 1`,
-    );
+      );
 
-    await auditLog(request.jwtUser!.userId, 'dashboard.trends.read', 'dashboard', 'trends');
-    return reply.status(200).send({
-      data: {
-        jobs: jobsTrend.rows.map((r) => ({ day: r.day, count: Number(r.count) })),
-        quality: qualityTrend.rows.map((r) => ({ day: r.day, count: Number(r.count) })),
-      },
-    });
-  });
+      await auditLog(request.jwtUser!.userId, 'dashboard.trends.read', 'dashboard', 'trends');
+      return reply.status(200).send({
+        data: {
+          jobs: jobsTrend.rows.map((r) => ({ day: r.day, count: Number(r.count) })),
+          quality: qualityTrend.rows.map((r) => ({ day: r.day, count: Number(r.count) })),
+        },
+      });
+    },
+  );
 
   // ── Accounts ──────────────────────────────────────────
   app.get('/v1/admin/accounts', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const q = request.query as Record<string, string>;
     const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
+    if (!pool)
+      return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
 
     const search = q['q']?.trim() ?? '';
     const role = q['role']?.trim() ?? '';
@@ -122,7 +162,9 @@ export async function registerAdminRoutes(
     const whereClauses: string[] = ['1=1'];
 
     if (search) {
-      whereClauses.push(`(jw.email ILIKE $${idx} OR jw.name ILIKE $${idx} OR jw.username ILIKE $${idx})`);
+      whereClauses.push(
+        `(jw.email ILIKE $${idx} OR jw.name ILIKE $${idx} OR jw.username ILIKE $${idx})`,
+      );
       params.push(`%${search}%`);
       idx++;
     }
@@ -181,7 +223,10 @@ export async function registerAdminRoutes(
     }));
 
     await auditLog(request.jwtUser!.userId, 'account.list', 'user', 'list', {
-      page, limit, search: Boolean(search), filters: { role, status },
+      page,
+      limit,
+      search: Boolean(search),
+      filters: { role, status },
     });
     return reply.status(200).send({
       data,
@@ -192,9 +237,13 @@ export async function registerAdminRoutes(
   app.get('/v1/admin/accounts/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const pool = getPool(db);
-    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+    if (!pool)
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
 
-    const res = await pool.query(`
+    const res = await pool.query(
+      `
       SELECT
         jw.id, jw.email, jw.name, jw.username, jw.phone, jw.roles,
         jw.workspace_id, jw.created_at, jw.updated_at, jw.last_login_at,
@@ -214,9 +263,14 @@ export async function registerAdminRoutes(
       LEFT JOIN tenants t ON t.id = jw.workspace_id
       LEFT JOIN admin_billing ab ON ab.tenant_id = jw.workspace_id::text
       WHERE jw.id = $1
-    `, [id]);
+    `,
+      [id],
+    );
 
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+    if (!res.rows[0])
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
     const r = res.rows[0] as any;
 
     await auditLog(request.jwtUser!.userId, 'account.read', 'user', id);
@@ -258,336 +312,694 @@ export async function registerAdminRoutes(
     });
   });
 
-  app.patch('/v1/admin/accounts/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const body = request.body as { name?: string; phone?: string } | null;
-    if (!body?.name && !body?.phone)
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'name or phone required' } });
+  app.patch(
+    '/v1/admin/accounts/:id',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as { name?: string; phone?: string } | null;
+      if (!body?.name && !body?.phone)
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: 'name or phone required' } });
 
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+      const setClauses: string[] = ['updated_at = now()'];
+      const params: unknown[] = [];
+      let idx = 1;
+      if (body.name) {
+        setClauses.push(`name = $${idx++}`);
+        params.push(body.name);
+      }
+      if (body.phone !== undefined) {
+        setClauses.push(`phone = $${idx++}`);
+        params.push(body.phone || null);
+      }
+      params.push(id);
+
+      const res = await pool.query(
+        `UPDATE jwt_users SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING id, email, name, phone, updated_at`,
+        params,
+      );
+      if (!res.rows[0])
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+
+      const actor = request.jwtUser!;
+      await auditLog(actor.userId, 'account.update', 'user', id, {
+        name: body.name,
+        phone: body.phone,
+      });
+      return reply.status(200).send({ data: res.rows[0] });
+    },
+  );
+
+  app.patch(
+    '/v1/admin/accounts/:id/roles',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as { roles?: string[] } | null;
+      if (!body?.roles || !Array.isArray(body.roles))
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: 'roles array required' } });
+
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+      await pool.query('UPDATE jwt_users SET roles = $1::text[] WHERE id = $2', [body.roles, id]);
+      const user = request.jwtUser!;
+      await auditLog(user.userId, 'account.roles', 'user', id, { roles: body.roles });
+      return reply.status(200).send({ data: { id, roles: body.roles } });
+    },
+  );
+
+  // ── Plan Catalog ─────────────────────────────────────
+  app.get('/v1/admin/plans', { preHandler: [auth, superadmin] }, async (_request, reply) => {
     const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+    if (!pool)
+      return reply
+        .status(500)
+        .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+    const res = await pool.query(
+      `SELECT key,display_name,price_amount,currency,billing_period,token_monthly_limit,features,active,revision,updated_at,updated_by
+       FROM plan_catalog ORDER BY CASE key WHEN 'free' THEN 0 ELSE 1 END`,
+    );
+    return reply.status(200).send({ data: res.rows });
+  });
 
-    const setClauses: string[] = ['updated_at = now()'];
-    const params: unknown[] = [];
+  app.patch('/v1/admin/plans/:key', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const { key } = request.params as { key: string };
+    if (key !== 'free' && key !== 'pro') {
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Plan tidak ditemukan.' } });
+    }
+    const pool = getPool(db);
+    if (!pool)
+      return reply
+        .status(500)
+        .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+
+    const body = request.body as Record<string, unknown> | null;
+    if (!body || typeof body !== 'object') {
+      return reply
+        .status(400)
+        .send({ error: { code: 'VALIDATION_FAILED', message: 'Request body kosong.' } });
+    }
+
+    // Trust-boundary validation
+    const { displayName, priceAmount, billingPeriod, tokenMonthlyLimit, features, active } =
+      body as {
+        displayName?: unknown;
+        priceAmount?: unknown;
+        billingPeriod?: unknown;
+        tokenMonthlyLimit?: unknown;
+        features?: unknown;
+        active?: unknown;
+      };
+    if (
+      displayName !== undefined &&
+      (typeof displayName !== 'string' || displayName.trim().length === 0)
+    ) {
+      return reply
+        .status(400)
+        .send({
+          error: { code: 'VALIDATION_FAILED', message: 'displayName harus string tidak kosong.' },
+        });
+    }
+    if (
+      priceAmount !== undefined &&
+      (!Number.isInteger(priceAmount) || (priceAmount as number) < 0)
+    ) {
+      return reply
+        .status(400)
+        .send({ error: { code: 'VALIDATION_FAILED', message: 'priceAmount harus integer >= 0.' } });
+    }
+    if (billingPeriod !== undefined && billingPeriod !== null && billingPeriod !== 'monthly') {
+      return reply
+        .status(400)
+        .send({
+          error: { code: 'VALIDATION_FAILED', message: 'billingPeriod harus monthly atau null.' },
+        });
+    }
+    if (
+      tokenMonthlyLimit !== undefined &&
+      tokenMonthlyLimit !== null &&
+      (!Number.isInteger(tokenMonthlyLimit) || (tokenMonthlyLimit as number) < 0)
+    ) {
+      return reply
+        .status(400)
+        .send({
+          error: {
+            code: 'VALIDATION_FAILED',
+            message: 'tokenMonthlyLimit harus integer >= 0 atau null.',
+          },
+        });
+    }
+    if (features !== undefined && !Array.isArray(features)) {
+      return reply
+        .status(400)
+        .send({ error: { code: 'VALIDATION_FAILED', message: 'features harus array.' } });
+    }
+    if (active !== undefined && typeof active !== 'boolean') {
+      return reply
+        .status(400)
+        .send({ error: { code: 'VALIDATION_FAILED', message: 'active harus boolean.' } });
+    }
+
+    // Optimistic concurrency via required If-Match: <revision>.
+    const ifMatch = request.headers['if-match'] as string | undefined;
+    const expectedRevision = ifMatch && /^\d+$/.test(ifMatch) ? Number(ifMatch) : null;
+    if (expectedRevision === null || expectedRevision < 1) {
+      return reply
+        .status(400)
+        .send({
+          error: {
+            code: 'VALIDATION_FAILED',
+            message: 'If-Match revision wajib berupa integer >= 1.',
+          },
+        });
+    }
+
+    const current = await pool.query<{ revision: number }>(
+      'SELECT revision FROM plan_catalog WHERE key=$1',
+      [key],
+    );
+    if (!current.rows[0])
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Plan tidak ditemukan.' } });
+
+    const sets: string[] = [];
+    const vals: unknown[] = [];
     let idx = 1;
-    if (body.name) { setClauses.push(`name = $${idx++}`); params.push(body.name); }
-    if (body.phone !== undefined) { setClauses.push(`phone = $${idx++}`); params.push(body.phone || null); }
-    params.push(id);
+    if (displayName !== undefined) {
+      sets.push(`display_name=$${idx++}`);
+      vals.push(displayName);
+    }
+    if (priceAmount !== undefined) {
+      sets.push(`price_amount=$${idx++}`);
+      vals.push(priceAmount);
+    }
+    if (billingPeriod !== undefined) {
+      sets.push(`billing_period=$${idx++}`);
+      vals.push(billingPeriod);
+    }
+    if (tokenMonthlyLimit !== undefined) {
+      sets.push(`token_monthly_limit=$${idx++}`);
+      vals.push(tokenMonthlyLimit);
+    }
+    if (features !== undefined) {
+      sets.push(`features=$${idx++}`);
+      vals.push(JSON.stringify(features));
+    }
+    if (active !== undefined) {
+      sets.push(`active=$${idx++}`);
+      vals.push(active);
+    }
+
+    if (sets.length === 0)
+      return reply
+        .status(400)
+        .send({ error: { code: 'VALIDATION_FAILED', message: 'Tidak ada field yang diubah.' } });
+
+    sets.push(`revision=revision+1`, `updated_at=now()`, `updated_by=$${idx++}`);
+    vals.push(request.jwtUser!.userId);
+    const keyIndex = idx++;
+    vals.push(key);
+    const revisionIndex = idx;
+    vals.push(expectedRevision);
 
     const res = await pool.query(
-      `UPDATE jwt_users SET ${setClauses.join(', ')} WHERE id = $${idx} RETURNING id, email, name, phone, updated_at`,
-      params,
+      `UPDATE plan_catalog SET ${sets.join(',')} WHERE key=$${keyIndex} AND revision=$${revisionIndex} RETURNING *`,
+      vals,
     );
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
-
+    if (!res.rows[0]) {
+      return reply
+        .status(409)
+        .send({ error: { code: 'CONFLICT', message: 'Revision plan sudah berubah.' } });
+    }
     const actor = request.jwtUser!;
-    await auditLog(actor.userId, 'account.update', 'user', id, { name: body.name, phone: body.phone });
+    await auditLog(actor.userId, 'plan_catalog.update', 'plan_catalog', key, { ...body });
     return reply.status(200).send({ data: res.rows[0] });
   });
 
-  app.patch('/v1/admin/accounts/:id/roles', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const body = request.body as { roles?: string[] } | null;
-    if (!body?.roles || !Array.isArray(body.roles))
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'roles array required' } });
+  app.post(
+    '/v1/admin/accounts/:id/suspend',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
-
-    await pool.query('UPDATE jwt_users SET roles = $1::text[] WHERE id = $2', [body.roles, id]);
-    const user = request.jwtUser!;
-    await auditLog(user.userId, 'account.roles', 'user', id, { roles: body.roles });
-    return reply.status(200).send({ data: { id, roles: body.roles } });
-  });
-
-  app.post('/v1/admin/accounts/:id/suspend', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
-
-    const res = await pool.query(
-      `UPDATE jwt_users
+      const res = await pool.query(
+        `UPDATE jwt_users
        SET suspended_at = now(), suspended_reason = 'superadmin', updated_at = now()
        WHERE id = $1
        RETURNING workspace_id`,
-      [id],
-    );
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+        [id],
+      );
+      if (!res.rows[0])
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
 
-    const workspaceId = (res.rows[0] as any).workspace_id;
-    const user = request.jwtUser!;
-    await auditLog(user.userId, 'account.suspend', 'user', id, { workspaceId });
-    return reply.status(200).send({ data: { id, suspended: true } });
-  });
+      const workspaceId = (res.rows[0] as any).workspace_id;
+      const user = request.jwtUser!;
+      await auditLog(user.userId, 'account.suspend', 'user', id, { workspaceId });
+      return reply.status(200).send({ data: { id, suspended: true } });
+    },
+  );
 
   // ── Bulk operations ──────────────────────────────────────
-  app.post('/v1/admin/accounts/bulk/suspend', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const body = request.body as { ids?: string[] } | null;
-    if (!body?.ids || !Array.isArray(body.ids) || body.ids.length === 0)
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'ids array required' } });
+  app.post(
+    '/v1/admin/accounts/bulk/suspend',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const body = request.body as { ids?: string[] } | null;
+      if (!body?.ids || !Array.isArray(body.ids) || body.ids.length === 0)
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: 'ids array required' } });
 
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    const results: { id: string; success: boolean; error?: string }[] = [];
-    const actor = request.jwtUser!;
+      const results: { id: string; success: boolean; error?: string }[] = [];
+      const actor = request.jwtUser!;
 
-    for (const id of body.ids) {
-      try {
-        const res = await pool.query(
-          `UPDATE jwt_users
+      for (const id of body.ids) {
+        try {
+          const res = await pool.query(
+            `UPDATE jwt_users
            SET suspended_at = now(), suspended_reason = 'superadmin', updated_at = now()
            WHERE id = $1
            RETURNING workspace_id`,
-          [id],
-        );
-        if (!res.rows[0]) { results.push({ id, success: false, error: 'Not found' }); continue; }
-        const workspaceId = (res.rows[0] as any).workspace_id;
-        await auditLog(actor.userId, 'account.suspend', 'user', id, { workspaceId, bulk: true });
-        results.push({ id, success: true });
-      } catch { results.push({ id, success: false, error: 'Internal error' }); }
-    }
+            [id],
+          );
+          if (!res.rows[0]) {
+            results.push({ id, success: false, error: 'Not found' });
+            continue;
+          }
+          const workspaceId = (res.rows[0] as any).workspace_id;
+          await auditLog(actor.userId, 'account.suspend', 'user', id, { workspaceId, bulk: true });
+          results.push({ id, success: true });
+        } catch {
+          results.push({ id, success: false, error: 'Internal error' });
+        }
+      }
 
-    const succeeded = results.filter((r) => r.success).length;
-    return reply.status(200).send({ data: { results, succeeded, failed: results.length - succeeded } });
-  });
+      const succeeded = results.filter((r) => r.success).length;
+      return reply
+        .status(200)
+        .send({ data: { results, succeeded, failed: results.length - succeeded } });
+    },
+  );
 
-  app.post('/v1/admin/accounts/bulk/unsuspend', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const body = request.body as { ids?: string[] } | null;
-    if (!body?.ids || !Array.isArray(body.ids) || body.ids.length === 0)
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'ids array required' } });
+  app.post(
+    '/v1/admin/accounts/bulk/unsuspend',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const body = request.body as { ids?: string[] } | null;
+      if (!body?.ids || !Array.isArray(body.ids) || body.ids.length === 0)
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: 'ids array required' } });
 
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    const results: { id: string; success: boolean; error?: string }[] = [];
-    const actor = request.jwtUser!;
+      const results: { id: string; success: boolean; error?: string }[] = [];
+      const actor = request.jwtUser!;
 
-    for (const id of body.ids) {
-      try {
-        const res = await pool.query(
-          `UPDATE jwt_users
+      for (const id of body.ids) {
+        try {
+          const res = await pool.query(
+            `UPDATE jwt_users
            SET suspended_at = NULL, suspended_reason = NULL, updated_at = now()
            WHERE id = $1
            RETURNING workspace_id`,
-          [id],
-        );
-        if (!res.rows[0]) { results.push({ id, success: false, error: 'Not found' }); continue; }
-        const workspaceId = (res.rows[0] as any).workspace_id;
-        await auditLog(actor.userId, 'account.unsuspend', 'user', id, { workspaceId, bulk: true });
-        results.push({ id, success: true });
-      } catch { results.push({ id, success: false, error: 'Internal error' }); }
-    }
+            [id],
+          );
+          if (!res.rows[0]) {
+            results.push({ id, success: false, error: 'Not found' });
+            continue;
+          }
+          const workspaceId = (res.rows[0] as any).workspace_id;
+          await auditLog(actor.userId, 'account.unsuspend', 'user', id, {
+            workspaceId,
+            bulk: true,
+          });
+          results.push({ id, success: true });
+        } catch {
+          results.push({ id, success: false, error: 'Internal error' });
+        }
+      }
 
-    const succeeded = results.filter((r) => r.success).length;
-    return reply.status(200).send({ data: { results, succeeded, failed: results.length - succeeded } });
-  });
+      const succeeded = results.filter((r) => r.success).length;
+      return reply
+        .status(200)
+        .send({ data: { results, succeeded, failed: results.length - succeeded } });
+    },
+  );
 
-  app.post('/v1/admin/accounts/bulk/delete', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const body = request.body as { ids?: string[] } | null;
-    if (!body?.ids || !Array.isArray(body.ids) || body.ids.length === 0)
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'ids array required' } });
+  app.post(
+    '/v1/admin/accounts/bulk/delete',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const body = request.body as { ids?: string[] } | null;
+      if (!body?.ids || !Array.isArray(body.ids) || body.ids.length === 0)
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: 'ids array required' } });
 
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    const actor = request.jwtUser!;
-    const results: { id: string; success: boolean; error?: string }[] = [];
+      const actor = request.jwtUser!;
+      const results: { id: string; success: boolean; error?: string }[] = [];
 
-    for (const id of body.ids) {
-      try {
-        if (actor.userId === id) { results.push({ id, success: false, error: 'Tidak bisa hapus akun sendiri' }); continue; }
-        const res = await pool.query('SELECT email, name, roles FROM jwt_users WHERE id = $1', [id]);
-        if (!res.rows[0]) { results.push({ id, success: false, error: 'Not found' }); continue; }
-        const target = res.rows[0] as any;
-        if (target.roles?.includes('superadmin')) { results.push({ id, success: false, error: 'Tidak bisa hapus superadmin' }); continue; }
-        await pool.query('DELETE FROM jwt_users WHERE id = $1', [id]);
-        await auditLog(actor.userId, 'account.delete', 'user', id, { email: target.email, bulk: true });
-        results.push({ id, success: true });
-      } catch { results.push({ id, success: false, error: 'Internal error' }); }
-    }
+      for (const id of body.ids) {
+        try {
+          if (actor.userId === id) {
+            results.push({ id, success: false, error: 'Tidak bisa hapus akun sendiri' });
+            continue;
+          }
+          const res = await pool.query('SELECT email, name, roles FROM jwt_users WHERE id = $1', [
+            id,
+          ]);
+          if (!res.rows[0]) {
+            results.push({ id, success: false, error: 'Not found' });
+            continue;
+          }
+          const target = res.rows[0] as any;
+          if (target.roles?.includes('superadmin')) {
+            results.push({ id, success: false, error: 'Tidak bisa hapus superadmin' });
+            continue;
+          }
+          await pool.query('DELETE FROM jwt_users WHERE id = $1', [id]);
+          await auditLog(actor.userId, 'account.delete', 'user', id, {
+            email: target.email,
+            bulk: true,
+          });
+          results.push({ id, success: true });
+        } catch {
+          results.push({ id, success: false, error: 'Internal error' });
+        }
+      }
 
-    const succeeded = results.filter((r) => r.success).length;
-    return reply.status(200).send({ data: { results, succeeded, failed: results.length - succeeded } });
-  });
+      const succeeded = results.filter((r) => r.success).length;
+      return reply
+        .status(200)
+        .send({ data: { results, succeeded, failed: results.length - succeeded } });
+    },
+  );
 
-  app.post('/v1/admin/accounts/:id/unsuspend', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+  app.post(
+    '/v1/admin/accounts/:id/unsuspend',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    const res = await pool.query(
-      `UPDATE jwt_users
+      const res = await pool.query(
+        `UPDATE jwt_users
        SET suspended_at = NULL, suspended_reason = NULL, updated_at = now()
        WHERE id = $1
        RETURNING workspace_id`,
-      [id],
-    );
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+        [id],
+      );
+      if (!res.rows[0])
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
 
-    const workspaceId = (res.rows[0] as any).workspace_id;
-    const user = request.jwtUser!;
-    await auditLog(user.userId, 'account.unsuspend', 'user', id, { workspaceId });
-    return reply.status(200).send({ data: { id, suspended: false } });
-  });
+      const workspaceId = (res.rows[0] as any).workspace_id;
+      const user = request.jwtUser!;
+      await auditLog(user.userId, 'account.unsuspend', 'user', id, { workspaceId });
+      return reply.status(200).send({ data: { id, suspended: false } });
+    },
+  );
 
-  app.post('/v1/admin/accounts/:id/impersonate', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+  app.post(
+    '/v1/admin/accounts/:id/impersonate',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    // Fetch target user
-    const res = await pool.query(
-      `SELECT id, email, name, roles, workspace_id FROM jwt_users WHERE id = $1`,
-      [id],
-    );
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+      // Fetch target user
+      const res = await pool.query(
+        `SELECT id, email, name, roles, workspace_id FROM jwt_users WHERE id = $1`,
+        [id],
+      );
+      if (!res.rows[0])
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
 
-    const target = res.rows[0] as any;
-    const actingUser = request.jwtUser!;
+      const target = res.rows[0] as any;
+      const actingUser = request.jwtUser!;
 
-    // Sign a short-lived impersonation token (1 hour) using jsonwebtoken
-    const token = jwt.sign(
-      {
-        userId: target.id,
-        email: target.email,
-        roles: target.roles,
-        workspaceId: target.workspace_id,
-        impersonatedBy: actingUser.userId,
-      },
-      jwtSecret,
-      { expiresIn: '1h' },
-    );
+      // Sign a short-lived impersonation token (1 hour) using jsonwebtoken
+      const token = jwt.sign(
+        {
+          userId: target.id,
+          email: target.email,
+          roles: target.roles,
+          workspaceId: target.workspace_id,
+          impersonatedBy: actingUser.userId,
+        },
+        jwtSecret,
+        { expiresIn: '1h' },
+      );
 
-    await auditLog(actingUser.userId, 'account.impersonate', 'user', id, {
-      targetEmail: target.email,
-      impersonatedBy: actingUser.userId,
-    });
-
-    const roles: string[] = target.roles ?? [];
-    const homePath = roles.includes('superadmin') ? '/ops' : roles.includes('school_admin') ? '/school' : '/app';
-
-    return reply.status(200).send({
-      data: {
-        token,
-        targetId: target.id,
+      await auditLog(actingUser.userId, 'account.impersonate', 'user', id, {
         targetEmail: target.email,
-        targetName: target.name,
-        expiresIn: 3600,
-        homePath,
-      },
-    });
-  });
+        impersonatedBy: actingUser.userId,
+      });
 
-  app.post('/v1/admin/accounts/:id/reset-password', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+      const roles: string[] = target.roles ?? [];
+      const homePath = roles.includes('superadmin')
+        ? '/ops'
+        : roles.includes('school_admin')
+          ? '/school'
+          : '/app';
 
-    const res = await pool.query('SELECT email FROM jwt_users WHERE id = $1', [id]);
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+      return reply.status(200).send({
+        data: {
+          token,
+          targetId: target.id,
+          targetEmail: target.email,
+          targetName: target.name,
+          expiresIn: 3600,
+          homePath,
+        },
+      });
+    },
+  );
 
-    const issued = await passwordResetService.issue(id);
-    const resetUrl = `/reset-password?token=${encodeURIComponent(issued.token)}`;
-    const user = request.jwtUser!;
-    await auditLog(user.userId, 'account.reset_password', 'user', id, { email: (res.rows[0] as any).email });
-    return reply.status(200).send({
-      data: {
-        id,
-        sent: true,
-        token: issued.token,
-        resetUrl,
-        expiresAt: issued.expiresAt.toISOString(),
-      },
-    });
-  });
+  app.post(
+    '/v1/admin/accounts/:id/reset-password',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-  app.delete('/v1/admin/accounts/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+      const res = await pool.query('SELECT email FROM jwt_users WHERE id = $1', [id]);
+      if (!res.rows[0])
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
 
-    // Cegah hapus diri sendiri
-    const actingUser = request.jwtUser!;
-    if (actingUser.userId === id) {
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Tidak bisa menghapus akun sendiri' } });
-    }
+      const issued = await passwordResetService.issue(id);
+      const resetUrl = `/reset-password?token=${encodeURIComponent(issued.token)}`;
+      const user = request.jwtUser!;
+      await auditLog(user.userId, 'account.reset_password', 'user', id, {
+        email: (res.rows[0] as any).email,
+      });
+      return reply.status(200).send({
+        data: {
+          id,
+          sent: true,
+          token: issued.token,
+          resetUrl,
+          expiresAt: issued.expiresAt.toISOString(),
+        },
+      });
+    },
+  );
 
-    const res = await pool.query('SELECT email, name, roles FROM jwt_users WHERE id = $1', [id]);
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+  app.delete(
+    '/v1/admin/accounts/:id',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    const target = res.rows[0] as any;
+      // Cegah hapus diri sendiri
+      const actingUser = request.jwtUser!;
+      if (actingUser.userId === id) {
+        return reply
+          .status(400)
+          .send({
+            error: { code: 'VALIDATION_FAILED', message: 'Tidak bisa menghapus akun sendiri' },
+          });
+      }
 
-    // Cegah hapus superadmin lain
-    if (target.roles?.includes('superadmin')) {
-      return reply.status(403).send({ error: { code: 'FORBIDDEN', message: 'Tidak bisa menghapus akun superadmin' } });
-    }
+      const res = await pool.query('SELECT email, name, roles FROM jwt_users WHERE id = $1', [id]);
+      if (!res.rows[0])
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
 
-    await pool.query('DELETE FROM jwt_users WHERE id = $1', [id]);
-    await auditLog(actingUser.userId, 'account.delete', 'user', id, {
-      email: target.email,
-      name: target.name,
-    });
-    return reply.status(200).send({ data: { id, deleted: true, email: target.email } });
-  });
+      const target = res.rows[0] as any;
 
-  app.post('/v1/admin/accounts/invite', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const body = request.body as { email: string; name?: string; role?: string } | null;
-    if (!body?.email) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'email required' } });
-    if (!body) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'body required' } });
-    const inputEmail = String(body.email || '').trim().toLowerCase();
-    const inputName = body.name || inputEmail;
-    const inputRole = body.role || 'subscriber';
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inputEmail))
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'email tidak valid' } });
-    if (!['superadmin', 'school_admin', 'teacher', 'subscriber'].includes(inputRole))
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'role tidak valid' } });
+      // Cegah hapus superadmin lain
+      if (target.roles?.includes('superadmin')) {
+        return reply
+          .status(403)
+          .send({ error: { code: 'FORBIDDEN', message: 'Tidak bisa menghapus akun superadmin' } });
+      }
 
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+      await pool.query('DELETE FROM jwt_users WHERE id = $1', [id]);
+      await auditLog(actingUser.userId, 'account.delete', 'user', id, {
+        email: target.email,
+        name: target.name,
+      });
+      return reply.status(200).send({ data: { id, deleted: true, email: target.email } });
+    },
+  );
 
-    const existing = await pool.query('SELECT id FROM jwt_users WHERE email = $1', [inputEmail]);
-    if (existing.rows[0]) return reply.status(409).send({ error: { code: 'CONFLICT', message: 'Email sudah terdaftar' } });
+  app.post(
+    '/v1/admin/accounts/invite',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const body = request.body as { email: string; name?: string; role?: string } | null;
+      if (!body?.email)
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: 'email required' } });
+      if (!body)
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: 'body required' } });
+      const inputEmail = String(body.email || '')
+        .trim()
+        .toLowerCase();
+      const inputName = body.name || inputEmail;
+      const inputRole = body.role || 'subscriber';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inputEmail))
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: 'email tidak valid' } });
+      if (!['superadmin', 'school_admin', 'teacher', 'subscriber'].includes(inputRole))
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: 'role tidak valid' } });
 
-    const parts = inputEmail.split('@');
-    const slugBase = (parts[0] || 'user').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'user';
-    const slug = `${slugBase}-${Date.now().toString(36)}`;
-    const tenantRes = await pool.query(
-      `INSERT INTO tenants (slug, name) VALUES ($1, $2) RETURNING id`,
-      ['invited-' + slug, inputName + ' Workspace'],
-    );
-    const tenantId = tenantRes.rows[0]?.id ?? null;
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    const inserted = await pool.query<{ id: string }>(
-      `INSERT INTO jwt_users (email, name, username, password_hash, needs_password_setup, roles, workspace_id)
+      const existing = await pool.query('SELECT id FROM jwt_users WHERE email = $1', [inputEmail]);
+      if (existing.rows[0])
+        return reply
+          .status(409)
+          .send({ error: { code: 'CONFLICT', message: 'Email sudah terdaftar' } });
+
+      const parts = inputEmail.split('@');
+      const slugBase =
+        (parts[0] || 'user')
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-|-$/g, '') || 'user';
+      const slug = `${slugBase}-${Date.now().toString(36)}`;
+      const tenantRes = await pool.query(
+        `INSERT INTO tenants (slug, name) VALUES ($1, $2) RETURNING id`,
+        ['invited-' + slug, inputName + ' Workspace'],
+      );
+      const tenantId = tenantRes.rows[0]?.id ?? null;
+
+      const inserted = await pool.query<{ id: string }>(
+        `INSERT INTO jwt_users (email, name, username, password_hash, needs_password_setup, roles, workspace_id)
        VALUES ($1, $2, $3, $4, $5, $6::text[], $7)
        RETURNING id`,
-      [inputEmail, inputName, slug, null, true, [inputRole], tenantId],
-    );
-    const accountId = inserted.rows[0]?.id;
-    if (!accountId) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create account' } });
+        [inputEmail, inputName, slug, null, true, [inputRole], tenantId],
+      );
+      const accountId = inserted.rows[0]?.id;
+      if (!accountId)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create account' } });
 
-    const issued = await passwordResetService.issue(accountId);
-    const welcomeUrl = `/set-password?token=${encodeURIComponent(issued.token)}`;
-    const user = request.jwtUser!;
-    await auditLog(user.userId, 'account.invite', 'user', accountId, { role: inputRole, email: inputEmail });
-    return reply.status(201).send({
-      data: {
-        invited: true,
-        accountId,
-        token: issued.token,
-        welcomeUrl,
-        expiresAt: issued.expiresAt.toISOString(),
-      },
-    });
-  });
-
+      const issued = await passwordResetService.issue(accountId);
+      const welcomeUrl = `/set-password?token=${encodeURIComponent(issued.token)}`;
+      const user = request.jwtUser!;
+      await auditLog(user.userId, 'account.invite', 'user', accountId, {
+        role: inputRole,
+        email: inputEmail,
+      });
+      return reply.status(201).send({
+        data: {
+          invited: true,
+          accountId,
+          token: issued.token,
+          welcomeUrl,
+          expiresAt: issued.expiresAt.toISOString(),
+        },
+      });
+    },
+  );
 
   // ── Jobs ──────────────────────────────────────────────
   app.get('/v1/admin/jobs', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const q = request.query as Record<string, string>;
     const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
+    if (!pool)
+      return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
 
     const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
     const limit = Math.min(100, Math.max(1, parseInt(q['limit'] ?? '50', 10)));
@@ -601,14 +1013,30 @@ export async function registerAdminRoutes(
     const params: unknown[] = [];
     let idx = 1;
 
-    if (status) { whereClauses.push(`sj.status = $${idx++}`); params.push(status); }
-    if (tenant) { whereClauses.push(`sj.workspace_id = $${idx++}`); params.push(tenant); }
-    if (type) { whereClauses.push(`sj.kind = $${idx++}`); params.push(type); }
-    if (search) { whereClauses.push(`(sj.id ILIKE $${idx} OR sj.kind ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
+    if (status) {
+      whereClauses.push(`sj.status = $${idx++}`);
+      params.push(status);
+    }
+    if (tenant) {
+      whereClauses.push(`sj.workspace_id = $${idx++}`);
+      params.push(tenant);
+    }
+    if (type) {
+      whereClauses.push(`sj.kind = $${idx++}`);
+      params.push(type);
+    }
+    if (search) {
+      whereClauses.push(`(sj.id ILIKE $${idx} OR sj.kind ILIKE $${idx})`);
+      params.push(`%${search}%`);
+      idx++;
+    }
 
     const where = whereClauses.join(' AND ');
 
-    const countRes = await pool.query(`SELECT COUNT(*) as total FROM spike_jobs sj WHERE ${where}`, params);
+    const countRes = await pool.query(
+      `SELECT COUNT(*) as total FROM spike_jobs sj WHERE ${where}`,
+      params,
+    );
     const total = parseInt((countRes.rows[0] as any).total, 10);
 
     const dataRes = await pool.query(
@@ -633,38 +1061,71 @@ export async function registerAdminRoutes(
       updatedAt: r.updated_at,
     }));
 
-    return reply.status(200).send({ data, meta: { total, page, limit, pages: Math.ceil(total / limit) } });
+    return reply
+      .status(200)
+      .send({ data, meta: { total, page, limit, pages: Math.ceil(total / limit) } });
   });
 
   app.get('/v1/admin/jobs/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const pool = getPool(db);
-    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
+    if (!pool)
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
     const res = await pool.query('SELECT * FROM spike_jobs WHERE id = $1', [id]);
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
+    if (!res.rows[0])
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
     await auditLog(request.jwtUser!.userId, 'job.read', 'job', id);
     return reply.status(200).send({ data: res.rows[0] });
   });
 
-  app.post('/v1/admin/jobs/:id/retry', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
-    const res = await pool.query('SELECT id, status FROM spike_jobs WHERE id = $1', [id]);
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
-    const jobStatus = (res.rows[0] as any).status;
-    if (jobStatus !== 'failed' && jobStatus !== 'dead_letter') {
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Only failed or dead_letter jobs can be retried' } });
-    }
-    await pool.query('UPDATE spike_jobs SET status = $1, attempt = attempt + 1 WHERE id = $2', ['queued', id]);
-    const user = request.jwtUser!;
-    await auditLog(user.userId, 'job.retry', 'job', id, {});
-    return reply.status(200).send({ data: { id, retried: true } });
-  });
+  app.post(
+    '/v1/admin/jobs/:id/retry',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+      const res = await pool.query('SELECT id, status FROM spike_jobs WHERE id = $1', [id]);
+      if (!res.rows[0])
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Job not found' } });
+      const jobStatus = (res.rows[0] as any).status;
+      if (jobStatus !== 'failed' && jobStatus !== 'dead_letter') {
+        return reply
+          .status(400)
+          .send({
+            error: {
+              code: 'VALIDATION_FAILED',
+              message: 'Only failed or dead_letter jobs can be retried',
+            },
+          });
+      }
+      await pool.query('UPDATE spike_jobs SET status = $1, attempt = attempt + 1 WHERE id = $2', [
+        'queued',
+        id,
+      ]);
+      const user = request.jwtUser!;
+      await auditLog(user.userId, 'job.retry', 'job', id, {});
+      return reply.status(200).send({ data: { id, retried: true } });
+    },
+  );
 
   // ── Quality Reports ──────────────────────────────────
   app.post('/v1/admin/quality-reports', { preHandler: [auth] }, async (request, reply) => {
-    const body = request.body as { reason?: string; notes?: string; assessmentId?: string; questionId?: string } | null;
+    const body = request.body as {
+      reason?: string;
+      notes?: string;
+      assessmentId?: string;
+      questionId?: string;
+    } | null;
     const reason = (body?.reason ?? '').trim();
     const notes = (body?.notes ?? '').toString();
     // reason required; allow reason-only (notes optional)
@@ -685,7 +1146,10 @@ export async function registerAdminRoutes(
     const workspaceId = user.workspaceId ?? headerWs ?? '';
     if (!workspaceId) {
       return reply.status(400).send({
-        error: { code: 'VALIDATION_FAILED', message: 'workspaceId wajib diisi (login di workspace)' },
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: 'workspaceId wajib diisi (login di workspace)',
+        },
       });
     }
 
@@ -728,80 +1192,129 @@ export async function registerAdminRoutes(
     });
   });
 
-  app.get('/v1/admin/quality-reports', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const q = request.query as Record<string, string>;
-    const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
+  app.get(
+    '/v1/admin/quality-reports',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const q = request.query as Record<string, string>;
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(200)
+          .send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
 
-    const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
-    const limit = Math.min(100, Math.max(1, parseInt(q['limit'] ?? '50', 10)));
-    const offset = (page - 1) * limit;
-    const status = q['status']?.trim() ?? '';
-    const search = q['q']?.trim() ?? '';
+      const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
+      const limit = Math.min(100, Math.max(1, parseInt(q['limit'] ?? '50', 10)));
+      const offset = (page - 1) * limit;
+      const status = q['status']?.trim() ?? '';
+      const search = q['q']?.trim() ?? '';
 
-    const whereClauses: string[] = ['1=1'];
-    const params: unknown[] = [];
-    let idx = 1;
+      const whereClauses: string[] = ['1=1'];
+      const params: unknown[] = [];
+      let idx = 1;
 
-    if (status) { whereClauses.push(`qr.status = $${idx++}`); params.push(status); }
-    if (search) { whereClauses.push(`(qr.reason ILIKE $${idx} OR qr.reporter ILIKE $${idx})`); params.push(`%${search}%`); idx++; }
+      if (status) {
+        whereClauses.push(`qr.status = $${idx++}`);
+        params.push(status);
+      }
+      if (search) {
+        whereClauses.push(`(qr.reason ILIKE $${idx} OR qr.reporter ILIKE $${idx})`);
+        params.push(`%${search}%`);
+        idx++;
+      }
 
-    const where = whereClauses.join(' AND ');
+      const where = whereClauses.join(' AND ');
 
-    const countRes = await pool.query(`SELECT COUNT(*) as total FROM admin_quality_reports qr WHERE ${where}`, params);
-    const total = parseInt((countRes.rows[0] as any).total, 10);
+      const countRes = await pool.query(
+        `SELECT COUNT(*) as total FROM admin_quality_reports qr WHERE ${where}`,
+        params,
+      );
+      const total = parseInt((countRes.rows[0] as any).total, 10);
 
-    const dataRes = await pool.query(
-      `SELECT qr.id, qr.reason, qr.status, qr.reporter, qr.notes, qr.workspace_id, qr.created_at
+      const dataRes = await pool.query(
+        `SELECT qr.id, qr.reason, qr.status, qr.reporter, qr.notes, qr.workspace_id, qr.created_at
        FROM admin_quality_reports qr
        WHERE ${where}
        ORDER BY qr.created_at DESC
        LIMIT $${idx} OFFSET $${idx + 1}`,
-      [...params, limit, offset],
-    );
+        [...params, limit, offset],
+      );
 
-    await auditLog(request.jwtUser!.userId, 'quality.list', 'report', 'list', {
-      page, limit, search: Boolean(search), filters: { status },
-    });
+      await auditLog(request.jwtUser!.userId, 'quality.list', 'report', 'list', {
+        page,
+        limit,
+        search: Boolean(search),
+        filters: { status },
+      });
 
-    return reply.status(200).send({
-      data: dataRes.rows.map((r: any) => ({
-        id: r.id, reason: r.reason, status: r.status, reporter: r.reporter,
-        notes: r.notes ?? '', workspaceId: r.workspace_id,
-        createdAt: new Date(r.created_at).toISOString(),
-      })),
-      meta: { total, page, limit, pages: Math.ceil(total / limit) },
-    });
-  });
+      return reply.status(200).send({
+        data: dataRes.rows.map((r: any) => ({
+          id: r.id,
+          reason: r.reason,
+          status: r.status,
+          reporter: r.reporter,
+          notes: r.notes ?? '',
+          workspaceId: r.workspace_id,
+          createdAt: new Date(r.created_at).toISOString(),
+        })),
+        meta: { total, page, limit, pages: Math.ceil(total / limit) },
+      });
+    },
+  );
 
-  app.patch('/v1/admin/quality-reports/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const body = request.body as { status?: string; notes?: string } | null;
-    // allow notes-only update (no status required when only notes provided)
-    if (!body?.status && body?.notes === undefined) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'status or notes required' } });
+  app.patch(
+    '/v1/admin/quality-reports/:id',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as { status?: string; notes?: string } | null;
+      // allow notes-only update (no status required when only notes provided)
+      if (!body?.status && body?.notes === undefined)
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: 'status or notes required' } });
 
-    await db.update(adminQualityReports)
-      .set({ status: body.status, notes: body.notes ?? '', updatedAt: new Date() })
-      .where(eq(adminQualityReports.id, id));
+      await db
+        .update(adminQualityReports)
+        .set({ status: body.status, notes: body.notes ?? '', updatedAt: new Date() })
+        .where(eq(adminQualityReports.id, id));
 
-    const user = request.jwtUser!;
-    await auditLog(user.userId, 'quality.update', 'report', id, { status: body.status });
-    return reply.status(200).send({ data: { id, status: body.status } });
-  });
+      const user = request.jwtUser!;
+      await auditLog(user.userId, 'quality.update', 'report', id, { status: body.status });
+      return reply.status(200).send({ data: { id, status: body.status } });
+    },
+  );
 
-  app.get('/v1/admin/quality-reports/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const pool = getPool(db);
-    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Report not found' } });
-    const res = await pool.query('SELECT * FROM admin_quality_reports WHERE id = $1', [id]);
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Report not found' } });
-    await auditLog(request.jwtUser!.userId, 'quality.read', 'report', id);
-    const r = res.rows[0] as any;
-    return reply.status(200).send({
-      data: { id: r.id, reason: r.reason, status: r.status, reporter: r.reporter, notes: r.notes,
-        workspaceId: r.workspace_id, createdAt: r.created_at },
-    });
-  });
+  app.get(
+    '/v1/admin/quality-reports/:id',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Report not found' } });
+      const res = await pool.query('SELECT * FROM admin_quality_reports WHERE id = $1', [id]);
+      if (!res.rows[0])
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Report not found' } });
+      await auditLog(request.jwtUser!.userId, 'quality.read', 'report', id);
+      const r = res.rows[0] as any;
+      return reply.status(200).send({
+        data: {
+          id: r.id,
+          reason: r.reason,
+          status: r.status,
+          reporter: r.reporter,
+          notes: r.notes,
+          workspaceId: r.workspace_id,
+          createdAt: r.created_at,
+        },
+      });
+    },
+  );
 
   // ── Flags ─────────────────────────────────────────────
   app.get('/v1/admin/flags', { preHandler: [auth, superadmin] }, async (request, reply) => {
@@ -811,18 +1324,26 @@ export async function registerAdminRoutes(
       `SELECT id, key, description, enabled::text, scope, created_at, updated_at FROM admin_flags ORDER BY created_at DESC`,
     );
     await auditLog(request.jwtUser!.userId, 'flag.list', 'flag', 'list');
-    return reply.status(200).send({ data: result.rows.map((r: any) => ({ ...r, enabled: r.enabled === 'true' })) });
+    return reply
+      .status(200)
+      .send({ data: result.rows.map((r: any) => ({ ...r, enabled: r.enabled === 'true' })) });
   });
 
   app.get('/v1/admin/flags/:key', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { key } = request.params as { key: string };
     const pool = getPool(db);
-    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
+    if (!pool)
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
     const res = await pool.query(
       `SELECT id, key, description, enabled::text, scope, created_at, updated_at FROM admin_flags WHERE key = $1`,
       [key],
     );
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
+    if (!res.rows[0])
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
     await auditLog(request.jwtUser!.userId, 'flag.read', 'flag', key);
     const r = res.rows[0] as any;
     return reply.status(200).send({ data: { ...r, enabled: r.enabled === 'true' } });
@@ -832,34 +1353,57 @@ export async function registerAdminRoutes(
     const { key } = request.params as { key: string };
     const user = request.jwtUser!;
     const [flag] = await db.select().from(adminFlags).where(eq(adminFlags.key, key)).limit(1);
-    if (!flag) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
+    if (!flag)
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
     await db.delete(adminFlags).where(eq(adminFlags.key, key));
     await auditLog(user.userId, 'flag.delete', 'flag', key, { key });
     return reply.status(200).send({ data: { key, deleted: true } });
   });
 
-  app.patch('/v1/admin/flags/:key/toggle', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { key } = request.params as { key: string };
-    const user = request.jwtUser!;
-    const [flag] = await db.select().from(adminFlags).where(eq(adminFlags.key, key)).limit(1);
-    if (!flag) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
+  app.patch(
+    '/v1/admin/flags/:key/toggle',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { key } = request.params as { key: string };
+      const user = request.jwtUser!;
+      const [flag] = await db.select().from(adminFlags).where(eq(adminFlags.key, key)).limit(1);
+      if (!flag)
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag tidak ditemukan' } });
 
-    const newEnabled = !flag.enabled;
-    await db.update(adminFlags).set({ enabled: newEnabled, updatedAt: new Date() }).where(eq(adminFlags.id, flag.id));
-    await auditLog(user.userId, 'flag.toggle', 'flag', key, { enabled: newEnabled });
+      const newEnabled = !flag.enabled;
+      await db
+        .update(adminFlags)
+        .set({ enabled: newEnabled, updatedAt: new Date() })
+        .where(eq(adminFlags.id, flag.id));
+      await auditLog(user.userId, 'flag.toggle', 'flag', key, { enabled: newEnabled });
 
-    return reply.status(200).send({ data: { key, enabled: newEnabled } });
-  });
+      return reply.status(200).send({ data: { key, enabled: newEnabled } });
+    },
+  );
 
   app.post('/v1/admin/flags', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const body = request.body as { key?: string; description?: string; scope?: string } | null;
-    if (!body?.key) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'key required' } });
+    if (!body?.key)
+      return reply
+        .status(400)
+        .send({ error: { code: 'VALIDATION_FAILED', message: 'key required' } });
     const user = request.jwtUser!;
-    const [created] = await db.insert(adminFlags).values({
-      key: body.key, description: body.description ?? '', scope: body.scope ?? 'global',
-    }).returning();
+    const [created] = await db
+      .insert(adminFlags)
+      .values({
+        key: body.key,
+        description: body.description ?? '',
+        scope: body.scope ?? 'global',
+      })
+      .returning();
     await auditLog(user.userId, 'flag.create', 'flag', body.key, { scope: body.scope ?? 'global' });
-    return reply.status(201).send({ data: { key: body.key, enabled: false, scope: body.scope ?? 'global' } });
+    return reply
+      .status(201)
+      .send({ data: { key: body.key, enabled: false, scope: body.scope ?? 'global' } });
   });
 
   app.patch('/v1/admin/flags/:key', { preHandler: [auth, superadmin] }, async (request, reply) => {
@@ -868,19 +1412,26 @@ export async function registerAdminRoutes(
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (body?.description !== undefined) updates.description = body.description;
     if (body?.scope) updates.scope = body.scope;
-    const [updated] = await db.update(adminFlags).set(updates).where(eq(adminFlags.key, key)).returning();
-    if (!updated) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag not found' } });
+    const [updated] = await db
+      .update(adminFlags)
+      .set(updates)
+      .where(eq(adminFlags.key, key))
+      .returning();
+    if (!updated)
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Flag not found' } });
     const user = request.jwtUser!;
     await auditLog(user.userId, 'flag.update', 'flag', key, body ?? {});
     return reply.status(200).send({ data: { key, ...body } });
   });
 
-
   // ── Audit Trail ──────────────────────────────────────
   app.get('/v1/admin/audit', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const q = request.query as Record<string, string>;
     const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
+    if (!pool)
+      return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
 
     const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
     const limit = Math.min(200, Math.max(1, parseInt(q['limit'] ?? '50', 10)));
@@ -889,14 +1440,30 @@ export async function registerAdminRoutes(
     const whereClauses: string[] = ['1=1'];
     const params: any[] = [];
     let paramIdx = 1;
-    if (q['action']) { whereClauses.push(`action = $${paramIdx++}`); params.push(q['action']); }
-    if (q['actor']) { whereClauses.push(`(actor_email = $${paramIdx} OR actor_id = $${paramIdx})`); params.push(q['actor']); paramIdx++; }
-    if (q['from']) { whereClauses.push(`created_at >= $${paramIdx++}`); params.push(q['from']); }
-    if (q['to']) { whereClauses.push(`created_at <= $${paramIdx++}`); params.push(q['to']); }
+    if (q['action']) {
+      whereClauses.push(`action = $${paramIdx++}`);
+      params.push(q['action']);
+    }
+    if (q['actor']) {
+      whereClauses.push(`(actor_email = $${paramIdx} OR actor_id = $${paramIdx})`);
+      params.push(q['actor']);
+      paramIdx++;
+    }
+    if (q['from']) {
+      whereClauses.push(`created_at >= $${paramIdx++}`);
+      params.push(q['from']);
+    }
+    if (q['to']) {
+      whereClauses.push(`created_at <= $${paramIdx++}`);
+      params.push(q['to']);
+    }
 
     const whereClause = 'WHERE ' + whereClauses.join(' AND ');
 
-    const countRes = await pool.query(`SELECT COUNT(*) as total FROM admin_audit ${whereClause}`, params);
+    const countRes = await pool.query(
+      `SELECT COUNT(*) as total FROM admin_audit ${whereClause}`,
+      params,
+    );
     const total = parseInt((countRes.rows[0] as any).total, 10);
 
     const result = await pool.query(
@@ -905,12 +1472,27 @@ export async function registerAdminRoutes(
       [...params, limit, offset],
     );
     await auditLog(request.jwtUser!.userId, 'audit.list', 'audit', 'list', {
-      page, limit, filters: { action: q['action'] ?? '', actor: Boolean(q['actor']), from: q['from'] ?? '', to: q['to'] ?? '' },
+      page,
+      limit,
+      filters: {
+        action: q['action'] ?? '',
+        actor: Boolean(q['actor']),
+        from: q['from'] ?? '',
+        to: q['to'] ?? '',
+      },
     });
     return reply.status(200).send({
       data: result.rows.map((r: any) => ({
         id: r.id,
-        at: new Date(r.created_at).toLocaleString('id-ID', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).replace(/\//g, '-'),
+        at: new Date(r.created_at)
+          .toLocaleString('id-ID', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+          .replace(/\//g, '-'),
         actor: r.actor_email || r.actor_id,
         action: r.action,
         target: r.target_id,
@@ -924,7 +1506,10 @@ export async function registerAdminRoutes(
   app.get('/v1/admin/audit/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const pool = getPool(db);
-    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Audit entry not found' } });
+    if (!pool)
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Audit entry not found' } });
     const res = await pool.query(
       `SELECT aa.id, aa.actor_id, aa.actor_email, aa.action, aa.target_type, aa.target_id, aa.metadata, aa.created_at,
               jw.name as actor_name
@@ -933,7 +1518,10 @@ export async function registerAdminRoutes(
        WHERE aa.id = $1`,
       [id],
     );
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Audit entry not found' } });
+    if (!res.rows[0])
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Audit entry not found' } });
     const r = res.rows[0] as any;
     await auditLog(request.jwtUser!.userId, 'audit.read', 'audit', id);
     return reply.status(200).send({
@@ -954,7 +1542,8 @@ export async function registerAdminRoutes(
   app.get('/v1/admin/billing', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const q = request.query as Record<string, string>;
     const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
+    if (!pool)
+      return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 50, pages: 1 } });
 
     const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
     const limit = Math.min(100, Math.max(1, parseInt(q['limit'] ?? '50', 10)));
@@ -966,12 +1555,21 @@ export async function registerAdminRoutes(
     const params: unknown[] = [];
     let idx = 1;
 
-    if (state) { whereClauses.push(`state = $${idx++}`); params.push(state); }
-    if (search) { whereClauses.push(`school_name ILIKE $${idx++}`); params.push(`%${search}%`); }
+    if (state) {
+      whereClauses.push(`state = $${idx++}`);
+      params.push(state);
+    }
+    if (search) {
+      whereClauses.push(`school_name ILIKE $${idx++}`);
+      params.push(`%${search}%`);
+    }
 
     const where = whereClauses.join(' AND ');
 
-    const countRes = await pool.query(`SELECT COUNT(*) as total FROM admin_billing WHERE ${where}`, params);
+    const countRes = await pool.query(
+      `SELECT COUNT(*) as total FROM admin_billing WHERE ${where}`,
+      params,
+    );
     const total = parseInt((countRes.rows[0] as any).total, 10);
 
     const result = await pool.query(
@@ -980,11 +1578,18 @@ export async function registerAdminRoutes(
       [...params, limit, offset],
     );
     await auditLog(request.jwtUser!.userId, 'billing.list', 'billing', 'list', {
-      page, limit, search: Boolean(search), filters: { state },
+      page,
+      limit,
+      search: Boolean(search),
+      filters: { state },
     });
     return reply.status(200).send({
       data: result.rows.map((r: any) => ({
-        id: r.id, school: r.school_name, state: r.state, seats: r.seats, plan: r.plan,
+        id: r.id,
+        school: r.school_name,
+        state: r.state,
+        seats: r.seats,
+        plan: r.plan,
         renewsAt: r.renews_at ? new Date(r.renews_at).toISOString().slice(0, 10) : '',
         tenantId: r.tenant_id,
       })),
@@ -993,22 +1598,58 @@ export async function registerAdminRoutes(
   });
 
   app.post('/v1/admin/billing', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const body = request.body as { tenantId?: string; schoolName?: string; plan?: string; seats?: number; state?: string; renewsAt?: string } | null;
-    if (!body?.tenantId || !body?.schoolName) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'tenantId and schoolName required' } });
+    const body = request.body as {
+      tenantId?: string;
+      schoolName?: string;
+      plan?: string;
+      seats?: number;
+      state?: string;
+      renewsAt?: string;
+    } | null;
+    if (!body?.tenantId || !body?.schoolName)
+      return reply
+        .status(400)
+        .send({
+          error: { code: 'VALIDATION_FAILED', message: 'tenantId and schoolName required' },
+        });
     const user = request.jwtUser!;
     const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+    if (!pool)
+      return reply
+        .status(500)
+        .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    const existing = await pool.query('SELECT id FROM admin_billing WHERE tenant_id = $1', [body.tenantId]);
-    if (existing.rows[0]) return reply.status(409).send({ error: { code: 'CONFLICT', message: 'Billing record already exists for this tenant' } });
+    const existing = await pool.query('SELECT id FROM admin_billing WHERE tenant_id = $1', [
+      body.tenantId,
+    ]);
+    if (existing.rows[0])
+      return reply
+        .status(409)
+        .send({
+          error: { code: 'CONFLICT', message: 'Billing record already exists for this tenant' },
+        });
 
     const res = await pool.query(
       `INSERT INTO admin_billing (tenant_id, school_name, plan, seats, state, renews_at)
        VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [body.tenantId, body.schoolName, body.plan ?? 'free', body.seats ?? 0, body.state ?? 'active', body.renewsAt ?? null],
+      [
+        body.tenantId,
+        body.schoolName,
+        body.plan ?? 'free',
+        body.seats ?? 0,
+        body.state ?? 'active',
+        body.renewsAt ?? null,
+      ],
     );
-    await auditLog(user.userId, 'billing.create', 'billing', (res.rows[0] as any).id, { tenantId: body.tenantId, plan: body.plan });
-    return reply.status(201).send({ data: { id: (res.rows[0] as any).id, tenantId: body.tenantId, schoolName: body.schoolName } });
+    await auditLog(user.userId, 'billing.create', 'billing', (res.rows[0] as any).id, {
+      tenantId: body.tenantId,
+      plan: body.plan,
+    });
+    return reply
+      .status(201)
+      .send({
+        data: { id: (res.rows[0] as any).id, tenantId: body.tenantId, schoolName: body.schoolName },
+      });
   });
 
   app.patch('/v1/admin/billing/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
@@ -1019,8 +1660,15 @@ export async function registerAdminRoutes(
     if (body?.plan) updates.plan = body.plan;
     if (body?.seats !== undefined) updates.seats = body.seats;
 
-    const [updated] = await db.update(adminBilling).set(updates).where(eq(adminBilling.id, id)).returning();
-    if (!updated) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Billing tidak ditemukan' } });
+    const [updated] = await db
+      .update(adminBilling)
+      .set(updates)
+      .where(eq(adminBilling.id, id))
+      .returning();
+    if (!updated)
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Billing tidak ditemukan' } });
 
     const user = request.jwtUser!;
     await auditLog(user.userId, 'billing.update', 'billing', id, body ?? {});
@@ -1030,15 +1678,28 @@ export async function registerAdminRoutes(
   app.get('/v1/admin/billing/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const pool = getPool(db);
-    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Billing not found' } });
+    if (!pool)
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Billing not found' } });
     const res = await pool.query('SELECT * FROM admin_billing WHERE id = $1', [id]);
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Billing not found' } });
+    if (!res.rows[0])
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Billing not found' } });
     const r = res.rows[0] as any;
     await auditLog(request.jwtUser!.userId, 'billing.read', 'billing', id);
     return reply.status(200).send({
-      data: { id: r.id, school: r.school_name, state: r.state, seats: r.seats, plan: r.plan,
+      data: {
+        id: r.id,
+        school: r.school_name,
+        state: r.state,
+        seats: r.seats,
+        plan: r.plan,
         renewsAt: r.renews_at ? new Date(r.renews_at).toISOString().slice(0, 10) : '',
-        tenantId: r.tenant_id, createdAt: r.created_at },
+        tenantId: r.tenant_id,
+        createdAt: r.created_at,
+      },
     });
   });
 
@@ -1046,7 +1707,8 @@ export async function registerAdminRoutes(
   app.get('/v1/admin/schools', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const q = request.query as Record<string, string>;
     const pool = getPool(db);
-    if (!pool) return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 10, pages: 1 } });
+    if (!pool)
+      return reply.status(200).send({ data: [], meta: { total: 0, page: 1, limit: 10, pages: 1 } });
 
     const page = Math.max(1, parseInt(q['page'] ?? '1', 10));
     const limit = Math.min(100, Math.max(1, parseInt(q['limit'] ?? '10', 10)));
@@ -1099,7 +1761,10 @@ export async function registerAdminRoutes(
     );
 
     await auditLog(request.jwtUser!.userId, 'school.list', 'tenant', 'list', {
-      page, limit, search: Boolean(search), filters: { plan },
+      page,
+      limit,
+      search: Boolean(search),
+      filters: { plan },
     });
     return reply.status(200).send({
       data: result.rows.map((r: any) => ({
@@ -1120,7 +1785,10 @@ export async function registerAdminRoutes(
   app.get('/v1/admin/schools/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const pool = getPool(db);
-    if (!pool) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
+    if (!pool)
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
 
     const schoolRes = await pool.query(
       `SELECT t.id, t.name, t.slug, ab.plan, ab.state, ab.seats, ab.renews_at::text
@@ -1129,7 +1797,10 @@ export async function registerAdminRoutes(
        WHERE t.id = $1`,
       [id],
     );
-    if (!schoolRes.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
+    if (!schoolRes.rows[0])
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
 
     const membersRes = await pool.query(
       `SELECT jw.id, jw.email, jw.name, jw.username, jw.roles, jw.created_at::text
@@ -1165,218 +1836,301 @@ export async function registerAdminRoutes(
 
   app.post('/v1/admin/schools', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const body = request.body as { name?: string; slug?: string } | null;
-    if (!body?.name) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'name required' } });
+    if (!body?.name)
+      return reply
+        .status(400)
+        .send({ error: { code: 'VALIDATION_FAILED', message: 'name required' } });
 
     const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+    if (!pool)
+      return reply
+        .status(500)
+        .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    const slug = body.slug || body.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const slug =
+      body.slug ||
+      body.name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
     const [created] = await db.insert(tenants).values({ slug, name: body.name }).returning();
 
-    if (!created) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Gagal membuat sekolah' } });
+    if (!created)
+      return reply
+        .status(500)
+        .send({ error: { code: 'INTERNAL_ERROR', message: 'Gagal membuat sekolah' } });
 
     const user = request.jwtUser!;
     await auditLog(user.userId, 'school.create', 'tenant', created.id, { name: body.name, slug });
-    return reply.status(201).send({ data: { id: created.id, name: created.name, slug: created.slug } });
+    return reply
+      .status(201)
+      .send({ data: { id: created.id, name: created.name, slug: created.slug } });
   });
 
   app.patch('/v1/admin/schools/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const body = request.body as { name?: string } | null;
-    if (!body?.name) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'name required' } });
+    if (!body?.name)
+      return reply
+        .status(400)
+        .send({ error: { code: 'VALIDATION_FAILED', message: 'name required' } });
 
-    const [updated] = await db.update(tenants).set({ name: body.name }).where(eq(tenants.id, id)).returning();
-    if (!updated) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
+    const [updated] = await db
+      .update(tenants)
+      .set({ name: body.name })
+      .where(eq(tenants.id, id))
+      .returning();
+    if (!updated)
+      return reply
+        .status(404)
+        .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
 
     const user = request.jwtUser!;
     await auditLog(user.userId, 'school.update', 'tenant', id, { name: body.name });
     return reply.status(200).send({ data: { id: updated.id, name: updated.name } });
   });
 
-  app.delete('/v1/admin/schools/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
-    const res = await pool.query('SELECT id, name FROM tenants WHERE id = $1', [id]);
-    if (!res.rows[0]) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
-    await db.delete(tenants).where(eq(tenants.id, id));
-    const user = request.jwtUser!;
-    await auditLog(user.userId, 'school.delete', 'tenant', id, { name: (res.rows[0] as any).name });
-    return reply.status(200).send({ data: { id, deleted: true } });
-  });
+  app.delete(
+    '/v1/admin/schools/:id',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+      const res = await pool.query('SELECT id, name FROM tenants WHERE id = $1', [id]);
+      if (!res.rows[0])
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'School not found' } });
+      await db.delete(tenants).where(eq(tenants.id, id));
+      const user = request.jwtUser!;
+      await auditLog(user.userId, 'school.delete', 'tenant', id, {
+        name: (res.rows[0] as any).name,
+      });
+      return reply.status(200).send({ data: { id, deleted: true } });
+    },
+  );
 
   // ── Entitlements ─────────────────────────────────────
-  app.post('/v1/admin/entitlements/:workspaceId', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { workspaceId } = request.params as { workspaceId: string };
-    const body = request.body as { plan?: string } | null;
-    if (!body?.plan || !['free', 'pro'].includes(body.plan))
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: "plan must be 'free' or 'pro'" } });
+  app.post(
+    '/v1/admin/entitlements/:workspaceId',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { workspaceId } = request.params as { workspaceId: string };
+      const body = request.body as { plan?: string } | null;
+      if (!body?.plan || !['free', 'pro'].includes(body.plan))
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: "plan must be 'free' or 'pro'" } });
 
-    const user = request.jwtUser!;
-    const result = await service.setEntitlement(user.userId, { workspaceId, plan: body.plan as 'free' | 'pro', actorId: user.userId });
-    return reply.status(200).send({ data: result });
-  });
+      const user = request.jwtUser!;
+      const result = await service.setEntitlement(user.userId, {
+        workspaceId,
+        plan: body.plan as 'free' | 'pro',
+        actorId: user.userId,
+      });
+      return reply.status(200).send({ data: result });
+    },
+  );
 
   // ── B8-02: Data lifecycle — schedule-delete & purge ───────────────────────
   // PATCH /v1/admin/accounts/:id/schedule-delete
   // Schedule soft-delete + deferred hard-delete setelah retention window (default 30 hari).
-  app.patch('/v1/admin/accounts/:id/schedule-delete', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const body = request.body as { retentionDays?: number; reason?: string } | null;
-    const user = request.jwtUser!;
+  app.patch(
+    '/v1/admin/accounts/:id/schedule-delete',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as { retentionDays?: number; reason?: string } | null;
+      const user = request.jwtUser!;
 
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    // Cek akun ada
-    const accountRes = await pool.query(
-      'SELECT id, email, roles, tenant_id, workspace_id FROM jwt_users WHERE id = $1',
-      [id],
-    );
-    if (!accountRes.rows[0]) {
-      return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
-    }
+      // Cek akun ada
+      const accountRes = await pool.query(
+        'SELECT id, email, roles, tenant_id, workspace_id FROM jwt_users WHERE id = $1',
+        [id],
+      );
+      if (!accountRes.rows[0]) {
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+      }
 
-    // Cek belum ada schedule pending
-    const existingRes = await pool.query(
-      "SELECT id FROM account_delete_schedule WHERE account_id = $1 AND status = 'pending'",
-      [id],
-    );
-    if (existingRes.rows[0]) {
-      return reply.status(409).send({ error: { code: 'CONFLICT', message: 'Delete already scheduled for this account' } });
-    }
+      // Cek belum ada schedule pending
+      const existingRes = await pool.query(
+        "SELECT id FROM account_delete_schedule WHERE account_id = $1 AND status = 'pending'",
+        [id],
+      );
+      if (existingRes.rows[0]) {
+        return reply
+          .status(409)
+          .send({
+            error: { code: 'CONFLICT', message: 'Delete already scheduled for this account' },
+          });
+      }
 
-    const retentionDays = Number(body?.retentionDays ?? 30);
-    if (retentionDays < 1 || retentionDays > 365) {
-      return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'retentionDays must be 1–365' } });
-    }
-    const reason = body?.reason ?? null;
+      const retentionDays = Number(body?.retentionDays ?? 30);
+      if (retentionDays < 1 || retentionDays > 365) {
+        return reply
+          .status(400)
+          .send({ error: { code: 'VALIDATION_FAILED', message: 'retentionDays must be 1–365' } });
+      }
+      const reason = body?.reason ?? null;
 
-    const purgeAfter = new Date();
-    purgeAfter.setDate(purgeAfter.getDate() + retentionDays);
+      const purgeAfter = new Date();
+      purgeAfter.setDate(purgeAfter.getDate() + retentionDays);
 
-    // Soft-delete akun
-    await pool.query('UPDATE jwt_users SET deleted_at = now() WHERE id = $1', [id]);
+      // Soft-delete akun
+      await pool.query('UPDATE jwt_users SET deleted_at = now() WHERE id = $1', [id]);
 
-    // Buat schedule record
-    const schedRes = await pool.query<{ id: string; purge_after: Date }>(
-      `INSERT INTO account_delete_schedule
+      // Buat schedule record
+      const schedRes = await pool.query<{ id: string; purge_after: Date }>(
+        `INSERT INTO account_delete_schedule
          (account_id, scheduled_by, purge_after, retention_days, reason)
        VALUES ($1, $2, $3, $4, $5)
        RETURNING id, purge_after`,
-      [id, user.userId, purgeAfter.toISOString(), retentionDays, reason],
-    );
+        [id, user.userId, purgeAfter.toISOString(), retentionDays, reason],
+      );
 
-    await auditLog(user.userId, 'account.delete_scheduled', 'account', id, {
-      retentionDays,
-      purgeAfter: purgeAfter.toISOString(),
-      reason,
-    });
-
-    const schedRow = schedRes.rows[0];
-    if (!schedRow) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create schedule' } });
-
-    return reply.status(200).send({
-      data: {
-        accountId: id,
-        scheduleId: schedRow.id,
-        purgeAfter: schedRow.purge_after,
+      await auditLog(user.userId, 'account.delete_scheduled', 'account', id, {
         retentionDays,
-        status: 'pending',
-      },
-    });
-  });
+        purgeAfter: purgeAfter.toISOString(),
+        reason,
+      });
+
+      const schedRow = schedRes.rows[0];
+      if (!schedRow)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create schedule' } });
+
+      return reply.status(200).send({
+        data: {
+          accountId: id,
+          scheduleId: schedRow.id,
+          purgeAfter: schedRow.purge_after,
+          retentionDays,
+          status: 'pending',
+        },
+      });
+    },
+  );
 
   // DELETE /v1/admin/accounts/:id/purge
   // Hard-delete akun + tulis tombstone (immutable audit trail). Superadmin only.
-  app.delete('/v1/admin/accounts/:id/purge', { preHandler: [auth, superadmin] }, async (request, reply) => {
-    const { id } = request.params as { id: string };
-    const body = request.body as { reason?: string } | null;
-    const user = request.jwtUser!;
+  app.delete(
+    '/v1/admin/accounts/:id/purge',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const body = request.body as { reason?: string } | null;
+      const user = request.jwtUser!;
 
-    const pool = getPool(db);
-    if (!pool) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
+      const pool = getPool(db);
+      if (!pool)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-    // Cek tombstone sudah ada (idempoten — sudah di-purge sebelumnya)
-    const tombRes = await pool.query(
-      'SELECT id FROM account_tombstones WHERE original_id = $1',
-      [id],
-    );
-    if (tombRes.rows[0]) {
-      return reply.status(410).send({ error: { code: 'GONE', message: 'Account already purged (tombstone exists)' } });
-    }
+      // Cek tombstone sudah ada (idempoten — sudah di-purge sebelumnya)
+      const tombRes = await pool.query('SELECT id FROM account_tombstones WHERE original_id = $1', [
+        id,
+      ]);
+      if (tombRes.rows[0]) {
+        return reply
+          .status(410)
+          .send({ error: { code: 'GONE', message: 'Account already purged (tombstone exists)' } });
+      }
 
-    // Ambil data akun sebelum dihapus
-    const accountRes = await pool.query(
-      'SELECT id, email, roles, tenant_id, workspace_id, created_at FROM jwt_users WHERE id = $1',
-      [id],
-    );
-    if (!accountRes.rows[0]) {
-      return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
-    }
-    const account = accountRes.rows[0] as {
-      id: string; email: string; roles: string[];
-      tenant_id: string | null; workspace_id: string | null; created_at: Date;
-    };
+      // Ambil data akun sebelum dihapus
+      const accountRes = await pool.query(
+        'SELECT id, email, roles, tenant_id, workspace_id, created_at FROM jwt_users WHERE id = $1',
+        [id],
+      );
+      if (!accountRes.rows[0]) {
+        return reply
+          .status(404)
+          .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
+      }
+      const account = accountRes.rows[0] as {
+        id: string;
+        email: string;
+        roles: string[];
+        tenant_id: string | null;
+        workspace_id: string | null;
+        created_at: Date;
+      };
 
-    const reason = body?.reason ?? null;
+      const reason = body?.reason ?? null;
 
-    // Hash email (PII minimisation — SHA-256)
-    const { createHash } = await import('node:crypto');
-    const emailHash = createHash('sha256').update(account.email.toLowerCase()).digest('hex');
+      // Hash email (PII minimisation — SHA-256)
+      const { createHash } = await import('node:crypto');
+      const emailHash = createHash('sha256').update(account.email.toLowerCase()).digest('hex');
 
-    const snapshot = {
-      roles: account.roles,
-      tenantId: account.tenant_id,
-      workspaceId: account.workspace_id,
-      createdAt: account.created_at,
-    };
+      const snapshot = {
+        roles: account.roles,
+        tenantId: account.tenant_id,
+        workspaceId: account.workspace_id,
+        createdAt: account.created_at,
+      };
 
-    // Mark pending schedule sebagai executed (jika ada)
-    await pool.query(
-      "UPDATE account_delete_schedule SET status = 'executed', executed_at = now() WHERE account_id = $1 AND status = 'pending'",
-      [id],
-    );
+      // Mark pending schedule sebagai executed (jika ada)
+      await pool.query(
+        "UPDATE account_delete_schedule SET status = 'executed', executed_at = now() WHERE account_id = $1 AND status = 'pending'",
+        [id],
+      );
 
-    // Hard-delete dari jwt_users
-    await pool.query('DELETE FROM jwt_users WHERE id = $1', [id]);
+      // Hard-delete dari jwt_users
+      await pool.query('DELETE FROM jwt_users WHERE id = $1', [id]);
 
-    // Tulis tombstone (immutable)
-    const insertTombstone = await pool.query<{ id: string; purged_at: Date }>(
-      `INSERT INTO account_tombstones
+      // Tulis tombstone (immutable)
+      const insertTombstone = await pool.query<{ id: string; purged_at: Date }>(
+        `INSERT INTO account_tombstones
          (original_id, email_hash, roles, tenant_id, workspace_id, deleted_by, delete_reason, snapshot, retention_days)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING id, purged_at`,
-      [
-        id,
+        [
+          id,
+          emailHash,
+          account.roles ?? [],
+          account.tenant_id,
+          account.workspace_id,
+          user.userId,
+          reason,
+          JSON.stringify(snapshot),
+          30,
+        ],
+      );
+
+      await auditLog(user.userId, 'account.purged', 'account', id, {
+        tombstoneId: insertTombstone.rows[0]?.id,
         emailHash,
-        account.roles ?? [],
-        account.tenant_id,
-        account.workspace_id,
-        user.userId,
         reason,
-        JSON.stringify(snapshot),
-        30,
-      ],
-    );
+      });
 
-    await auditLog(user.userId, 'account.purged', 'account', id, {
-      tombstoneId: insertTombstone.rows[0]?.id,
-      emailHash,
-      reason,
-    });
+      const tombRow = insertTombstone.rows[0];
+      if (!tombRow)
+        return reply
+          .status(500)
+          .send({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create tombstone' } });
 
-    const tombRow = insertTombstone.rows[0];
-    if (!tombRow) return reply.status(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create tombstone' } });
-
-    return reply.status(200).send({
-      data: {
-        purged: true,
-        accountId: id,
-        tombstoneId: tombRow.id,
-        purgedAt: tombRow.purged_at,
-        emailHash,
-      },
-    });
-  });
+      return reply.status(200).send({
+        data: {
+          purged: true,
+          accountId: id,
+          tombstoneId: tombRow.id,
+          purgedAt: tombRow.purged_at,
+          emailHash,
+        },
+      });
+    },
+  );
 }

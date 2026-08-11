@@ -43,6 +43,7 @@ import { WorkspacePlanRepository } from '../modules/plans/persistence/repository
 import { TrialRepository } from '../modules/plans/persistence/trialRepository.js';
 import { TrialService } from '../modules/plans/application/TrialService.js';
 import { registerPlanRoutes } from '../modules/plans/adapters/http/planRoutes.js';
+import { PlanCatalogRepository } from '../modules/plans/persistence/catalogRepository.js';
 
 // B6-02: Payment integration
 import { PaymentRepository } from '../modules/payment/persistence/repository.js';
@@ -398,7 +399,8 @@ export async function buildApp(
   if (managedDb) {
     const planRepo = new WorkspacePlanRepository(managedDb);
     const trialRepo = new TrialRepository(managedDb);
-    const planService = new PlanService(planRepo, trialRepo);
+    const catalogRepo = new PlanCatalogRepository(managedDb);
+    const planService = new PlanService(planRepo, trialRepo, undefined, catalogRepo);
     registerPlanRoutes(app, planService, {
       trials: new TrialService(
         trialRepo,
@@ -407,6 +409,7 @@ export async function buildApp(
           'dev-secret-change-in-production',
       ),
       jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+      catalog: catalogRepo,
     });
   }
 
@@ -433,6 +436,7 @@ export async function buildApp(
       paymentService,
       db: managedDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+      catalog: new PlanCatalogRepository(managedDb),
     };
     await registerWebhookRoutes(app, paymentRouteOptions);
     await registerSubscriptionRoutes(app, paymentRouteOptions);

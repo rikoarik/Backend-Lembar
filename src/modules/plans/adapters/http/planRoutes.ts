@@ -5,10 +5,12 @@ import { rateLimit } from '../../../../common/security/rateLimit.js';
 import type { PlanService } from '../../application/PlanService.js';
 import { TrialEligibilityError, type TrialService } from '../../application/TrialService.js';
 import { TrialConflictError } from '../../persistence/trialRepository.js';
+import type { PlanCatalogRepository } from '../../persistence/catalogRepository.js';
 
 export interface PlanRouteOptions {
   trials: TrialService;
   jwtSecret: string;
+  catalog?: Pick<PlanCatalogRepository, 'list'>;
 }
 
 function requestId(req: FastifyRequest) {
@@ -58,6 +60,31 @@ export async function registerPlanRoutes(
   service: PlanService,
   options?: PlanRouteOptions,
 ) {
+  app.get('/v1/public/plans', async (_request, reply) => {
+    const plans = (await options?.catalog?.list(true)) ?? [];
+    return reply.header('cache-control', 'public, max-age=60, stale-while-revalidate=300').send({
+      data: plans.map(
+        ({
+          key,
+          displayName,
+          priceAmount,
+          currency,
+          billingPeriod,
+          tokenMonthlyLimit,
+          features,
+        }) => ({
+          key,
+          displayName,
+          priceAmount,
+          currency,
+          billingPeriod,
+          tokenMonthlyLimit,
+          features,
+        }),
+      ),
+    });
+  });
+
   app.get('/v1/me/plan', async (request, reply) => {
     if (!options) return sendError(reply, request, 500, 'INTERNAL_ERROR', 'Plan auth unavailable');
     try {
