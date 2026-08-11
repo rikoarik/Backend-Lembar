@@ -13,7 +13,6 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { PaymentRepository } from '../persistence/repository.js';
 import type { WorkspacePlanRepository } from '../../plans/persistence/repository.js';
 import {
-  DuplicateOrderError,
   OrderNotFoundError,
   InvalidOrderTransitionError,
   WebhookSignatureError,
@@ -352,7 +351,12 @@ export class PaymentService {
       return;
     }
 
-    if (payload.gateway === 'pakasir') return;
+    // Pakasir callback authentication has not been verified against provider
+    // documentation and this service has no trusted status-query adapter yet.
+    // Fail closed rather than treating a client-controlled callback as payment proof.
+    if (payload.gateway === 'pakasir') {
+      throw new WebhookSignatureError('pakasir-verification-unavailable');
+    }
 
     if (payload.gateway === 'stripe') {
       const secret = this.opts.stripeWebhookSecret;

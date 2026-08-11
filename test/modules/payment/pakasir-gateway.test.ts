@@ -20,17 +20,24 @@ describe('Pakasir gateway', () => {
     expect(payment.resolveWebhookStatus({ status }, 'pakasir')).toBe(expected);
   });
 
-  it('does not require a webhook signature', () => {
-    const payment = service() as unknown as {
-      verifySignature(payload: Record<string, unknown>): void;
-    };
-    expect(() => payment.verifySignature({ gateway: 'pakasir', parsed: {}, rawBody: '{}' })).not.toThrow();
+  it('fails closed before processing an unverifiable Pakasir callback', async () => {
+    const payment = service();
+    await expect(
+      payment.handleWebhook({
+        gateway: 'pakasir',
+        parsed: { order_id: 'order-1', status: 'completed', amount: 49000 },
+        rawBody: '{}',
+        signature: undefined,
+      }),
+    ).rejects.toThrow('pakasir-verification-unavailable');
   });
 
   it('accepts x-gateway pakasir', async () => {
     process.env['PAKASIR_API_KEY'] = 'key';
     const app = Fastify();
-    const handleWebhook = vi.fn().mockResolvedValue({ orderId: 'order-1', newStatus: 'paid', planTransitioned: true });
+    const handleWebhook = vi
+      .fn()
+      .mockResolvedValue({ orderId: 'order-1', newStatus: 'paid', planTransitioned: true });
     await registerWebhookRoutes(app, {
       paymentService: { handleWebhook } as never,
       db: {} as never,
