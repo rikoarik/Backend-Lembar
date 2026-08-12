@@ -29,6 +29,7 @@ async function requireSuperadmin(request: FastifyRequest, db: Database): Promise
   )[SESSION_COOKIE];
   const bearerSessionId = (request.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim() || null;
   const sessionId = cookieSessionId || bearerSessionId;
+  request.log.info({ cookieSessionId: !!cookieSessionId, bearerSessionId: !!bearerSessionId, sessionId: !!sessionId }, 'wa-gateway auth');
 
   if (!sessionId) throw new ApiError({ code: 'AUTH_REQUIRED', message: 'Login diperlukan.', status: 401, requestId: '' });
 
