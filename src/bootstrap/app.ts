@@ -110,6 +110,8 @@ import { registerAdminRoutes } from '../modules/admin/adapters/http/adminRoutes.
 import { registerAiPromptRoutes } from '../modules/admin/adapters/http/aiPromptRoutes.js';
 import { registerAiProviderRoutes } from '../modules/admin/adapters/http/aiProviderRoutes.js';
 import { registerAiFeedbackRoutes } from '../modules/ai/adapters/http/aiFeedbackRoutes.js';
+import { registerWaGatewayRoutes } from '../modules/admin/adapters/http/waGatewayRoutes.js';
+import { registerOtpRoutes } from '../modules/auth/adapters/http/otpRoutes.js';
 
 // School routes
 import { SchoolService } from '../modules/school/application/SchoolService.js';
@@ -313,6 +315,8 @@ export async function buildApp(
       jwtExpiryDays: parseInt(process.env.JWT_EXPIRY_DAYS || '7', 10),
     });
     await registerPasswordResetRoutes(app, { db: authDb });
+    // WA OTP routes — public endpoints
+    await registerOtpRoutes(app, { db: authDb });
 
     // Google OAuth routes
     const googleClientId = process.env.GOOGLE_CLIENT_ID;
@@ -570,6 +574,11 @@ export async function buildApp(
     });
     // AI Feedback routes — subscriber-facing, populates the same ai_feedback table
     registerAiFeedbackRoutes(app, {
+      db: managedDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+    });
+    // WA Gateway proxy routes — superadmin only
+    registerWaGatewayRoutes(app, {
       db: managedDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
     });
