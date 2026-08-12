@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { MARKETING_PUBLISHED_SEED_DOCUMENTS } from '../../../scripts/marketing-published-seed.mjs';
+import { MARKETING_PUBLISHED_SEED_DOCUMENTS } from '../../../scripts/marketing-published-seed.js';
 
 describe('default published marketing seed documents', () => {
   it('includes schema-shaped published documents for global slots and every allowed public page', () => {
