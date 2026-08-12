@@ -376,10 +376,16 @@ describeDb('AuthService with Postgres store', () => {
   });
 
   test('invitation create writes invite, outbox, and redacted audit rows', async () => {
-    const { db, service } = await setupDb();
+    const { db, service, store } = await setupDb();
     const admin = await service.register({
       email: uniqueEmail('invite-admin'),
       password: 'passphrase-1',
+    });
+    await store.saveMembership({
+      workspaceId: admin.workspaceId,
+      userId: admin.userId,
+      role: 'school_admin',
+      state: 'active',
     });
     const beforeInvites = await db.select().from(schoolInvitations);
     const beforeOutbox = await db

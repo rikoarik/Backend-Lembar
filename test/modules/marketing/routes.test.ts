@@ -64,6 +64,7 @@ describe.skipIf(!hasDb)('marketing published read routes', () => {
         locale: 'id-ID',
         currentVersion: 2,
         publishedVersion: 1,
+        state: 'published',
         draftPayload: {
           navigation: [{ id: 'draft-only', title: 'Rahasia' }],
           footer: [],
@@ -125,6 +126,7 @@ describe.skipIf(!hasDb)('marketing published read routes', () => {
         locale: 'id-ID',
         currentVersion: 3,
         publishedVersion: 1,
+        state: 'published',
         draftPayload: {
           schemaVersion: 1,
           blocks: [{ id: 'draft', type: 'hero', heading: 'Draft only' }],
@@ -147,6 +149,7 @@ describe.skipIf(!hasDb)('marketing published read routes', () => {
       locale: 'id-ID',
       currentVersion: 1,
       publishedVersion: null,
+      state: 'draft',
       draftPayload: {
         schemaVersion: 1,
         blocks: [{ id: 'pricing-draft', type: 'pricing', heading: 'Belum terbit' }],
@@ -182,6 +185,7 @@ describe.skipIf(!hasDb)('marketing published read routes', () => {
         locale: 'id-ID',
         currentVersion: 1,
         publishedVersion: 1,
+        state: 'published',
       })
       .returning();
     await db.insert(marketingContentVersions).values({
@@ -220,6 +224,7 @@ describe.skipIf(!hasDb)('marketing published read routes', () => {
         locale: 'id-ID',
         currentVersion: 1,
         publishedVersion: 1,
+        state: 'published',
       })
       .returning();
     await db.insert(marketingContentVersions).values({
@@ -274,6 +279,7 @@ describe.skipIf(!hasDb)('marketing published read routes', () => {
         locale: 'id-ID',
         currentVersion: 1,
         publishedVersion: 1,
+        state: 'published',
       })
       .returning();
     await db.insert(marketingContentVersions).values({

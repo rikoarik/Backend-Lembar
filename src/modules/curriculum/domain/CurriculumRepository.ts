@@ -452,11 +452,21 @@ function stripInternal(row: Record<string, unknown>): Record<string, unknown> {
       key === 'tenant_id' ||
       key === 'current_version' ||
       key === 'created_at' ||
-      key === 'updated_at'
+      key === 'updated_at' ||
+      key === 'version_payload'
     )
       continue;
-    out[key === 'published_version' ? 'version' : camel(key)] =
-      key === 'version_payload' ? sortJson(value) : value;
+    out[key === 'published_version' ? 'version' : camel(key)] = value;
+  }
+  // Spread published snapshot fields over mutable head columns so the projection
+  // always reflects the published version, not the current draft state.
+  const versionPayload = row['version_payload'];
+  if (versionPayload !== null && typeof versionPayload === 'object') {
+    for (const [key, value] of Object.entries(
+      sortJson(versionPayload) as Record<string, unknown>,
+    )) {
+      out[camel(key)] = value;
+    }
   }
   return out;
 }

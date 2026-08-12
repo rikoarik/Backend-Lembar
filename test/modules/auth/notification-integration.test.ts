@@ -66,8 +66,9 @@ describeDb('auth notification integration', () => {
   });
 
   it('invitation create writes invite and notification outbox rows atomically', async () => {
-    const { db, service } = await setup();
+    const { db, service, store } = await setup();
     const admin = await service.register({ email: uniqueEmail('admin'), password: 'passphrase-1' });
+    await store.saveMembership({ workspaceId: admin.workspaceId, userId: admin.userId, role: 'school_admin', state: 'active' });
     const beforeInvites = await db.select().from(schoolInvitations);
     const beforeOutbox = await db.select().from(notificationOutbox);
 
@@ -92,12 +93,13 @@ describeDb('auth notification integration', () => {
   });
 
   it('notification failure leaves no outbox residue', async () => {
-    const { db } = await setup();
+    const { db, store } = await setup();
     const service = buildService(db, failingAdapter());
     const admin = await service.register({
       email: uniqueEmail('rollback-admin'),
       password: 'passphrase-1',
     });
+    await store.saveMembership({ workspaceId: admin.workspaceId, userId: admin.userId, role: 'school_admin', state: 'active' });
     const email = uniqueEmail('rollback-invitee');
 
     await expect(
@@ -116,12 +118,13 @@ describeDb('auth notification integration', () => {
     expect(residue).toHaveLength(0);
   });
 
-  async function setup(): Promise<{ db: Database; service: AuthService }> {
+  async function setup(): Promise<{ db: Database; service: AuthService; store: PostgresAuthStore }> {
     const db = createDatabase({ connectionString: DATABASE_URL! });
     dbs.push(db);
     await ensureTables(db);
+    const store = new PostgresAuthStore({ db, notificationAdapter: new MemoryNotificationAdapter() });
     const service = buildService(db);
-    return { db, service };
+    return { db, service, store };
   }
 });
 

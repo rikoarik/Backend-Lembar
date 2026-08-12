@@ -16,6 +16,7 @@
     "format:check": "prettier --check .",
     "test": "pnpm build && vitest run",
     "test:watch": "vitest",
+    "test:db": "docker compose -p lembar-test -f compose.test.yaml up --wait && DATABASE_URL=postgres://lembar_test:lembar_test@127.0.0.1:55432/lembar_test node scripts/prepare-test-db.mjs && DATABASE_URL=postgres://lembar_test:lembar_test@127.0.0.1:55432/lembar_test DATABASE_REQUIRED=true vitest run",
     "storage:smoke": "pnpm build && node dist/smoke/storage.js",
     "pdf:smoke": "pnpm build && node dist/smoke/pdf.js",
     "start:api": "node dist/bootstrap/api.js",

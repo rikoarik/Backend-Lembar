@@ -17,32 +17,18 @@
  *   - GET /v1/dashboard/summary returns { data: { activeWorkspaceId, user } }.
  *   - JWT payload: { userId, email, roles, workspaceId, iat, exp }.
  */
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import jwt from 'jsonwebtoken';
 import { describe, expect, test } from 'vitest';
 import { buildApp } from '../../../src/bootstrap/app.js';
-import { createDatabase, closeDatabase, type Database } from '../../../src/infrastructure/database/db.js';
+import {
+  createDatabase,
+  closeDatabase,
+  type Database,
+} from '../../../src/infrastructure/database/db.js';
 
 // ── Database URL resolution ──────────────────────────────────────────────
 
-function resolveDatabaseUrl(): string | null {
-  if (process.env['DATABASE_URL']) return process.env['DATABASE_URL'];
-  try {
-    const envPath = path.resolve(process.cwd(), '.env');
-    const content = readFileSync(envPath, 'utf-8');
-    const match = content.match(/^DATABASE_URL=(.+)$/m);
-    if (match?.[1]) {
-      process.env['DATABASE_URL'] = match[1];
-      return match[1];
-    }
-  } catch {
-    /* .env not available */
-  }
-  return null;
-}
-
-const DATABASE_URL = resolveDatabaseUrl();
+const DATABASE_URL = process.env['DATABASE_URL'];
 const describeDb = DATABASE_URL ? describe : describe.skip;
 
 const JWT_SECRET = process.env['JWT_SECRET'] || 'dev-secret-change-in-production';
@@ -79,11 +65,9 @@ function uniqueSuffix(): number {
 // ── Tests ───────────────────────────────────────────────────────────────
 
 describeDb('X1-01 — Identity & workspace integration gate', () => {
-
   // ── Scenario 1: Full identity lifecycle ──────────────────────────────
 
   describe('Scenario 1 — Register → Login → JWT → GET /v1/me', () => {
-
     test('register creates user, login returns JWT, JWT payload is valid, GET /v1/me returns user', async () => {
       const app = await makeApp();
       try {
@@ -271,7 +255,6 @@ describeDb('X1-01 — Identity & workspace integration gate', () => {
   // ── Scenario 2: Workspace scoped data ────────────────────────────────
 
   describe('Scenario 2 — Workspace scoped data via dashboard summary', () => {
-
     test('GET /v1/dashboard/summary returns workspace-scoped user data', async () => {
       const app = await makeApp();
       try {
@@ -338,7 +321,6 @@ describeDb('X1-01 — Identity & workspace integration gate', () => {
   // ── Scenario 3: Role verification in JWT ──────────────────────────────
 
   describe('Scenario 3 — Role verification in JWT and endpoints', () => {
-
     test('personal registration assigns teacher role', async () => {
       const app = await makeApp();
       try {
@@ -419,7 +401,6 @@ describeDb('X1-01 — Identity & workspace integration gate', () => {
   // ── Scenario 4: Cross-context isolation ──────────────────────────────
 
   describe('Scenario 4 — JWT identity + workspace tenant isolation', () => {
-
     test('two different users have different workspaceIds', async () => {
       const app = await makeApp();
       try {

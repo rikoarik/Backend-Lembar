@@ -1,25 +1,13 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 import Fastify from 'fastify';
 import { registerJwtMultiRoleRoutes } from '../../../src/modules/auth/adapters/http/jwtMultiRoleRoutes.js';
-import { createDatabase, closeDatabase, type Database } from '../../../src/infrastructure/database/db.js';
+import {
+  createDatabase,
+  closeDatabase,
+  type Database,
+} from '../../../src/infrastructure/database/db.js';
 
-function resolveDatabaseUrl(): string | null {
-  if (process.env['DATABASE_URL']) return process.env['DATABASE_URL'];
-  try {
-    const envPath = path.resolve(process.cwd(), '.env');
-    const content = readFileSync(envPath, 'utf-8');
-    const match = content.match(/^DATABASE_URL=(.+)$/m);
-    if (match?.[1]) {
-      process.env['DATABASE_URL'] = match[1];
-      return match[1];
-    }
-  } catch { /* .env not readable */ }
-  return null;
-}
-
-const DATABASE_URL = resolveDatabaseUrl();
+const DATABASE_URL = process.env['DATABASE_URL'];
 const describeDb = DATABASE_URL ? describe : describe.skip;
 
 describeDb('JWT auth routes', () => {
@@ -37,7 +25,11 @@ describeDb('JWT auth routes', () => {
   }
 
   async function closeDb() {
-    try { await closeDatabase(db); } catch { /* */ }
+    try {
+      await closeDatabase(db);
+    } catch {
+      /* */
+    }
   }
 
   test('register creates teacher user with full fields', async () => {
@@ -74,13 +66,21 @@ describeDb('JWT auth routes', () => {
     try {
       const ts = Date.now();
       const res = await app.inject({
-        method: 'POST', url: '/v1/auth/register',
-        payload: { email: `missing-username-${ts}@test.example`, password: 'Test1234!@#A', name: 'Safe Subscriber' },
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: `missing-username-${ts}@test.example`,
+          password: 'Test1234!@#A',
+          name: 'Safe Subscriber',
+        },
       });
       expect(res.statusCode).toBe(201);
       expect(res.json().user.username).toMatch(/^[a-zA-Z0-9_.]{3,24}$/);
       expect(res.json().user.roles).toEqual(['teacher']);
-    } finally { await app.close(); await closeDb(); }
+    } finally {
+      await app.close();
+      await closeDb();
+    }
   });
 
   test('public register assigns teacher and ignores client-supplied privileged roles', async () => {
@@ -88,12 +88,21 @@ describeDb('JWT auth routes', () => {
     try {
       const ts = Date.now();
       const res = await app.inject({
-        method: 'POST', url: '/v1/auth/register',
-        payload: { email: `role-escalation-${ts}@test.example`, password: 'Test1234!@#A', name: 'Safe Teacher', roles: ['superadmin', 'school_admin'] },
+        method: 'POST',
+        url: '/v1/auth/register',
+        payload: {
+          email: `role-escalation-${ts}@test.example`,
+          password: 'Test1234!@#A',
+          name: 'Safe Teacher',
+          roles: ['superadmin', 'school_admin'],
+        },
       });
       expect(res.statusCode).toBe(201);
       expect(res.json().user.roles).toEqual(['teacher']);
-    } finally { await app.close(); await closeDb(); }
+    } finally {
+      await app.close();
+      await closeDb();
+    }
   });
 
   test('register rejects duplicate email', async () => {

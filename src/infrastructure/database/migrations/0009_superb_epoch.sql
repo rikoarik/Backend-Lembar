@@ -14,14 +14,23 @@ CREATE TABLE "quota_reservations" (
 	CONSTRAINT "quota_reservations_units_positive" CHECK ("quota_reservations"."units" > 0)
 );
 --> statement-breakpoint
-ALTER TABLE "marketing_content" ADD COLUMN "revision" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
-ALTER TABLE "marketing_content" ADD COLUMN "state" text DEFAULT 'draft' NOT NULL;--> statement-breakpoint
-ALTER TABLE "marketing_content" ADD COLUMN "updated_by" uuid;--> statement-breakpoint
-ALTER TABLE "marketing_content_versions" ADD COLUMN "revision" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
-ALTER TABLE "marketing_content_versions" ADD COLUMN "created_by" uuid;--> statement-breakpoint
+ALTER TABLE "marketing_content" ADD COLUMN IF NOT EXISTS "revision" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
+ALTER TABLE "marketing_content" ADD COLUMN IF NOT EXISTS "state" text DEFAULT 'draft' NOT NULL;--> statement-breakpoint
+ALTER TABLE "marketing_content" ADD COLUMN IF NOT EXISTS "updated_by" uuid;--> statement-breakpoint
+ALTER TABLE "marketing_content_versions" ADD COLUMN IF NOT EXISTS "revision" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
+ALTER TABLE "marketing_content_versions" ADD COLUMN IF NOT EXISTS "created_by" uuid;--> statement-breakpoint
 ALTER TABLE "quota_reservations" ADD CONSTRAINT "quota_reservations_tenant_id_tenants_id_fk" FOREIGN KEY ("tenant_id") REFERENCES "public"."tenants"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "quota_reservations_idempotency_unique" ON "quota_reservations" USING btree ("tenant_id","workspace_id","idempotency_key");--> statement-breakpoint
 CREATE INDEX "quota_reservations_job_id_idx" ON "quota_reservations" USING btree ("job_id");--> statement-breakpoint
 CREATE INDEX "quota_reservations_tenant_id_idx" ON "quota_reservations" USING btree ("tenant_id");--> statement-breakpoint
 CREATE INDEX "quota_reservations_tenant_workspace_idx" ON "quota_reservations" USING btree ("tenant_id","workspace_id");--> statement-breakpoint
-ALTER TABLE "marketing_content" ADD CONSTRAINT "marketing_content_state_check" CHECK ("marketing_content"."state" in ('draft','published','unpublished'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'marketing_content_state_check'
+  ) THEN
+    ALTER TABLE "marketing_content"
+      ADD CONSTRAINT "marketing_content_state_check"
+      CHECK ("marketing_content"."state" in ('draft','published','unpublished'));
+  END IF;
+END $$;
