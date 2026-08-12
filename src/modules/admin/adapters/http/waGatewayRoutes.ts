@@ -22,20 +22,26 @@ async function openwa(method: string, path: string, body?: unknown) {
 }
 
 async function requireSuperadmin(request: FastifyRequest, db: Database): Promise<void> {
+  // Accept session ID from cookie OR Authorization: Bearer header (BFF proxy pattern)
   const raw = request.headers.cookie ?? '';
-  const sessionId = Object.fromEntries(
+  const cookieSessionId = Object.fromEntries(
     raw.split(';').map(c => { const [k = '', ...v] = c.trim().split('='); return [k, v.join('=')]; })
   )[SESSION_COOKIE];
+  const bearerSessionId = (request.headers.authorization ?? '').replace(/^Bearer\s+/i, '').trim() || null;
+  const sessionId = cookieSessionId || bearerSessionId;
+
   if (!sessionId) throw new ApiError({ code: 'AUTH_REQUIRED', message: 'Login diperlukan.', status: 401, requestId: '' });
 
   const pool = getPool(db);
   const res = await pool.query(
-    `SELECT u.roles FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = $1 AND s.expires_at > now()`,
+    `SELECT m.role FROM auth_sessions s
+     JOIN auth_workspace_memberships m ON m.account_id = s.user_id
+     WHERE s.id = $1 AND s.state = 'active'
+     AND s.absolute_expires_at > now()
+     AND m.role = 'superadmin' LIMIT 1`,
     [sessionId],
   );
-  const row = res.rows[0] as { roles?: string[] } | undefined;
-  const roles: string[] = Array.isArray(row?.roles) ? row.roles : [];
-  if (!roles.includes('superadmin')) {
+  if (!res.rows.length) {
     throw new ApiError({ code: 'FORBIDDEN', message: 'Superadmin diperlukan.', status: 403, requestId: '' });
   }
 }
