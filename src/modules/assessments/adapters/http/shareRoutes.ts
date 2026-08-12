@@ -17,6 +17,7 @@ import type { ShareLinkService } from '../../application/ShareLinkService.js';
 import type { AssessmentsStore } from '../../domain/Assessment.js';
 import type { QuestionGenerationStore } from '../../domain/QuestionGeneration.js';
 import { assessmentPrivateAuth, jwtWorkspace } from './privateAuth.js';
+import { rateLimit } from '../../../../common/security/rateLimit.js';
 
 function getRequestId(request: FastifyRequest): string {
   return (request.headers['x-request-id'] as string | undefined) ?? 'unknown';
@@ -158,7 +159,14 @@ export async function registerShareRoutes(
    * B4 fix: returns assessment title + questions in addition to assessmentId.
    * No workspace header required (public endpoint).
    */
-  app.get('/v1/shares/:token', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get(
+    '/v1/shares/:token',
+    {
+      preHandler: async (request, reply) => {
+        rateLimit(request, reply, 'share-token-public', 30, 60_000);
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
     const { token } = request.params as { token: string };
 
     try {
