@@ -24,6 +24,7 @@ async function openwa(method: string, path: string, body?: unknown) {
     headers: {
       'Content-Type': 'application/json',
       'X-API-Key': OPENWA_KEY(),
+      Host: 'localhost',
     },
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
