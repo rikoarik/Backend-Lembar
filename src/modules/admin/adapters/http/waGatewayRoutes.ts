@@ -5,19 +5,63 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createJwtAuthMiddleware, requireRole } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import type { Database } from '../../../../infrastructure/database/db.js';
+import { request as httpRequest } from 'node:http';
 
-const OPENWA_BASE = (process.env['OPENWA_BASE_URL'] ?? 'http://172.21.0.3:2785').replace(/\/+$/, '');
-const OPENWA_KEY = () => process.env['OPENWA_API_KEY'] ?? '';
+const OPENWA_DEFAULT_BASE = 'http://172.21.0.3:2785';
 
-async function openwa(method: string, path: string, body?: unknown) {
-  const res = await fetch(`${OPENWA_BASE}/api${path}`, {
-    method,
-    headers: { 'Content-Type': 'application/json', 'X-API-Key': OPENWA_KEY(), Host: 'localhost' },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+function openwaBase(): string {
+  return (process.env['OPENWA_BASE_URL'] ?? OPENWA_DEFAULT_BASE).replace(/\/+$/, '');
+}
+
+function openwaKey(): string {
+  return (process.env['OPENWA_API_KEY'] ?? '').trim();
+}
+
+function openwaHttp(method: string, path: string, body?: unknown): Promise<{ status: number; json: unknown }> {
+  const key = openwaKey();
+  if (!key) {
+    return Promise.resolve({ status: 500, json: { error: { code: 'OPENWA_KEY_MISSING', message: 'OPENWA_API_KEY belum diset.' } } });
+  }
+
+  const url = new URL(`${openwaBase()}/api${path}`);
+  const payload = body === undefined ? undefined : JSON.stringify(body);
+
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(
+      {
+        hostname: url.hostname,
+        port: url.port,
+        path: `${url.pathname}${url.search}`,
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Host: 'localhost',
+          'X-API-Key': key,
+          ...(payload !== undefined ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          let json: unknown = {};
+          if (data) {
+            try {
+              json = JSON.parse(data);
+            } catch {
+              json = { message: data };
+            }
+          }
+          resolve({ status: res.statusCode ?? 502, json });
+        });
+      },
+    );
+    req.on('error', reject);
+    if (payload !== undefined) req.write(payload);
+    req.end();
   });
-  const text = await res.text();
-  const json = text ? JSON.parse(text) : {};
-  return { status: res.status, json };
 }
 
 export interface RegisterWaGatewayRoutesOptions { db: Database; jwtSecret: string; }
@@ -37,26 +81,26 @@ export async function registerWaGatewayRoutes(app: FastifyInstance, options: Reg
     };
 
   app.get('/v1/admin/wa-gateway', guard(async (_req, reply) => {
-    const { status, json } = await openwa('GET', '/sessions');
+    const { status, json } = await openwaHttp('GET', '/sessions');
     return reply.status(status).send(json);
   }));
   app.post('/v1/admin/wa-gateway', guard(async (req, reply) => {
-    const { status, json } = await openwa('POST', '/sessions', req.body);
+    const { status, json } = await openwaHttp('POST', '/sessions', req.body);
     return reply.status(status).send(json);
   }));
   app.post('/v1/admin/wa-gateway/:id/start', guard(async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { status, json } = await openwa('POST', `/sessions/${id}/start`);
+    const { status, json } = await openwaHttp('POST', `/sessions/${id}/start`);
     return reply.status(status).send(json);
   }));
   app.get('/v1/admin/wa-gateway/:id/qr', guard(async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { status, json } = await openwa('GET', `/sessions/${id}/qr`);
+    const { status, json } = await openwaHttp('GET', `/sessions/${id}/qr`);
     return reply.status(status).send(json);
   }));
   app.delete('/v1/admin/wa-gateway/:id', guard(async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { status, json } = await openwa('DELETE', `/sessions/${id}`);
+    const { status, json } = await openwaHttp('DELETE', `/sessions/${id}`);
     return reply.status(status).send(json);
   }));
 }

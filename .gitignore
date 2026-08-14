@@ -12,3 +12,4 @@ coverage/
 .claude/settings.local.json
 agent-orchestrator.yaml
 .worktrees/
+.env.bak-*

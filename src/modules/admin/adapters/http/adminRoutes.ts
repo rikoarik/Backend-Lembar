@@ -21,6 +21,8 @@ import {
 } from '../../persistence/adminOpsSchema.js';
 import type { AdminService } from '../../application/AdminService.js';
 import { PasswordResetService } from '../../../auth/application/PasswordResetService.js';
+import { verifyPassword } from '../../../auth/infrastructure/password.js';
+import { generateJwt } from '../../../auth/infrastructure/jwtMultiRole.js';
 import {
   isRetryableJobStatus,
   retryJobAtomically,
@@ -49,6 +51,63 @@ export async function registerAdminRoutes(
   const auth = createJwtAuthMiddleware({ secret: jwtSecret, db });
   const superadmin = requireRole(['superadmin']);
   const passwordResetService = new PasswordResetService(db);
+
+  app.post('/v1/admin/login', async (request, reply) => {
+    const body = request.body as { email?: unknown; password?: unknown } | null;
+    const email = typeof body?.email === 'string' ? body.email.trim().toLowerCase() : '';
+    const password = typeof body?.password === 'string' ? body.password : '';
+    if (!email || !password) {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_FAILED', message: 'Email dan kata sandi wajib diisi.' },
+      });
+    }
+
+    const pool = getPool(db);
+    const result = pool
+      ? await pool.query<{
+          id: string;
+          email: string;
+          name: string;
+          username: string;
+          roles: string[];
+          workspace_id: string | null;
+          password_hash: string | null;
+          suspended_at: Date | null;
+        }>(
+          `SELECT id, email, name, username, roles, workspace_id, password_hash, suspended_at
+           FROM jwt_users WHERE email = $1 LIMIT 1`,
+          [email],
+        )
+      : null;
+    const user = result?.rows[0];
+    if (
+      !user ||
+      user.suspended_at ||
+      !user.password_hash ||
+      !user.roles.includes('superadmin') ||
+      !(await verifyPassword(password, user.password_hash))
+    ) {
+      return reply.status(401).send({
+        error: { code: 'INVALID_CREDENTIALS', message: 'Email atau kata sandi tidak cocok.' },
+      });
+    }
+
+    const token = generateJwt(
+      { userId: user.id, email: user.email, roles: user.roles as import('../../../auth/persistence/jwtUsersSchema.js').UserRole[], workspaceId: user.workspace_id },
+      { secret: jwtSecret, expiryDays: parseInt(process.env.JWT_EXPIRY_DAYS || '7', 10) },
+    );
+    return reply.status(200).send({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        username: user.username,
+        roles: user.roles,
+        workspaceId: user.workspace_id,
+      },
+    });
+  });
 
   const auditLog = async (
     actorId: string,

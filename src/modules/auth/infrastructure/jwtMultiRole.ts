@@ -26,5 +26,11 @@ export function generateJwt(
 }
 
 export function verifyJwt(token: string, secret: string): JwtPayload {
-  return jwt.verify(token, secret, { algorithms: ['HS256'] }) as JwtPayload;
+  const legacySecret = process.env['JWT_SECRET_LEGACY']?.trim();
+  try {
+    return jwt.verify(token, secret, { algorithms: ['HS256'] }) as JwtPayload;
+  } catch (error) {
+    if (!legacySecret || legacySecret === secret) throw error;
+    return jwt.verify(token, legacySecret, { algorithms: ['HS256'] }) as JwtPayload;
+  }
 }
