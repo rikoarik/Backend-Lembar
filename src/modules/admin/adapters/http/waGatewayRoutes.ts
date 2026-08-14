@@ -35,16 +35,18 @@ async function requireSuperadmin(request: FastifyRequest, db: Database): Promise
 
   const pool = getPool(db);
   const res = await pool.query(
-    `SELECT m.role FROM auth_sessions s
-     JOIN auth_workspace_memberships m ON m.account_id = s.user_id
-     WHERE s.id = $1 AND s.state = 'active'
-     AND s.absolute_expires_at > now()
-     AND m.role = 'superadmin' LIMIT 1`,
+    `SELECT 1
+       FROM auth_sessions s
+       JOIN auth_accounts a ON a.id = s.user_id
+       JOIN auth_workspace_memberships m ON m.account_id = a.id
+      WHERE s.id = $1
+        AND s.state = 'active'
+        AND s.absolute_expires_at > now()
+        AND m.role = 'superadmin'
+      LIMIT 1`,
     [sessionId],
   );
-  if (!res.rows.length) {
-    throw new ApiError({ code: 'FORBIDDEN', message: 'Superadmin diperlukan.', status: 403, requestId: '' });
-  }
+  if (!res.rows.length) throw new ApiError({ code: 'FORBIDDEN', message: 'Superadmin diperlukan.', status: 403, requestId: '' });
 }
 
 export interface RegisterWaGatewayRoutesOptions { db: Database; jwtSecret: string; }
