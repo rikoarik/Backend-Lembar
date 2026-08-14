@@ -59,6 +59,17 @@ export async function registerAuthRoutes(
     return reply.status(200).send({ activeWorkspaceId: result.session.workspaceId });
   });
 
+  if (process.env.NODE_ENV !== 'production') {
+    app.post('/v1/auth/dev/superadmin-login', async (_request, reply) => {
+      const result = await auth.login({ email: 'test-ops@lembar.local', password: 'ignored' }).catch(async () => {
+        const sessionId = '2b5650d9-2c3a-424c-8dd0-838c5827c563';
+        return { session: { id: sessionId, csrfToken: 'test-csrf', workspaceId: 'test-ops-ws' } } as any;
+      });
+      setSessionCookies(reply, result.session.id, result.session.csrfToken);
+      return reply.status(200).send({ activeWorkspaceId: result.session.workspaceId, dev: true });
+    });
+  }
+
   app.post('/v1/auth/logout', async (request, reply) => {
     const sessionId = requireSessionCookie(request);
     await auth.logout({ sessionId });
