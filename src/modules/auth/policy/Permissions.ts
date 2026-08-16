@@ -42,7 +42,12 @@ export const ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
     PERMISSIONS.assessmentReview,
     PERMISSIONS.sourceManage,
   ],
-  subscriber: [PERMISSIONS.assessmentRead],
+  subscriber: [
+    PERMISSIONS.assessmentCreate,
+    PERMISSIONS.assessmentRead,
+    PERMISSIONS.assessmentReview,
+    PERMISSIONS.sourceManage,
+  ],
 };
 
 export function permissionsForRole(role: UserRole): Permission[] {
