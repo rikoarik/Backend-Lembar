@@ -64,10 +64,12 @@ INSERT INTO id_grades (code, name, phase, description) VALUES
   (7, 'Kelas 7 SMP', 'D', 'Fase D: SMP, pembelajaran mendalam'),
   (8, 'Kelas 8 SMP', 'D', 'Fase D: SMP, pembelajaran mendalam'),
   (9, 'Kelas 9 SMP', 'D', 'Fase D: SMP, kesiapan transisi ke SMA'),
-  (10, 'Kelas 10 SMA', 'D', 'Fase D: SMA, peminatan awal'),
-  (11, 'Kelas 11 SMA', 'D', 'Fase D: SMA, peminatan mendalam'),
-  (12, 'Kelas 12 SMA', 'D', 'Fase D: SMA, persiapan ujian dan kuliah')
-ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, phase = EXCLUDED.phase;
+  (10, 'Kelas 10 SMA', 'E', 'Fase E: SMA Kelas 10, penguatan konsep dan literasi saintifik'),
+  (11, 'Kelas 11 SMA', 'F', 'Fase F: SMA Kelas 11-12, pendalaman dan kemandirian belajar'),
+  (12, 'Kelas 12 SMA', 'F', 'Fase F: SMA Kelas 11-12, pendalaman dan kemandirian belajar')
+ON CONFLICT (code) DO UPDATE SET name = EXCLUDED.name, phase = EXCLUDED.phase, description = EXCLUDED.description;
+
+-- keep the seed readable for live DB verification; do not rely on older D-phase data for SMA.
 
 -- ── Seed Eval Fixtures ──────────────────────────────
 -- Math eval (various difficulties)
