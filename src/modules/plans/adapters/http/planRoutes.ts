@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ApiError } from '../../../../common/errors/envelope.js';
-import { authenticate } from '../../../../common/middleware/authenticate.js';
+import { authenticateWithDb } from '../../../../common/middleware/authenticateWithDb.js';
 import { rateLimit } from '../../../../common/security/rateLimit.js';
 import type { PlanService } from '../../application/PlanService.js';
 import { TrialEligibilityError, type TrialService } from '../../application/TrialService.js';
@@ -10,6 +10,7 @@ import type { PlanCatalogRepository } from '../../persistence/catalogRepository.
 export interface PlanRouteOptions {
   trials: TrialService;
   jwtSecret: string;
+  db?: import('../../../../infrastructure/database/db.js').Database | undefined;
   catalog?: Pick<PlanCatalogRepository, 'list'>;
 }
 
@@ -29,8 +30,8 @@ function sendError(
     .send({ error: { code, message, requestId: requestId(req), retryable: false } });
 }
 
-function authContext(req: FastifyRequest, reply: FastifyReply, secret: string) {
-  const auth = authenticate(req, { secret });
+async function authContext(req: FastifyRequest, reply: FastifyReply, secret: string, db?: Parameters<typeof authenticateWithDb>[1]['db']) {
+  const auth = await authenticateWithDb(req, { secret, ...(db ? { db } : {}) });
   if (!auth.workspaceId) {
     sendError(reply, req, 409, 'TRIAL_WORKSPACE_REQUIRED', 'Workspace aktif diperlukan.');
     return null;
@@ -88,7 +89,7 @@ export async function registerPlanRoutes(
   app.get('/v1/me/plan', async (request, reply) => {
     if (!options) return sendError(reply, request, 500, 'INTERNAL_ERROR', 'Plan auth unavailable');
     try {
-      const auth = authContext(request, reply, options.jwtSecret);
+      const auth = await authContext(request, reply, options.jwtSecret, options.db);
       if (!auth) return;
       const deviceToken = request.headers['x-trial-device-token'];
       return reply.status(200).send({
@@ -107,7 +108,7 @@ export async function registerPlanRoutes(
     if (!options) return sendError(reply, request, 500, 'INTERNAL_ERROR', 'Trial unavailable');
     try {
       rateLimit(request, reply, 'trial-claim', 5, 24 * 60 * 60 * 1000);
-      const auth = authContext(request, reply, options.jwtSecret);
+      const auth = await authContext(request, reply, options.jwtSecret, options.db);
       if (!auth) return;
       if (
         auth.roles.includes('superadmin') ||

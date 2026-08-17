@@ -347,6 +347,7 @@ export async function buildApp(
   await app.register(registerJobRoutes, {
     Store: createSharedQueueStore(process.env),
     jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+    ...(managedDb ? { db: managedDb } : {}),
     ...(generationPlanService
       ? {
           generationAccess: {
@@ -415,6 +416,7 @@ export async function buildApp(
           'dev-secret-change-in-production',
       ),
       jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+      db: managedDb ?? undefined,
       catalog: catalogRepo,
     });
   }
