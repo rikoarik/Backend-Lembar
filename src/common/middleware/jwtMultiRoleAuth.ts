@@ -53,9 +53,9 @@ export function createJwtAuthMiddleware(options: JwtAuthMiddlewareOptions) {
           throwApiError('account_suspended', 'Akun ditangguhkan. Hubungi administrator.');
         }
       } catch (err) {
-        // Surface known API errors; for unknown DB errors fall through so we
-        // do not lock out users on transient DB hiccups.
-        if ((err as { name?: string }).name === 'ApiError') throw err;
+        if ((err as { code?: string }).code === 'AUTH_REQUIRED') throw err;
+        // If the query itself fails, allow the request rather than hiding an
+        // outage behind auth.
       }
     }
   };

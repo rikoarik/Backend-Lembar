@@ -388,6 +388,7 @@ export async function buildApp(
   await app.register(registerNotificationRoutes, notificationDb ? { db: notificationDb } : {});
   await registerUploadsAuthHook(app, {
     jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+    ...(authDb ? { db: authDb } : {}),
   });
   await registerUploadRoutes(app, options.uploadsDb ? { db: options.uploadsDb } : {});
 
@@ -516,6 +517,7 @@ export async function buildApp(
     // Register all routes
     const assessmentAuth = {
       jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+      ...(managedDb ? { db: managedDb } : {}),
     };
     registerAssessmentRoutes(app, assessmentService, assessmentAuth);
     await registerHistoryRoutes(app, historyService);

@@ -26,6 +26,7 @@ export function throwApiError(
     invalid_auth_format: 'AUTH_REQUIRED',
     invalid_token: 'AUTH_REQUIRED',
     invalid_credentials: 'AUTH_REQUIRED',
+    account_suspended: 'AUTH_REQUIRED',
     user_not_found: 'RESOURCE_NOT_FOUND',
     unauthorized: 'AUTH_REQUIRED',
     forbidden: 'PERMISSION_DENIED',

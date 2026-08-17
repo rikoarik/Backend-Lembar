@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import type { Database } from '../../../../infrastructure/database/db.js';
 import { ApiError } from '../../../../common/errors/envelope.js';
 import { createJwtAuthMiddleware } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import type { AuthenticatedActor } from './routes.js';
@@ -7,9 +8,9 @@ const SOURCE_UPLOAD_PREFIX = '/v1/uploads/sources';
 
 export async function registerUploadsAuthHook(
   app: FastifyInstance,
-  options: { jwtSecret: string },
+  options: { jwtSecret: string; db?: Database | undefined },
 ): Promise<void> {
-  const authenticate = createJwtAuthMiddleware({ secret: options.jwtSecret });
+  const authenticate = createJwtAuthMiddleware({ secret: options.jwtSecret, ...(options.db ? { db: options.db } : {}) });
   app.addHook('preHandler', async (request, reply) => {
     if (!request.url.startsWith(SOURCE_UPLOAD_PREFIX)) return;
     if (request.method === 'GET' && request.url === '/v1/uploads/sources/health') return;

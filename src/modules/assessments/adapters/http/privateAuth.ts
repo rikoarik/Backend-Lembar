@@ -1,13 +1,17 @@
 import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify';
 
+import type { Database } from '../../../../infrastructure/database/db.js';
 import { createJwtAuthMiddleware } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import { throwApiError } from '../../../../common/errors/apiError.js';
 
-export interface AssessmentRouteAuthOptions { jwtSecret: string }
+export interface AssessmentRouteAuthOptions {
+  jwtSecret: string;
+  db?: Database | undefined;
+}
 
 export function assessmentPrivateAuth(options: AssessmentRouteAuthOptions): preHandlerHookHandler[] {
   return [
-    createJwtAuthMiddleware({ secret: options.jwtSecret }),
+    createJwtAuthMiddleware({ secret: options.jwtSecret, ...(options.db ? { db: options.db } : {}) }),
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const workspaceId = request.jwtUser?.workspaceId;
       if (!workspaceId) throwApiError('forbidden', 'Akun tidak terhubung ke workspace');
