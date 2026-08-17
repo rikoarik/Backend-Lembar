@@ -22,7 +22,7 @@ export async function registerJwtMultiRoleRoutes(
     expiryDays: options.jwtExpiryDays,
   });
 
-  const authMiddleware = createJwtAuthMiddleware({ secret: options.jwtSecret });
+  const authMiddleware = createJwtAuthMiddleware({ secret: options.jwtSecret, db: options.db });
 
   // POST /v1/auth/register
   app.post('/v1/auth/register', async (request, reply) => {
