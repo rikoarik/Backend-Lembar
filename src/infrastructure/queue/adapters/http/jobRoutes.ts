@@ -11,7 +11,7 @@ import type { SubmitInput } from '../../application/QueueSpike.js';
 import type { QueueStore, QueueStoreJob } from '../queue-store.js';
 import type { JobStatus } from '../../persistence/schema.js';
 import { IdempotencyKeyReusedError } from '../../domain/errors.js';
-import { authenticate } from '../../../../common/middleware/authenticate.js';
+import { authenticateWithDb } from '../../../../common/middleware/authenticateWithDb.js';
 import { QuotaExceededError } from '../../../../modules/plans/domain/errors.js';
 
 interface SubmitBody {
@@ -154,6 +154,7 @@ function stableFingerprint(value: unknown): string {
 export const registerJobRoutes: FastifyPluginAsync<{
   Store?: QueueStore;
   jwtSecret?: string;
+  db?: import('../../../../infrastructure/database/db.js').Database | undefined;
   generationAccess?: GenerationAccess;
 }> = async (app: FastifyInstance, options) => {
   const queueEnv = parseQueueEnv(process.env);
@@ -175,9 +176,9 @@ export const registerJobRoutes: FastifyPluginAsync<{
   app.post('/v1/jobs', async (req, reply) => {
     const body = (req.body ?? {}) as SubmitBody;
     const requestId = req.requestId ?? 'req_unknown';
-    let auth: ReturnType<typeof authenticate>;
+    let auth;
     try {
-      auth = authenticate(req, { secret: jwtSecret });
+      auth = await authenticateWithDb(req, { secret: jwtSecret, ...(options.db ? { db: options.db } : {}) });
     } catch (err) {
       if (err instanceof ApiError) {
         const envelope = new ApiError({
