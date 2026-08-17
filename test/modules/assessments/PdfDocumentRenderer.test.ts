@@ -9,7 +9,7 @@ const doc = {
     assessmentId: 'asm-1',
     assessmentVersion: 1,
     workspaceId: 'ws-1',
-    title: 'Pecahan',
+    title: 'Pecahan — Fase C',
     finalizedAt: '2026-08-17T00:00:00.000Z',
     generatedAt: '2026-08-17T00:00:00.000Z',
   },
@@ -28,6 +28,7 @@ describe('renderAssessmentPdf', () => {
   it('renders a valid binary student PDF without teacher material', async () => {
     const pdf = await renderAssessmentPdf(doc, 'student');
     expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(pdf.toString('latin1')).toContain('DejaVuSans');
     expect(pdf.toString('latin1')).toContain('/Count 1');
   });
 
