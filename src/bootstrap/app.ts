@@ -375,6 +375,7 @@ export async function buildApp(
     const jobStatusService = new JobStatusService(jobStatusAdapter, quotaLedger);
     registerJobStatusRoutes(app, jobStatusService, {
       jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+      db: quotaDb,
     });
   }
 

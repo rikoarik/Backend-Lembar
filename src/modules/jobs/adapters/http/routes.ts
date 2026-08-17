@@ -5,6 +5,7 @@
  * Uses neutral job statuses that are safe for client display.
  */
 import type { FastifyInstance } from 'fastify';
+import type { Database } from '../../../../infrastructure/database/db.js';
 import type { JobStatusService } from '../../application/JobStatusService.js';
 import { createJwtAuthMiddleware } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import {
@@ -24,9 +25,9 @@ interface JobQuery {
 export function registerJobStatusRoutes(
   app: FastifyInstance,
   jobStatusService: JobStatusService,
-  options: { jwtSecret: string },
+  options: { jwtSecret: string; db?: Database | undefined },
 ): void {
-  const auth = createJwtAuthMiddleware({ secret: options.jwtSecret });
+  const auth = createJwtAuthMiddleware({ secret: options.jwtSecret, ...(options.db ? { db: options.db } : {}) });
   app.get<{ Params: JobParams; Querystring: JobQuery }>(
     '/v1/jobs/:jobId',
     { preHandler: auth },
