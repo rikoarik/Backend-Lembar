@@ -12,6 +12,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import { ApiError, buildErrorEnvelope } from '../../../../common/errors/envelope.js';
 import type { PrintService } from '../../application/PrintService.js';
+import { renderAssessmentPdf, type PdfCopy } from '../../application/PdfDocumentRenderer.js';
 import { assessmentPrivateAuth, jwtWorkspace, type AssessmentRouteAuthOptions } from './privateAuth.js';
 
 function getRequestId(request: FastifyRequest): string {
@@ -55,6 +56,27 @@ export async function registerPrintRoutes(
       try {
         const doc = await service.buildPrintDocument(workspaceId, id, requestId);
         return reply.status(200).send({ data: doc });
+      } catch (err) {
+        handleError(err, request, reply);
+      }
+    },
+  );
+
+  app.get(
+    '/v1/assessments/:id/pdf',
+    { preHandler: assessmentPrivateAuth(authOptions) },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { id } = request.params as { id: string };
+      const { copy } = request.query as { copy?: string };
+      const pdfCopy: PdfCopy = copy === 'student' ? 'student' : 'teacher';
+      try {
+        const doc = await service.buildPrintDocument(jwtWorkspace(request), id, getRequestId(request));
+        const pdf = await renderAssessmentPdf(doc, pdfCopy);
+        return reply
+          .header('content-type', 'application/pdf')
+          .header('content-disposition', `attachment; filename="lembar-${id}-${pdfCopy}.pdf"`)
+          .header('cache-control', 'private, no-store')
+          .send(pdf);
       } catch (err) {
         handleError(err, request, reply);
       }
