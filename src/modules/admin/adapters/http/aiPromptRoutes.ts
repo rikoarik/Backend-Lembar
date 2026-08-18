@@ -18,6 +18,18 @@ export interface RegisterAiPromptRoutesOptions {
   jwtSecret: string;
 }
 
+// Canonical runtime prompt IDs (ai_jobs_audit.prompt_template_id) for admin
+// prompt rows whose display name differs. Keeps Ops metrics/feedback attached
+// to the same key the worker writes. ponytail: move to a DB column once the
+// prompt registry becomes a real entity.
+const RUNTIME_PROMPT_ID_ALIASES: Record<string, string> = {
+  'generate.v3': 'question-generation-v1',
+};
+
+export function resolveRuntimePromptId(name: string, slug: string): string {
+  return RUNTIME_PROMPT_ID_ALIASES[name] ?? RUNTIME_PROMPT_ID_ALIASES[slug] ?? name;
+}
+
 export async function registerAiPromptRoutes(
   app: FastifyInstance,
   options: RegisterAiPromptRoutesOptions,
@@ -534,12 +546,15 @@ export async function registerAiPromptRoutes(
       const pool = getPool(db);
       if (!pool) return reply.status(200).send({ data: {} });
 
-      const promptRes = await pool.query('SELECT name FROM admin_prompts WHERE id = $1', [id]);
+      const promptRes = await pool.query('SELECT name, slug FROM admin_prompts WHERE id = $1', [id]);
       if (!promptRes.rows[0])
         return reply
           .status(404)
           .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Prompt not found' } });
-      const promptName = (promptRes.rows[0] as any).name;
+      const promptName = resolveRuntimePromptId(
+        (promptRes.rows[0] as any).name,
+        (promptRes.rows[0] as any).slug,
+      );
 
       const metricsRes = await pool.query(
         `
@@ -614,13 +629,15 @@ export async function registerAiPromptRoutes(
           .status(500)
           .send({ error: { code: 'INTERNAL_ERROR', message: 'Database not available' } });
 
-      const promptRes = await pool.query('SELECT name FROM admin_prompts WHERE id = $1', [id]);
+      const promptRes = await pool.query('SELECT name, slug FROM admin_prompts WHERE id = $1', [id]);
       if (!promptRes.rows[0])
         return reply
           .status(404)
           .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Prompt not found' } });
-
-      const promptName = (promptRes.rows[0] as any).name;
+      const promptName = resolveRuntimePromptId(
+        (promptRes.rows[0] as any).name,
+        (promptRes.rows[0] as any).slug,
+      );
       const user = request.jwtUser!;
 
       await pool.query(
