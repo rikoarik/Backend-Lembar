@@ -16,7 +16,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy Docker services to VPS
+      - name: Deploy backend to VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 43.156.208.51
@@ -25,8 +25,10 @@ jobs:
           script_stop: true
           script: |
             set -eu
-            cd /home/hermes/Projects/Backend-Lembar
-            git -c safe.directory=/home/hermes/Projects/Backend-Lembar pull --ff-only origin dev
-            docker compose up --build --detach --remove-orphans
-            docker compose ps
+            su - hermes -c 'cd /home/hermes/Projects/Backend-Lembar &&
+              git fetch origin dev &&
+              git checkout -B dev ${{ github.sha }} &&
+              pnpm install --frozen-lockfile &&
+              pnpm run build &&
+              pm2 restart lembar-api lembar-worker --update-env'
             curl --fail --silent --show-error http://127.0.0.1:4000/health >/dev/null
