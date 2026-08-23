@@ -88,6 +88,7 @@ import { InMemoryBlueprintPipelineStore } from '../modules/assessments/persisten
 import { registerBlueprintPipelineRoutes } from '../modules/assessments/adapters/http/blueprintRoutes.js';
 import { SourceRetrievalService } from '../modules/sources/application/SourceRetrievalService.js';
 import { InMemorySourceRetrievalStore } from '../modules/sources/persistence/InMemorySourceRetrievalStore.js';
+import { PostgresSourceRetrievalStore } from '../modules/sources/persistence/PostgresSourceRetrievalStore.js';
 import { InMemorySourcePassagesStore } from '../modules/sources/persistence/InMemorySourceExtractionStores.js';
 // B5-01/B5-02: Print + artifact
 import { PrintService } from '../modules/assessments/application/PrintService.js';
@@ -397,7 +398,10 @@ export async function buildApp(
     jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
     ...(authDb ? { db: authDb } : {}),
   });
-  await registerUploadRoutes(app, options.uploadsDb ? { db: options.uploadsDb } : {});
+  await registerUploadRoutes(
+    app,
+    managedDb ? { db: managedDb } : options.uploadsDb ? { db: options.uploadsDb } : {},
+  );
 
   // B6-04: Ops routes (metrics + leads)
   if (managedDb) {
@@ -505,7 +509,9 @@ export async function buildApp(
     const passagesStore = managedDb
       ? new PostgresSourcePassagesStore(managedDb)
       : new InMemorySourcePassagesStore();
-    const sourceRetrievalStore = new InMemorySourceRetrievalStore({ passagesStore, uploadsStore });
+    const sourceRetrievalStore = managedDb
+      ? new PostgresSourceRetrievalStore(managedDb)
+      : new InMemorySourceRetrievalStore({ passagesStore, uploadsStore });
     const sourceRetrievalService = new SourceRetrievalService({
       retrievalStore: sourceRetrievalStore,
     });

@@ -60,24 +60,7 @@ export class InMemorySourceRetrievalStore implements SourceRetrievalStore {
   }
 
   async getPassageById(workspaceId: string, passageId: string): Promise<RetrievedPassage | null> {
-    // Linear scan is fine for in-memory tests
-    const allPassages = (
-      this.passagesStore as unknown as {
-        passages: Array<{
-          id: string;
-          workspaceId: string;
-          uploadId: string;
-          pageNumber: number;
-          sequence: number;
-          textNormalized: string;
-          charCount: number;
-          contentHash: string;
-        }>;
-      }
-    ).passages;
-
-    const found = allPassages.find((p) => p.id === passageId && p.workspaceId === workspaceId);
-
+    const found = await this.passagesStore.getPassageById(workspaceId, passageId);
     if (!found) return null;
 
     return {

@@ -96,6 +96,7 @@ export class BlueprintPipelineService {
 
     // ---- 4. Retrieve source passages ----
     let sourceEvidence: SourceEvidence[] = [];
+    let retrievedPassages: Awaited<ReturnType<SourceRetrievalService['retrieve']>>['passages'] = [];
     const sourceUploadIds = config.sourceUploadIds;
 
     if (sourceUploadIds.length > 0) {
@@ -104,6 +105,7 @@ export class BlueprintPipelineService {
           workspaceId,
           sourceUploadIds,
         });
+        retrievedPassages = retrievalResult.passages;
 
         // Build evidence from retrieval result
         const evidenceByUpload = new Map<string, { count: number; charCount: number }>();
@@ -134,16 +136,29 @@ export class BlueprintPipelineService {
     }
 
     // ---- 5. Validate items against schema ----
-    const items: BlueprintSnapshotItem[] = config.blueprintItems.map((item) => ({
-      sequence: item.sequence,
-      questionType: item.questionType,
-      difficulty: item.difficulty,
-      cognitiveLevel: item.cognitiveLevel ?? null,
-      topicHint: item.topicHint ?? null,
-      outcomeId: item.outcomeId ?? null,
-      sourceUploadId: item.sourceUploadId ?? null,
-      citationIds: [],
-    }));
+    const passagesByUpload = new Map<string, string[]>();
+    for (const passage of retrievedPassages) {
+      const ids = passagesByUpload.get(passage.uploadId) ?? [];
+      ids.push(passage.passageId);
+      passagesByUpload.set(passage.uploadId, ids);
+    }
+    const maxPassagesPerItem = 4;
+    const items: BlueprintSnapshotItem[] = config.blueprintItems.map((item) => {
+      const citationUploadId = item.sourceUploadId ?? sourceUploadIds[0] ?? null;
+      const citationIds = citationUploadId
+        ? (passagesByUpload.get(citationUploadId) ?? []).slice(0, maxPassagesPerItem)
+        : [];
+      return {
+        sequence: item.sequence,
+        questionType: item.questionType,
+        difficulty: item.difficulty,
+        cognitiveLevel: item.cognitiveLevel ?? null,
+        topicHint: item.topicHint ?? null,
+        outcomeId: item.outcomeId ?? null,
+        sourceUploadId: item.sourceUploadId ?? null,
+        citationIds,
+      };
+    });
 
     const validation = this.validateAgainstSchema(items, schema, coverageTargets);
 

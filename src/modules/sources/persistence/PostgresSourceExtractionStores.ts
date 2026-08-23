@@ -191,6 +191,16 @@ export class PostgresSourcePassagesStore implements SourcePassagesStore {
     return Number(rows[0]?.count ?? 0);
   }
 
+  async getPassageById(workspaceId: string, passageId: string): Promise<SourcePassage | null> {
+    const pool = getPool(this.db);
+    if (!pool) return null;
+    const { rows } = await pool.query<PassageRow>(
+      `SELECT * FROM source_passages WHERE workspace_id = $1::uuid AND id = $2::uuid LIMIT 1`,
+      [workspaceId, passageId],
+    );
+    return rows[0] ? mapPassage(rows[0]) : null;
+  }
+
   async deletePassagesByJob(extractionJobId: string): Promise<void> {
     const pool = getPool(this.db);
     if (!pool) return;

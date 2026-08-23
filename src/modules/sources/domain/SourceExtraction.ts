@@ -94,5 +94,6 @@ export interface SourcePassagesStore {
     options?: { limit?: number; offset?: number },
   ): Promise<SourcePassage[]>;
   countPassagesByUpload(workspaceId: string, uploadId: string): Promise<number>;
+  getPassageById(workspaceId: string, passageId: string): Promise<SourcePassage | null>;
   deletePassagesByJob(extractionJobId: string): Promise<void>;
 }

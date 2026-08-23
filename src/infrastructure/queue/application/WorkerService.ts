@@ -40,6 +40,7 @@ import { InMemoryBlueprintPipelineStore } from '../../../modules/assessments/per
 import { InMemoryAssessmentsStore } from '../../../modules/assessments/persistence/InMemoryAssessmentsStore.js';
 import { PostgresAssessmentsStore } from '../../../modules/assessments/persistence/PostgresAssessmentsStore.js';
 import { InMemorySourceRetrievalStore } from '../../../modules/sources/persistence/InMemorySourceRetrievalStore.js';
+import { PostgresSourceRetrievalStore } from '../../../modules/sources/persistence/PostgresSourceRetrievalStore.js';
 import { SourceRetrievalService } from '../../../modules/sources/application/SourceRetrievalService.js';
 import { ProductAiService } from '../../ai/application/ProductAiService.js';
 import {
@@ -231,8 +232,10 @@ export class WorkerService {
         : {}),
     });
 
-    const retrievalStore = new InMemorySourceRetrievalStore({ passagesStore, uploadsStore });
-    const sourceRetrievalService = new SourceRetrievalService({ retrievalStore: retrievalStore });
+    const retrievalStore = this.managedDb
+      ? new PostgresSourceRetrievalStore(this.managedDb)
+      : new InMemorySourceRetrievalStore({ passagesStore, uploadsStore });
+    const sourceRetrievalService = new SourceRetrievalService({ retrievalStore });
     const assessmentsStore = this.managedDb
       ? new PostgresAssessmentsStore(this.managedDb)
       : new InMemoryAssessmentsStore();
@@ -256,11 +259,16 @@ export class WorkerService {
       blueprintService,
       aiService,
       env: aiEnv,
+      sourceRetrievalService,
       ...(imageGenerator ? { imageGenerator } : {}),
     });
 
     this.registry.register(
-      new AssessmentGenerationHandler({ questionGenerationService, questionReviewService, assessmentsStore }),
+      new AssessmentGenerationHandler({
+        questionGenerationService,
+        questionReviewService,
+        assessmentsStore,
+      }),
     );
     this.registry.register(new QuestionRegenerationHandler({ questionGenerationService }));
     this.registry.register(new ExportPdfHandler());

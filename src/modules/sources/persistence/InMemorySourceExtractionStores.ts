@@ -133,6 +133,13 @@ export class InMemorySourcePassagesStore implements SourcePassagesStore {
       .length;
   }
 
+  async getPassageById(workspaceId: string, passageId: string): Promise<SourcePassage | null> {
+    const passage = this.passages.find(
+      (entry) => entry.id === passageId && entry.workspaceId === workspaceId,
+    );
+    return passage ? { ...passage } : null;
+  }
+
   async deletePassagesByJob(extractionJobId: string): Promise<void> {
     for (let i = this.passages.length - 1; i >= 0; i--) {
       if (this.passages[i]!.extractionJobId === extractionJobId) {

@@ -439,7 +439,10 @@ describe('BlueprintPipelineService', () => {
 
       expect(result.validation.valid).toBe(false);
       expect(result.validation.errors).toEqual(
-        expect.arrayContaining([expect.objectContaining({ code: 'source_coverage_below_min' })]),
+        expect.arrayContaining([
+          expect.objectContaining({ code: 'difficulty_distribution_mismatch' }),
+          expect.objectContaining({ code: 'source_coverage_below_min' }),
+        ]),
       );
     });
 
