@@ -157,16 +157,12 @@ describe('60-day self-service Pro trial', () => {
         { userId: 'jwt-user', workspaceId: 'jwt-workspace', email: 'x@y.id', roles },
         { secret: 'secret', expiryDays: 1 },
       );
-    const link = await app.inject({
+    const selfIssuedLink = await app.inject({
       method: 'POST',
       url: '/v1/me/plan/trial/claim-links',
       headers: { authorization: 'Bearer ' + makeToken(['subscriber']) },
     });
-    expect(link.statusCode).toBe(201);
-    expect(link.headers['cache-control']).toBe('no-store');
-    expect(link.json()).toMatchObject({
-      data: { token: 'claim-token-long-enough-for-route' },
-    });
+    expect(selfIssuedLink.statusCode).toBe(404);
 
     const ok = await app.inject({
       method: 'POST',

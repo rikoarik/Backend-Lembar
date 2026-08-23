@@ -133,25 +133,6 @@ export async function registerPlanRoutes(
     }
   });
 
-  app.post('/v1/me/plan/trial/claim-links', async (request, reply) => {
-    if (!options) return sendError(reply, request, 500, 'INTERNAL_ERROR', 'Trial unavailable');
-    try {
-      rateLimit(request, reply, 'trial-claim-link', 5, 60 * 60 * 1000);
-      const auth = await authContext(request, reply, options.jwtSecret, options.db);
-      if (!auth) return;
-      if (!hasEligibleTrialRole(auth.roles)) return rejectIneligibleRole(reply, request);
-      const issued = await options.trials.issueClaimLink({
-        userId: auth.userId,
-        workspaceId: auth.workspaceId!,
-      });
-      return reply
-        .header('cache-control', 'no-store')
-        .status(201)
-        .send({ data: { token: issued.token, expiresAt: issued.expiresAt.toISOString() } });
-    } catch (error) {
-      return handleError(error, request, reply);
-    }
-  });
 
   app.post('/v1/me/plan/trial/claim', async (request, reply) => {
     if (!options) return sendError(reply, request, 500, 'INTERNAL_ERROR', 'Trial unavailable');

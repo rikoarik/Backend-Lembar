@@ -566,6 +566,12 @@ export async function buildApp(
       service: adminService,
       db: managedDb,
       jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+      trials: new TrialService(
+        new TrialRepository(managedDb),
+        process.env.TRIAL_IDENTITY_PEPPER ??
+          process.env.JWT_SECRET ??
+          'dev-secret-change-in-production',
+      ),
     });
     // AI Prompt Management routes
     registerAiPromptRoutes(app, {

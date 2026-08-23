@@ -32,6 +32,8 @@ import { tenants } from '../../../../infrastructure/database/schema.js';
 import jwt from 'jsonwebtoken';
 import { mapWorkspacePlanSummary } from './accountPlanSummary.js';
 import { validateQualityReportUpdate } from '../../application/qualityReportWorkflow.js';
+import { TrialEligibilityError, type TrialService } from '../../../plans/application/TrialService.js';
+import { TrialConflictError } from '../../../plans/persistence/trialRepository.js';
 
 function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? req.requestId ?? 'req_unknown';
@@ -41,6 +43,7 @@ export interface RegisterAdminRoutesOptions {
   service: AdminService;
   db: Database;
   jwtSecret: string;
+  trials?: TrialService;
 }
 
 export async function registerAdminRoutes(
@@ -299,6 +302,71 @@ export async function registerAdminRoutes(
       meta: { total, page, limit, pages: Math.ceil(total / limit) },
     });
   });
+
+  app.post(
+    '/v1/admin/accounts/:id/trial-claim-links',
+    { preHandler: [auth, superadmin] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      if (!options.trials) {
+        return reply.status(503).send({
+          error: { code: 'TRIAL_UNAVAILABLE', message: 'Layanan trial belum tersedia.' },
+        });
+      }
+      const pool = getPool(db);
+      if (!pool) {
+        return reply.status(503).send({
+          error: { code: 'DATABASE_UNAVAILABLE', message: 'Database tidak tersedia.' },
+        });
+      }
+      const target = await pool.query<{ id: string; workspace_id: string | null; roles: string[] }>(
+        `SELECT id, workspace_id, roles
+           FROM jwt_users
+          WHERE id = $1 AND deleted_at IS NULL
+          LIMIT 1`,
+        [id],
+      );
+      const account = target.rows[0];
+      if (!account) {
+        return reply.status(404).send({
+          error: { code: 'RESOURCE_NOT_FOUND', message: 'Akun tidak ditemukan.' },
+        });
+      }
+      if (
+        !account.workspace_id ||
+        account.roles.includes('superadmin') ||
+        account.roles.includes('school_admin') ||
+        !account.roles.some((role) => role === 'teacher' || role === 'subscriber')
+      ) {
+        return reply.status(403).send({
+          error: { code: 'TRIAL_NOT_ELIGIBLE', message: 'Akun ini tidak memenuhi syarat trial.' },
+        });
+      }
+      try {
+        const issued = await options.trials.issueClaimLink({
+          userId: account.id,
+          workspaceId: account.workspace_id,
+        });
+        await auditLog(request.jwtUser!.userId, 'trial.claim_link.issue', 'user', account.id, {
+          workspaceId: account.workspace_id,
+          expiresAt: issued.expiresAt.toISOString(),
+        });
+        return reply.header('cache-control', 'no-store').status(201).send({
+          data: { token: issued.token, expiresAt: issued.expiresAt.toISOString() },
+        });
+      } catch (error) {
+        if (error instanceof TrialConflictError || error instanceof TrialEligibilityError) {
+          const status = error.code === 'TRIAL_PROFILE_INCOMPLETE' ? 400 : 409;
+          const message =
+            error.code === 'TRIAL_PROFILE_INCOMPLETE'
+              ? 'Email dan nomor telepon akun harus dilengkapi sebelum trial diterbitkan.'
+              : 'Trial atau tautan klaim tidak tersedia untuk akun ini.';
+          return reply.status(status).send({ error: { code: error.code, message } });
+        }
+        throw error;
+      }
+    },
+  );
 
   app.get('/v1/admin/accounts/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
