@@ -14,21 +14,15 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - name: Deploy backend to VPS
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: 43.156.208.51
-          username: root
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true
-          script: |
-            set -eu
-            su - hermes -c 'cd /home/hermes/Projects/Backend-Lembar &&
-              git fetch origin dev &&
-              git checkout -B dev ${{ github.sha }} &&
-              pnpm install --frozen-lockfile &&
-              pnpm run build &&
-              pm2 restart lembar-api lembar-worker --update-env'
-            curl --fail --silent --show-error http://127.0.0.1:4000/health >/dev/null
+      - name: Deploy backend
+        working-directory: /home/hermes/Projects/Backend-Lembar
+        run: |
+          set -eu
+          git fetch origin dev
+          git checkout -B dev ${{ github.sha }}
+          pnpm install --frozen-lockfile
+          pnpm run build
+          pm2 restart lembar-api lembar-worker --update-env
+          curl --fail --silent --show-error http://127.0.0.1:4000/health >/dev/null
