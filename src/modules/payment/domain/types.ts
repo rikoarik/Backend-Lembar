@@ -15,7 +15,10 @@
 export type PaymentOrderStatus = 'pending' | 'paid' | 'failed' | 'cancelled' | 'refunded';
 
 // ── Plan types (mirrors plans/persistence/schema.ts) ─────────────────────────
-export type PaymentPlanType = 'free' | 'pro';
+export type PaymentPlanType = 'free' | 'pro' | 'plus';
+
+/** Paid tiers that require an order to transition into. */
+export const PAID_PLANS: readonly PaymentPlanType[] = ['pro', 'plus'];
 
 // ── Payment order ─────────────────────────────────────────────────────────────
 export interface PaymentOrder {

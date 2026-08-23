@@ -28,6 +28,7 @@ const TEST_AI_ENV: AiEnv = {
   openaiApiKey: null,
   openaiBaseUrl: 'https://api.openai.com',
   openaiModelId: 'gpt-4o-mini',
+  tierModels: { free: null, pro: null, plus: null },
 };
 
 const VALID_BLUEPRINT: BlueprintSnapshot = {

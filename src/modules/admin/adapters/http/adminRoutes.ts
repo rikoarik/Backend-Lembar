@@ -480,7 +480,7 @@ export async function registerAdminRoutes(
 
   app.patch('/v1/admin/plans/:key', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { key } = request.params as { key: string };
-    if (key !== 'free' && key !== 'pro') {
+    if (key !== 'free' && key !== 'pro' && key !== 'plus') {
       return reply
         .status(404)
         .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Plan tidak ditemukan.' } });
@@ -2039,15 +2039,15 @@ export async function registerAdminRoutes(
     async (request, reply) => {
       const { workspaceId } = request.params as { workspaceId: string };
       const body = request.body as { plan?: string } | null;
-      if (!body?.plan || !['free', 'pro'].includes(body.plan))
+      if (!body?.plan || !['free', 'pro', 'plus'].includes(body.plan))
         return reply
           .status(400)
-          .send({ error: { code: 'VALIDATION_FAILED', message: "plan must be 'free' or 'pro'" } });
+          .send({ error: { code: 'VALIDATION_FAILED', message: "plan must be 'free', 'pro' or 'plus'" } });
 
       const user = request.jwtUser!;
       const result = await service.setEntitlement(user.userId, {
         workspaceId,
-        plan: body.plan as 'free' | 'pro',
+        plan: body.plan as 'free' | 'pro' | 'plus',
         actorId: user.userId,
       });
       return reply.status(200).send({ data: result });

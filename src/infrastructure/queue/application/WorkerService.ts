@@ -42,6 +42,7 @@ import {
   InMemoryAiAuditRecorder,
 } from '../../ai/persistence/AiAuditRepository.js';
 import { parseAiEnv } from '../../../config/ai.env.js';
+import { ConfigError } from '../../../config/errors.js';
 import { MockAiAdapter } from '../../ai/adapters/mock/MockAiAdapter.js';
 import { HermesAdapter } from '../../ai/adapters/hermes/HermesAdapter.js';
 import { closeDatabase, createDatabase, getPool, type Database } from '../../database/db.js';
@@ -149,11 +150,35 @@ export class WorkerService {
       audit = new InMemoryAiAuditRecorder();
     }
 
+    // Plan-tier model routing: resolve AI_MODEL_FREE/PRO/PLUS per workspace.
+    // Falls back to the adapter's default model when no DB or unset env vars.
+    const planPool = this.managedDb ? getPool(this.managedDb) : undefined;
+    const resolveModelOverride = planPool
+      ? async (workspaceId: string): Promise<string | null> => {
+          try {
+            const res = await planPool.query<{ plan: string }>(
+              `SELECT COALESCE(plan,'free') AS plan
+               FROM workspace_plans
+               WHERE tenant_id = $1 AND workspace_id = $1 AND active = true
+               LIMIT 1`,
+              [workspaceId],
+            );
+            const plan = res.rows[0]?.plan ?? 'free';
+            if (plan === 'plus') return aiEnv.tierModels.plus;
+            if (plan === 'pro') return aiEnv.tierModels.pro;
+            return aiEnv.tierModels.free;
+          } catch {
+            return null;
+          }
+        }
+      : undefined;
+
     const aiService = new ProductAiService({
       adapter: aiAdapter,
       env: aiEnv,
       schemas,
       audit,
+      ...(resolveModelOverride ? { resolveModelOverride } : {}),
       ...(this.managedDb
         ? {
             tokenUsage: {
@@ -298,6 +323,10 @@ export function createWorkerService(
  *   - 'hermes' → HermesAdapter (live calls to configured provider + fallback chain)
  *   - everything else → MockAiAdapter (safe default, no provider spend)
  *
+ * In production the MockAiAdapter is NOT a safe default: silently generating
+ * fixture questions would corrupt real assessments. Production without a
+ * configured provider fails fast with a ConfigError instead.
+ *
  * Kept as a free function so it stays trivially unit-testable and so the
  * `new MockAiAdapter()` path remains the single-line fallback for dev/CI.
  */
@@ -322,6 +351,15 @@ export function buildAiAdapterFromEnv(env: ReturnType<typeof parseAiEnv>) {
         : [],
       live: true,
     });
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new ConfigError([
+      {
+        key: 'AI_DRIVER',
+        reason:
+          'no live AI provider configured (set HERMES_API_KEY or OPENAI_API_KEY); mock AI adapter is disabled in production',
+      },
+    ]);
   }
   return new MockAiAdapter();
 }

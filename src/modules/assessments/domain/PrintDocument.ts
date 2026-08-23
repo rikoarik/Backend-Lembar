@@ -41,6 +41,13 @@ export interface PrintDocumentMeta {
   /** Workspace that owns this assessment */
   workspaceId: string;
   title: string;
+  /** Optional generator-selected exam type, e.g. "final" or "promotion". */
+  assessmentType?: string;
+  /** Optional academic year, e.g. "2026/2027". */
+  academicYear?: string;
+  /** Human-readable labels captured in the immutable config snapshot. */
+  subjectLabel?: string;
+  gradeLabel?: string;
   /** ISO-8601 of when the assessment was finalized */
   finalizedAt: string;
   /** ISO-8601 of when this DTO was generated */

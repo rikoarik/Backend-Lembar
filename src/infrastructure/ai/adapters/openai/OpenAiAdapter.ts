@@ -58,8 +58,9 @@ export class OpenAiAdapter implements ProductAiAdapter {
   }
 
   async generate(input: AiGenerateInput): Promise<AiGenerateResult> {
+    const modelId = input.modelOverride ?? this.config.modelId;
     const body = JSON.stringify({
-      model: this.config.modelId,
+      model: modelId,
       input,
       response_format: { type: 'json_schema', schemaVersion: input.schemaVersion },
       metadata: {
@@ -71,7 +72,7 @@ export class OpenAiAdapter implements ProductAiAdapter {
     if (response.status === 429) {
       const outcome: AiGenerateOutcome = {
         kind: 'rate_limited',
-        providerModelId: this.config.modelId,
+        providerModelId: modelId,
         retryAfterMs: response.retryAfterMs ?? 1_000,
         redactedReasonFingerprint: fingerprint(`status:${response.status}`),
       };
@@ -80,7 +81,7 @@ export class OpenAiAdapter implements ProductAiAdapter {
     if (response.status >= 400) {
       const outcome: AiGenerateOutcome = {
         kind: 'error',
-        providerModelId: this.config.modelId,
+        providerModelId: modelId,
         redactedReasonFingerprint: fingerprint(`status:${response.status}`),
         retryable: response.status >= 500,
       };
@@ -99,7 +100,7 @@ export class OpenAiAdapter implements ProductAiAdapter {
     } catch {
       const outcome: AiGenerateOutcome = {
         kind: 'schema_invalid',
-        providerModelId: this.config.modelId,
+        providerModelId: modelId,
         redactedResponseFingerprint: fingerprint(`bytes:${response.bodyText.length}`),
         reason: 'missing_json',
         responseText: null,
@@ -113,7 +114,7 @@ export class OpenAiAdapter implements ProductAiAdapter {
         promptTemplateId: input.promptTemplateId,
         requestTokensEstimate: Math.ceil(input.prompt.length / 4),
         responseText,
-        providerModelId: this.config.modelId,
+        providerModelId: modelId,
         providerRequestId: null,
       },
     };

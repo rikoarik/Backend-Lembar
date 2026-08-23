@@ -45,6 +45,12 @@ export interface ProductAiServiceDeps {
   tokenUsage?: {
     recordTokenUsage(workspaceId: string, providerCallId: string, tokens: number, source: 'actual' | 'estimated'): Promise<void>;
   } | undefined;
+  /**
+   * Optional per-workspace plan→model resolver (AI_MODEL_FREE/PRO/PLUS).
+   * When provided, its result is attached to every adapter call for that
+   * workspace as `modelOverride`. Errors are swallowed → no override.
+   */
+  resolveModelOverride?: ((workspaceId: string) => Promise<string | null>) | undefined;
   clock?: () => Date;
 }
 
@@ -115,6 +121,14 @@ export class ProductAiService {
       Math.max(1, Math.ceil(promptByteLength / this.deps.env.tokenEstimateFallbackChars));
 
     let repairAttempts = 0;
+    let modelOverride: string | null = null;
+    if (this.deps.resolveModelOverride) {
+      try {
+        modelOverride = await this.deps.resolveModelOverride(request.workspaceId);
+      } catch {
+        modelOverride = null;
+      }
+    }
 
     while (true) {
       const adapterInput: AiGenerateInput = {
@@ -127,6 +141,7 @@ export class ProductAiService {
         signals: request.signals ?? {},
         attemptNumber: repairAttempts + 1,
         maxSchemaRepairAttempts: this.deps.env.schemaRepairMaxAttempts,
+        ...(modelOverride ? { modelOverride } : {}),
       };
       let result: AiGenerateResult;
       try {

@@ -226,6 +226,6 @@ describe('B6-01 — Entitlement & quota', () => {
 
   it('keeps deprecated generation limit and exposes the canonical token pool', () => {
     expect(FREE_MONTHLY_LIMIT).toBe(3);
-    expect(FREE_MONTHLY_TOKEN_LIMIT).toBe(60_000);
+    expect(FREE_MONTHLY_TOKEN_LIMIT).toBe(30_000);
   });
 });

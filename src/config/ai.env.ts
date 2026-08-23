@@ -40,6 +40,12 @@ export interface AiEnv {
   openaiApiKey: string | null;
   openaiBaseUrl: string;
   openaiModelId: string;
+  /**
+   * Per-plan-tier model routing (plan → model). Values come from
+   * AI_MODEL_FREE / AI_MODEL_PRO / AI_MODEL_PLUS; `null` means "use the
+   * adapter's default modelId". Tier keys mirror plans/persistence/schema.ts.
+   */
+  tierModels: { free: string | null; pro: string | null; plus: string | null };
 }
 
 function readString(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -164,6 +170,11 @@ export function parseAiEnv(env: NodeJS.ProcessEnv = process.env): AiEnv {
     openaiApiKey: readString(env, 'OPENAI_API_KEY') ?? null,
     openaiBaseUrl: readString(env, 'OPENAI_BASE_URL') ?? 'https://api.openai.com',
     openaiModelId: readString(env, 'OPENAI_MODEL_ID') ?? 'gpt-4o-mini',
+    tierModels: {
+      free: readString(env, 'AI_MODEL_FREE') ?? null,
+      pro: readString(env, 'AI_MODEL_PRO') ?? null,
+      plus: readString(env, 'AI_MODEL_PLUS') ?? null,
+    },
   };
 }
 

@@ -72,23 +72,65 @@ paths:
                 properties:
                   data:
                     type: object
-                    required: [workspaceId, plan, trial]
+                    required:
+                      [workspaceId, plan, tokenUsedThisMonth, tokenMonthlyLimit, trial]
                     properties:
                       workspaceId: { type: string, format: uuid }
-                      plan: { type: string, enum: [free, pro] }
+                      plan: { type: string, enum: [free, pro, plus] }
+                      entitlementSource: { type: string, enum: [free, paid, trial] }
+                      tokenUsedThisMonth: { type: integer, minimum: 0 }
+                      tokenMonthlyLimit: { type: [integer, "null"], minimum: 0 }
                       trial:
                         type: object
-                        required: [claimed, active, startsAt, endsAt]
+                        required:
+                          [eligible, claimed, activeOnThisDevice, startsAt, endsAt, remainingDays]
                         properties:
+                          eligible: { type: boolean }
                           claimed: { type: boolean }
-                          active: { type: boolean }
+                          activeOnThisDevice: { type: boolean }
                           startsAt: { type: [string, "null"], format: date-time }
                           endsAt: { type: [string, "null"], format: date-time }
+                          remainingDays: { type: [integer, "null"], minimum: 0 }
         "401":
           description: Authentication required
+  /v1/me/plan/trial/claim-links:
+    post:
+      summary: Issue an authenticated, short-lived, one-time trial claim link token
+      tags: [Identity]
+      operationId: issueMyPlanTrialClaimLink
+      responses:
+        "201":
+          description: Claim link token issued
+          headers:
+            Cache-Control:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: object
+                    required: [token, expiresAt]
+                    properties:
+                      token: { type: string, minLength: 32, maxLength: 512 }
+                      expiresAt: { type: string, format: date-time }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          description: Authentication required
+        "403":
+          description: Role is not eligible
+        "409":
+          description: Trial is unavailable or already claimed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/me/plan/trial/claim:
     post:
-      summary: Claim the authenticated workspace's one-time 60-day Pro trial
+      summary: Consume a one-time link and claim the authenticated workspace's 60-day Pro trial
       tags: [Identity]
       operationId: claimMyPlanTrial
       requestBody:
@@ -97,21 +139,22 @@ paths:
           application/json:
             schema:
               type: object
-              required: [deviceToken]
+              required: [claimToken, deviceToken]
               additionalProperties: false
               properties:
-                deviceToken: { type: string, minLength: 1, maxLength: 512 }
+                claimToken: { type: string, minLength: 32, maxLength: 512 }
+                deviceToken: { type: string, minLength: 16, maxLength: 512 }
       responses:
         "201":
-          description: Trial claimed
+          description: Trial claimed and link consumed
         "400":
           $ref: "#/components/responses/ValidationError"
         "401":
           description: Authentication required
         "403":
-          description: Superadmin is not eligible
+          description: Role is not eligible
         "409":
-          description: Trial eligibility or uniqueness conflict
+          description: Claim link, eligibility, or uniqueness conflict
           content:
             application/json:
               schema:
@@ -1989,7 +2032,7 @@ paths:
                       properties:
                         id: { type: string, format: uuid }
                         name: { type: string }
-                        plan: { type: string, enum: [free, pro] }
+                        plan: { type: string, enum: [free, pro, plus] }
                         createdAt: { type: string, format: date-time }
         "401":
           $ref: "#/components/responses/Unauthorized"
@@ -2010,7 +2053,7 @@ paths:
               required: [name]
               properties:
                 name: { type: string, minLength: 1, maxLength: 200 }
-                plan: { type: string, enum: [free, pro], default: free }
+                plan: { type: string, enum: [free, pro, plus], default: free }
       responses:
         "201":
           description: School created
@@ -2026,7 +2069,7 @@ paths:
                     properties:
                       id: { type: string, format: uuid }
                       name: { type: string }
-                      plan: { type: string, enum: [free, pro] }
+                      plan: { type: string, enum: [free, pro, plus] }
                       createdAt: { type: string, format: date-time }
         "400":
           $ref: "#/components/responses/ValidationError"
@@ -2175,7 +2218,7 @@ paths:
                     required: [tenantId, plan, state]
                     properties:
                       tenantId: { type: string }
-                      plan: { type: string, enum: [free, pro] }
+                      plan: { type: string, enum: [free, pro, plus] }
                       state: { type: string, enum: [active, blocked, cancelled] }
                       nextBillingAt: { type: [string, "null"], format: date-time }
                       updatedAt: { type: string, format: date-time }

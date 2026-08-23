@@ -21,7 +21,7 @@ export interface DashboardData {
   usage: {
     generationsUsedThisMonth: number;
     monthlyLimit: number | null;
-    plan: 'free' | 'pro';
+    plan: 'free' | 'pro' | 'plus';
   };
 }
 
@@ -53,7 +53,7 @@ export class SchoolDashboardService {
       memberCount: members.length,
       usage: {
         generationsUsedThisMonth: plan.generationsUsedThisMonth,
-        monthlyLimit: plan.plan === 'pro' ? null : FREE_MONTHLY_LIMIT,
+        monthlyLimit: plan.plan === 'free' ? FREE_MONTHLY_LIMIT : null,
         plan: plan.plan,
       },
     };

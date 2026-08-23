@@ -292,8 +292,12 @@ export class PaymentService {
   }
 
   async downgradePlan(input: PlanChangeInput): Promise<PlanChangeResult> {
-    if (input.targetPlan === 'pro') {
-      throw new InvalidPlanTransitionError('any', 'pro', 'use upgradePlan instead');
+    if (input.targetPlan !== 'free') {
+      throw new InvalidPlanTransitionError(
+        'any',
+        input.targetPlan,
+        'use upgradePlan instead — only "free" is a downgrade target',
+      );
     }
     return this.transitionPlan(input);
   }
@@ -318,7 +322,7 @@ export class PaymentService {
 
     await planRepo.setPlan(input.tenantId, input.workspaceId, input.targetPlan);
 
-    const eventType = input.targetPlan === 'pro' ? 'plan_upgraded' : 'plan_downgraded';
+    const eventType = input.targetPlan === 'free' ? 'plan_downgraded' : 'plan_upgraded';
 
     // If we have an associated order, append the event to it
     if (input.orderId) {

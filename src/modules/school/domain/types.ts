@@ -57,7 +57,7 @@ export interface TeacherOnboardingRecord {
 
 export interface BillingSnapshot {
   workspaceId: string;
-  plan: 'free' | 'pro';
+  plan: 'free' | 'pro' | 'plus';
   seatCount: number;
   generationsUsedThisMonth: number;
   monthlyLimit: number | null;

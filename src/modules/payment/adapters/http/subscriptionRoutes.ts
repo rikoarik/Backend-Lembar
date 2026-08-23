@@ -1,7 +1,7 @@
 /**
  * Subscription/plan change HTTP routes (B6-02).
  *
- * POST /v1/me/plan/upgrade   — upgrade workspace ke pro
+ * POST /v1/me/plan/upgrade   — upgrade workspace ke paket berbayar (pro/plus)
  * POST /v1/me/plan/downgrade — downgrade workspace ke free
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -50,10 +50,11 @@ export async function registerSubscriptionRoutes(
   /**
    * POST /v1/me/plan/upgrade
    *
-   * Upgrade workspace plan to pro. Requires a paid orderId or admin bypass.
+   * Upgrade workspace plan to a paid tier ('pro' default, or 'plus').
+   * Requires a paid orderId or admin bypass.
    *
    * Headers: x-tenant-id, x-workspace-id, x-actor-id
-   * Body: { orderId?: string }
+   * Body: { orderId?: string, targetPlan?: 'pro' | 'plus' }
    */
   app.post('/v1/me/plan/upgrade', { preHandler: [auth] }, async (request: FastifyRequest, reply: FastifyReply) => {
     const requestId = getRequestId(request);
@@ -74,13 +75,24 @@ export async function registerSubscriptionRoutes(
 
     const body = (request.body as Record<string, unknown>) ?? {};
     const orderId = body['orderId'] as string | undefined;
+    const rawTargetPlan = body['targetPlan'] as string | undefined;
+    if (rawTargetPlan !== undefined && rawTargetPlan !== 'pro' && rawTargetPlan !== 'plus') {
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: 'targetPlan harus "pro" atau "plus"',
+          requestId,
+          retryable: false,
+        },
+      });
+    }
 
     try {
       const result = await paymentService.upgradePlan({
         tenantId,
         workspaceId,
         actorId,
-        targetPlan: 'pro',
+        targetPlan: rawTargetPlan ?? 'pro',
         orderId,
       });
       return reply.status(200).send({ data: result });

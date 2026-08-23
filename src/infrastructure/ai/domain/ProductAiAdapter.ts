@@ -64,6 +64,12 @@ export interface AiGenerateInput {
    */
   attemptNumber: number;
   maxSchemaRepairAttempts: number;
+  /**
+   * Per-request model override resolved from the workspace's plan tier
+   * (AI_MODEL_FREE / AI_MODEL_PRO / AI_MODEL_PLUS). When `null` or absent,
+   * adapters use their configured default modelId.
+   */
+  modelOverride?: string | null;
 }
 
 export interface AiGenerateResult {

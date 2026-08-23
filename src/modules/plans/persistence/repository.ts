@@ -156,20 +156,25 @@ export class WorkspacePlanRepository {
 
   /**
    * Check if a workspace has quota available (returns true = allowed).
-   * Pro plan: always true. Free plan: true if used < 10.
+   * Every plan tier is finite — the limit resolves per-workspace override,
+   * then the plan_catalog tier limit, then the free fallback constant.
    */
   async hasQuota(tenantId: string, workspaceId: string): Promise<boolean> {
     const pool = getPool(this.db);
     if (!pool) throw new Error('Database pool unavailable');
-    const result = await pool.query<{ plan: PlanType; tokens_used_this_month: string; token_monthly_limit: string | null }>(
-      `UPDATE workspace_plans SET
+    const result = await pool.query<{ tokens_used_this_month: string; effective_limit: string }>(
+      `UPDATE workspace_plans wp SET
          tokens_used_this_month=CASE WHEN date_trunc('month',billing_cycle_started_at)<date_trunc('month',now()) THEN 0 ELSE tokens_used_this_month END,
          billing_cycle_started_at=CASE WHEN date_trunc('month',billing_cycle_started_at)<date_trunc('month',now()) THEN date_trunc('month',now()) ELSE billing_cycle_started_at END
        WHERE tenant_id=$1 AND workspace_id=$2
-       RETURNING plan,tokens_used_this_month,token_monthly_limit`, [tenantId, workspaceId]);
+       RETURNING tokens_used_this_month,
+                 COALESCE(wp.token_monthly_limit::text,
+                          (SELECT pc.token_monthly_limit::text FROM plan_catalog pc WHERE pc.key = wp.plan),
+                          $3) AS effective_limit`,
+      [tenantId, workspaceId, String(FREE_MONTHLY_TOKEN_LIMIT)]);
     const row = result.rows[0];
     if (!row) throw new Error(`Plan not found for workspace ${workspaceId}`);
-    return row.plan === 'pro' || Number(row.tokens_used_this_month) < Number(row.token_monthly_limit ?? FREE_MONTHLY_TOKEN_LIMIT);
+    return Number(row.tokens_used_this_month) < Number(row.effective_limit);
   }
 
   async recordTokenUsage(tenantId: string, workspaceId: string, providerCallId: string, tokens: number, source: 'actual' | 'estimated'): Promise<void> {

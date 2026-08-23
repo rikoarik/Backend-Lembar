@@ -92,7 +92,7 @@ export async function registerUsageRoutes(
       );
 
       const plan = planRes.rows[0]?.plan ?? 'free';
-      const quotaLimit = plan === 'pro' ? 0 : FREE_MONTHLY_LIMIT;
+      const quotaLimit = plan === 'free' ? FREE_MONTHLY_LIMIT : 0;
 
       // ── 3. Monthly trend from ai_jobs_audit (last 12 months) ──────────────
       const trendRes = await pool.query<{

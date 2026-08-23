@@ -5,9 +5,12 @@
  * Tenant isolation: every public method requires workspaceId.
  * No external I/O — pure domain assembly. Storage/PDF is B5-02's concern.
  */
-import { randomUUID } from 'node:crypto';
 
-import { PRINT_DTO_VERSION, type PrintDocument, type PrintQuestion } from '../domain/PrintDocument.js';
+import {
+  PRINT_DTO_VERSION,
+  type PrintDocument,
+  type PrintQuestion,
+} from '../domain/PrintDocument.js';
 import type { AssessmentsStore } from '../domain/Assessment.js';
 import type { QuestionReviewStore } from '../domain/QuestionReview.js';
 import { ApiError } from '../../../common/errors/envelope.js';
@@ -36,7 +39,10 @@ export class PrintService {
     assessmentId: string,
     requestId: string,
   ): Promise<PrintDocument> {
-    const assessment = await this.options.assessmentsStore.getAssessmentById(workspaceId, assessmentId);
+    const assessment = await this.options.assessmentsStore.getAssessmentById(
+      workspaceId,
+      assessmentId,
+    );
     if (!assessment) {
       throw new ApiError({
         code: 'RESOURCE_NOT_FOUND',
@@ -47,10 +53,7 @@ export class PrintService {
     }
 
     // Get latest version
-    const version = await this.options.assessmentsStore.getLatestVersion(
-      workspaceId,
-      assessmentId,
-    );
+    const version = await this.options.assessmentsStore.getLatestVersion(workspaceId, assessmentId);
     if (!version) {
       throw new ApiError({
         code: 'RESOURCE_NOT_FOUND',
@@ -61,10 +64,7 @@ export class PrintService {
     }
 
     // Must be finalized to print
-    const finalization = await this.options.reviewStore.getFinalization(
-      workspaceId,
-      version.id,
-    );
+    const finalization = await this.options.reviewStore.getFinalization(workspaceId, version.id);
     if (!finalization) {
       throw new ApiError({
         code: 'STATE_CONFLICT',
@@ -100,6 +100,18 @@ export class PrintService {
         assessmentVersion: version.version,
         workspaceId: assessment.workspaceId,
         title: assessment.title,
+        ...(version.configSnapshot.assessmentType
+          ? { assessmentType: version.configSnapshot.assessmentType }
+          : {}),
+        ...(version.configSnapshot.academicYear
+          ? { academicYear: version.configSnapshot.academicYear }
+          : {}),
+        ...(version.configSnapshot.subjectLabel
+          ? { subjectLabel: version.configSnapshot.subjectLabel }
+          : {}),
+        ...(version.configSnapshot.gradeLabel
+          ? { gradeLabel: version.configSnapshot.gradeLabel }
+          : {}),
         finalizedAt: finalization.finalizedAt,
         generatedAt: this.clock().toISOString(),
       },

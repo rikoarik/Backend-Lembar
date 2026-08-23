@@ -5,7 +5,8 @@
  * to prove all invariants hold end-to-end.
  *
  * Evidence covered:
- * - quota enforced: free plan blocks at 10, pro is unlimited
+ * - quota enforced: free plan blocks at its token limit, paid tiers (pro/plus)
+ *   have finite limits too — no unlimited tier
  * - plan admin: superadmin can transition plan via POST /v1/admin/entitlements
  * - ops metrics: shape correct
  * - lead rate limit: 429 after 3
@@ -17,7 +18,10 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { PlanService } from '../../../src/modules/plans/application/PlanService.js';
 import { WorkspacePlanRepository } from '../../../src/modules/plans/persistence/repository.js';
 import { QuotaExceededError } from '../../../src/modules/plans/domain/errors.js';
-import { FREE_MONTHLY_LIMIT } from '../../../src/modules/plans/persistence/schema.js';
+import {
+  FREE_MONTHLY_LIMIT,
+  PRO_MONTHLY_TOKEN_LIMIT,
+} from '../../../src/modules/plans/persistence/schema.js';
 import { AdminService } from '../../../src/modules/admin/application/AdminService.js';
 import { InMemoryAdminAuditStore } from '../../../src/modules/admin/domain/AdminAuditStore.js';
 import { MetricsCollector } from '../../../src/modules/ops/application/MetricsCollector.js';
@@ -39,7 +43,7 @@ interface PlanRow {
   id: string;
   tenantId: string;
   workspaceId: string;
-  plan: 'free' | 'pro';
+  plan: 'free' | 'pro' | 'plus';
   generationsUsedThisMonth: number;
   tokensUsedThisMonth: number;
   tokenMonthlyLimit: number | null;
@@ -89,7 +93,7 @@ class InMemoryPlanRepo {
     return row;
   }
 
-  async setPlan(tenantId: string, workspaceId: string, plan: 'free' | 'pro'): Promise<PlanRow> {
+  async setPlan(tenantId: string, workspaceId: string, plan: 'free' | 'pro' | 'plus'): Promise<PlanRow> {
     const row = await this.findOrCreate(tenantId, workspaceId);
     row.plan = plan;
     row.updatedAt = new Date();
@@ -98,8 +102,15 @@ class InMemoryPlanRepo {
 
   async hasQuota(tenantId: string, workspaceId: string): Promise<boolean> {
     const row = await this.findOrCreate(tenantId, workspaceId);
-    if (row.plan === 'pro') return true;
-    return row.generationsUsedThisMonth < FREE_MONTHLY_LIMIT;
+    // Every tier is finite — no pro bypass.
+    return row.tokensUsedThisMonth < PRO_MONTHLY_TOKEN_LIMIT;
+  }
+
+  /** Test helper: simulate recorded provider token usage in bulk. */
+  async addTokens(tenantId: string, workspaceId: string, tokens: number): Promise<void> {
+    const row = await this.findOrCreate(tenantId, workspaceId);
+    row.tokensUsedThisMonth += tokens;
+    row.updatedAt = new Date();
   }
 }
 
@@ -153,13 +164,18 @@ describe('B6-05 — Paid pilot gate (integration)', () => {
 
   beforeEach(() => {
     planRepo = new InMemoryPlanRepo();
-    const catalog = { find: async (key: 'free' | 'pro') => ({
+    const catalog = { find: async (key: 'free' | 'pro' | 'plus') => ({
       key,
-      displayName: key === 'free' ? 'Free' : 'Pro',
+      displayName: key === 'free' ? 'Free' : key === 'plus' ? 'Plus' : 'Pro',
       priceAmount: 0,
       currency: 'IDR' as const,
       billingPeriod: null,
-      tokenMonthlyLimit: key === 'free' ? FREE_MONTHLY_LIMIT : null,
+      tokenMonthlyLimit:
+        key === 'free'
+          ? FREE_MONTHLY_LIMIT
+          : key === 'pro'
+            ? PRO_MONTHLY_TOKEN_LIMIT
+            : PRO_MONTHLY_TOKEN_LIMIT + 50_000,
       features: [],
       active: true,
       revision: 1,
@@ -195,22 +211,22 @@ describe('B6-05 — Paid pilot gate (integration)', () => {
     });
   });
 
-  // ─── Invariant 2: Pro plan is unlimited ──────────────────────────────────
+  // ─── Invariant 2: Paid plans have finite limits (no unlimited) ───────────
 
-  describe('Invariant: pro plan is unlimited', () => {
-    it('never throws after 50 generations on pro', async () => {
+  describe('Invariant: pro plan has a finite token limit', () => {
+    it('allows usage below the catalog limit', async () => {
       await planRepo.setPlan(TENANT, WS, 'pro');
-      for (let i = 0; i < 50; i++) {
-        await planRepo.incrementUsage(TENANT, WS);
-      }
+      await planRepo.addTokens(TENANT, WS, PRO_MONTHLY_TOKEN_LIMIT - 1);
       await expect(planService.assertQuota(TENANT, WS)).resolves.toBeUndefined();
     });
 
-    it('pro plan summary has null monthlyLimit', async () => {
+    it('blocks at the catalog limit and reports it in the summary', async () => {
       await planRepo.setPlan(TENANT, WS, 'pro');
+      await planRepo.addTokens(TENANT, WS, PRO_MONTHLY_TOKEN_LIMIT);
+      await expect(planService.assertQuota(TENANT, WS)).rejects.toBeInstanceOf(QuotaExceededError);
       const summary = await planService.getPlanSummary(TENANT, WS);
-      expect(summary.monthlyLimit).toBeNull();
       expect(summary.plan).toBe('pro');
+      expect(summary.tokenMonthlyLimit).toBe(PRO_MONTHLY_TOKEN_LIMIT);
     });
   });
 
@@ -231,7 +247,7 @@ describe('B6-05 — Paid pilot gate (integration)', () => {
         actorId: 'superadmin',
       });
 
-      // Now quota check passes (pro = unlimited)
+      // Now quota check passes (3 used < 250.000 pro limit)
       await expect(planService.assertQuota(TENANT, WS)).resolves.toBeUndefined();
     });
 

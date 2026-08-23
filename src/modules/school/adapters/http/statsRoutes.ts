@@ -29,7 +29,7 @@ export interface StatsData {
   activeMembers: number;
   teacherCount: number;
   adminCount: number;
-  plan: 'free' | 'pro';
+  plan: 'free' | 'pro' | 'plus';
   generationsUsedThisMonth: number;
   monthlyLimit: number | null;
 }
@@ -89,7 +89,7 @@ export async function registerStatsRoutes(
       adminCount,
       plan: plan.plan,
       generationsUsedThisMonth: plan.generationsUsedThisMonth,
-      monthlyLimit: plan.plan === 'pro' ? null : FREE_MONTHLY_LIMIT,
+      monthlyLimit: plan.plan === 'free' ? FREE_MONTHLY_LIMIT : null,
     };
 
     return reply.status(200).send({ data: stats });

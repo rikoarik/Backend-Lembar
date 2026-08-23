@@ -49,6 +49,10 @@ export interface CreateAssessmentConfigInput {
   /** Optional human-readable labels captured at submission time. */
   subjectLabel?: string | null;
   gradeLabel?: string | null;
+  /** Generator-selected assessment type used in the printed exam heading. */
+  assessmentType?: string | null;
+  /** Academic year displayed under the printed exam heading. */
+  academicYear?: string | null;
   /** Upload IDs that must be in 'verified' or 'ready' state. */
   sourceUploadIds: string[];
   blueprintItems: BlueprintItemRequest[];
@@ -85,6 +89,8 @@ function fingerprintConfig(input: CreateAssessmentConfigInput): string {
     curriculumVersionId: input.curriculumVersionId,
     gradeId: input.gradeId,
     subjectId: input.subjectId,
+    assessmentType: input.assessmentType ?? null,
+    academicYear: input.academicYear ?? null,
     durationMinutes: input.durationMinutes ?? null,
     sourceUploadIds: [...input.sourceUploadIds].sort(),
     blueprintItems: [...input.blueprintItems].sort((a, b) => a.sequence - b.sequence),
@@ -239,10 +245,14 @@ export class AssessmentService {
       ...(input.gradeLabel != null ? { gradeLabel: input.gradeLabel } : {}),
       subjectId: input.subjectId,
       ...(input.subjectLabel != null ? { subjectLabel: input.subjectLabel } : {}),
+      ...(input.assessmentType != null ? { assessmentType: input.assessmentType } : {}),
+      ...(input.academicYear != null ? { academicYear: input.academicYear } : {}),
       sourceUploadIds: [...input.sourceUploadIds],
       blueprintItems: blueprintItemConfigs,
       _fingerprint: fingerprint,
-      ...(typeof input.durationMinutes === 'number' ? { durationMinutes: input.durationMinutes } : {}),
+      ...(typeof input.durationMinutes === 'number'
+        ? { durationMinutes: input.durationMinutes }
+        : {}),
     };
 
     // ---- Persist ----

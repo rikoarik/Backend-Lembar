@@ -2,7 +2,7 @@
  * Workspace plans schema (B6-01).
  *
  * Tracks plan/entitlement per workspace.
- * Plans: free (10 gen/month) | pro (unlimited).
+ * Plans: free | pro | plus — every tier has a finite monthly token limit.
  *
  * Invariants:
  * - One active plan per workspace at any time
@@ -25,11 +25,18 @@ import {
 
 import { tenants } from '../../../infrastructure/database/schema.js';
 
-export const PLAN_TYPES = ['free', 'pro'] as const;
+export const PLAN_TYPES = ['free', 'pro', 'plus'] as const;
 export type PlanType = (typeof PLAN_TYPES)[number];
 
-/** ponytail: conservative replacement for the old three-generation pool; admin-managed next. */
-export const FREE_MONTHLY_TOKEN_LIMIT = 60_000;
+/**
+ * Monthly token limits per tier. Every tier is finite — the product never
+ * promises unlimited AI (see PRD). Paid tiers resolve their limit from
+ * plan_catalog; these constants are the fail-safe fallbacks when the catalog
+ * table is unavailable (tests / no DB).
+ */
+export const FREE_MONTHLY_TOKEN_LIMIT = 30_000;
+export const PRO_MONTHLY_TOKEN_LIMIT = 250_000;
+export const PLUS_MONTHLY_TOKEN_LIMIT = 300_000;
 /** @deprecated compatibility only. */
 export const FREE_MONTHLY_LIMIT = 3;
 
@@ -65,7 +72,7 @@ export const workspacePlans = pgTable(
       t.workspaceId,
     ),
     tenantIdx: index('workspace_plans_tenant_idx').on(t.tenantId),
-    planCheck: check('workspace_plans_plan_check', sql`${t.plan} in ('free','pro')`),
+    planCheck: check('workspace_plans_plan_check', sql`${t.plan} in ('free','pro','plus')`),
     usageNonNegative: check(
       'workspace_plans_usage_non_negative',
       sql`${t.generationsUsedThisMonth} >= 0`,

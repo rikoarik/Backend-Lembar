@@ -11,6 +11,7 @@ import {
 import {
   hashDeviceToken,
   hashIdentity,
+  hashTrialClaimToken,
   TrialService,
   normalizeEmail,
   normalizeIndonesianPhone,
@@ -136,6 +137,12 @@ describe('60-day self-service Pro trial', () => {
       },
     };
     const trials = {
+      async issueClaimLink() {
+        return {
+          token: 'claim-token-long-enough-for-route',
+          expiresAt: new Date(now.getTime() + 900000),
+        };
+      },
       async claim(input: Record<string, unknown>) {
         claimInput = input;
         return { startsAt: now, endsAt: new Date(now.getTime() + 60 * 86400000) };
@@ -150,16 +157,32 @@ describe('60-day self-service Pro trial', () => {
         { userId: 'jwt-user', workspaceId: 'jwt-workspace', email: 'x@y.id', roles },
         { secret: 'secret', expiryDays: 1 },
       );
+    const link = await app.inject({
+      method: 'POST',
+      url: '/v1/me/plan/trial/claim-links',
+      headers: { authorization: 'Bearer ' + makeToken(['subscriber']) },
+    });
+    expect(link.statusCode).toBe(201);
+    expect(link.headers['cache-control']).toBe('no-store');
+    expect(link.json()).toMatchObject({
+      data: { token: 'claim-token-long-enough-for-route' },
+    });
+
     const ok = await app.inject({
       method: 'POST',
       url: '/v1/me/plan/trial/claim',
       headers: { authorization: 'Bearer ' + makeToken(['subscriber']) },
-      payload: { deviceToken: 'device-token-long-enough', workspaceId: 'attacker-workspace' },
+      payload: {
+        claimToken: 'claim-token-long-enough-for-route',
+        deviceToken: 'device-token-long-enough',
+        workspaceId: 'attacker-workspace',
+      },
     });
     expect(ok.statusCode).toBe(201);
     expect(claimInput).toMatchObject({
       userId: 'jwt-user',
       workspaceId: 'jwt-workspace',
+      claimToken: 'claim-token-long-enough-for-route',
       deviceToken: 'device-token-long-enough',
     });
     for (const roles of [['school_admin'], ['superadmin']] as const) {
@@ -167,11 +190,46 @@ describe('60-day self-service Pro trial', () => {
         method: 'POST',
         url: '/v1/me/plan/trial/claim',
         headers: { authorization: 'Bearer ' + makeToken([...roles]) },
-        payload: { deviceToken: 'device-token-long-enough' },
+        payload: {
+          claimToken: 'claim-token-long-enough-for-route',
+          deviceToken: 'device-token-long-enough',
+        },
       });
       expect(denied.statusCode).toBe(403);
     }
     await app.close();
+  });
+
+  it('issues a short-lived claim link and persists only its hash', async () => {
+    let captured: Record<string, unknown> | undefined;
+    const rawToken = 'opaque-one-time-token-with-at-least-32-characters';
+    const repo = {
+      async getEligibleProfile() {
+        return { email: 'guru@example.com', phone: '081234567890', plan: 'free' as const };
+      },
+      async issueClaimLink(input: Record<string, unknown>) {
+        captured = input;
+      },
+    };
+    const service = new TrialService(
+      repo as never,
+      'test-pepper-long-enough',
+      () => now,
+      () => rawToken,
+    );
+
+    const issued = await service.issueClaimLink({ userId: 'user-1', workspaceId: 'workspace-1' });
+
+    expect(issued.token).toBe(rawToken);
+    expect(issued.expiresAt.getTime() - now.getTime()).toBe(15 * 60 * 1000);
+    expect(captured).toMatchObject({
+      userId: 'user-1',
+      workspaceId: 'workspace-1',
+      tokenHash: hashTrialClaimToken(rawToken),
+      issuedAt: now,
+      expiresAt: issued.expiresAt,
+    });
+    expect(JSON.stringify(captured)).not.toContain(rawToken);
   });
 
   it('claims exactly 60 days and persists hashes only', async () => {
@@ -189,15 +247,44 @@ describe('60-day self-service Pro trial', () => {
     const result = await service.claim({
       userId: 'user-1',
       workspaceId: 'workspace-1',
+      claimToken: 'one-time-claim-token-with-enough-entropy',
       deviceToken: 'browser-random-token',
       ip: '127.0.0.1',
     });
     expect(result.endsAt.getTime() - result.startsAt.getTime()).toBe(60 * 86400000);
-    for (const key of ['emailHash', 'phoneHash', 'deviceHash', 'ipHash'])
+    for (const key of ['claimTokenHash', 'emailHash', 'phoneHash', 'deviceHash', 'ipHash'])
       expect(captured?.[key]).toMatch(/^[a-f0-9]{64}$/);
+    expect(captured?.claimTokenHash).toBe(
+      hashTrialClaimToken('one-time-claim-token-with-enough-entropy'),
+    );
     const serialized = JSON.stringify(captured);
-    for (const raw of ['browser-random-token', '127.0.0.1', 'guru@example.com', '+6281234567890'])
+    for (const raw of [
+      'one-time-claim-token-with-enough-entropy',
+      'browser-random-token',
+      '127.0.0.1',
+      'guru@example.com',
+      '+6281234567890',
+    ])
       expect(serialized).not.toContain(raw);
+  });
+
+  it('requires a one-time claim link token', async () => {
+    const repo = {
+      async getEligibleProfile() {
+        return { email: 'guru@example.com', phone: '081234567890', plan: 'free' as const };
+      },
+    };
+    const service = new TrialService(repo as never, 'test-pepper-long-enough', () => now);
+
+    await expect(
+      service.claim({
+        userId: 'user-1',
+        workspaceId: 'workspace-1',
+        claimToken: '',
+        deviceToken: 'browser-random-token',
+        ip: '127.0.0.1',
+      }),
+    ).rejects.toMatchObject({ code: 'TRIAL_CLAIM_LINK_REQUIRED' });
   });
 });
 

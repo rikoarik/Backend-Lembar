@@ -153,7 +153,7 @@ export async function registerWebhookRoutes(
    * Create a new payment order (idempotent via x-idempotency-key header).
    *
    * Headers: x-tenant-id, x-workspace-id, x-idempotency-key
-   * Body: { toPlan: 'pro', amountCents: number, currency?: string }
+    * Body: { toPlan: 'pro' | 'plus', amountCents: number, currency?: string }
    */
   app.post(
     '/v1/payment/orders',
@@ -187,7 +187,10 @@ export async function registerWebhookRoutes(
 
       const body = request.body as Record<string, unknown>;
       const toPlan = body['toPlan'] as string | undefined;
-      const amountCents = (await options.catalog?.find('pro'))?.priceAmount;
+      const amountCents =
+        toPlan === 'pro' || toPlan === 'plus'
+          ? (await options.catalog?.find(toPlan))?.priceAmount
+          : undefined;
 
       if (!toPlan) {
         return reply.status(400).send({
@@ -211,11 +214,11 @@ export async function registerWebhookRoutes(
       }
       const finalAmountCents = amountCents!;
 
-      if (toPlan !== 'pro') {
+      if (toPlan !== 'pro' && toPlan !== 'plus') {
         return reply.status(400).send({
           error: {
             code: 'VALIDATION_FAILED',
-            message: 'toPlan harus "pro"',
+            message: 'toPlan harus "pro" atau "plus"',
             requestId,
             retryable: false,
           },
@@ -317,7 +320,12 @@ export async function registerWebhookRoutes(
     const toPlan = body['toPlan'];
     const apiKey = process.env['PAKASIR_API_KEY'];
     const slug = process.env['PAKASIR_PROJECT_SLUG'];
-    if (!workspaceId || typeof orderId !== 'string' || !orderId || toPlan !== 'pro') {
+    if (
+      !workspaceId ||
+      typeof orderId !== 'string' ||
+      !orderId ||
+      (toPlan !== 'pro' && toPlan !== 'plus')
+    ) {
       return reply.status(400).send({
         error: {
           code: 'VALIDATION_FAILED',
@@ -338,13 +346,13 @@ export async function registerWebhookRoutes(
       });
     }
     // Amount is always derived server-side from catalog; client-supplied amountCents is ignored.
-    const proCatalog = await options.catalog?.find('pro');
-    const serverAmount = proCatalog?.priceAmount;
+    const planCatalog = await options.catalog?.find(toPlan);
+    const serverAmount = planCatalog?.priceAmount;
     if (!Number.isInteger(serverAmount) || (serverAmount ?? 0) <= 0) {
       return reply.status(503).send({
         error: {
           code: 'PAYMENT_NOT_CONFIGURED',
-          message: 'Harga Pro belum dikonfigurasi di katalog.',
+          message: `Harga ${toPlan === 'plus' ? 'Plus' : 'Pro'} belum dikonfigurasi di katalog.`,
           requestId,
           retryable: false,
         },

@@ -2,7 +2,7 @@
  * Quota middleware (B6-01).
  *
  * Use as a preHandler hook on any generation route to enforce monthly limits.
- * Free plan: 10 generations/month. Pro plan: unlimited.
+ * Every plan tier (free | pro | plus) has a finite monthly token limit.
  *
  * Usage:
  *   app.post('/v1/assessments/:id/generate', {
@@ -42,7 +42,7 @@ export function createQuotaMiddleware(planService: PlanService) {
         void reply.status(429).send({
           error: {
             code: 'RATE_LIMITED',
-            message: `Monthly generation quota exceeded (${err.used}/${err.limit}). Upgrade to pro for unlimited generations.`,
+            message: `Kuota token bulanan habis (${err.used}/${err.limit}). Upgrade ke paket Pro atau Plus untuk kuota lebih besar.`,
             requestId: getRequestId(request),
             retryable: false,
           },

@@ -44,6 +44,6 @@ describe('monthly token accounting', () => {
     const service = new PlanService(repo as never, undefined, undefined, catalog);
     expect(await service.getPlanSummary('t', 'w')).toMatchObject({ tokenUsedThisMonth: 123, tokenMonthlyLimit: 123, entitlementState: 'blocked' });
     await expect(service.assertQuota('t', 'w')).rejects.toMatchObject({ used: 123, limit: 123 });
-    expect(FREE_MONTHLY_TOKEN_LIMIT).toBe(60_000);
+    expect(FREE_MONTHLY_TOKEN_LIMIT).toBe(30_000);
   });
 });

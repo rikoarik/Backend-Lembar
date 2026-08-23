@@ -1,16 +1,26 @@
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
+
+const TRIAL_CLAIM_LINK_TTL_MS = 15 * 60 * 1000;
 
 export interface EligibleTrialProfile {
   email: string;
   phone: string;
-  plan: 'free' | 'pro';
+  plan: 'free' | 'pro' | 'plus';
 }
 
 export interface TrialStore {
   getEligibleProfile(userId: string, workspaceId: string): Promise<EligibleTrialProfile>;
+  issueClaimLink(input: {
+    userId: string;
+    workspaceId: string;
+    tokenHash: string;
+    expiresAt: Date;
+    issuedAt: Date;
+  }): Promise<void>;
   claim(input: {
     userId: string;
     workspaceId: string;
+    claimTokenHash: string;
     emailHash: string;
     phoneHash: string;
     deviceHash: string;
@@ -31,22 +41,42 @@ export class TrialService {
     private readonly repo: TrialStore,
     private readonly identityPepper: string,
     private readonly now: () => Date = () => new Date(),
+    private readonly generateToken: () => string = () => randomBytes(32).toString('base64url'),
   ) {
     if (identityPepper.length < 16) throw new Error('Trial identity pepper is not configured');
   }
 
-  async claim(input: { userId: string; workspaceId: string; deviceToken: string; ip: string }) {
+  async issueClaimLink(input: { userId: string; workspaceId: string }) {
+    await this.eligibleIdentity(input.userId, input.workspaceId);
+    const token = this.generateToken();
+    const issuedAt = this.now();
+    const expiresAt = new Date(issuedAt.getTime() + TRIAL_CLAIM_LINK_TTL_MS);
+    await this.repo.issueClaimLink({
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+      tokenHash: hashTrialClaimToken(token),
+      expiresAt,
+      issuedAt,
+    });
+    return { token, expiresAt };
+  }
+
+  async claim(input: {
+    userId: string;
+    workspaceId: string;
+    claimToken: string;
+    deviceToken: string;
+    ip: string;
+  }) {
+    if (!input.claimToken.trim()) throw new TrialEligibilityError('TRIAL_CLAIM_LINK_REQUIRED');
     if (!input.deviceToken.trim()) throw new TrialEligibilityError('TRIAL_DEVICE_REQUIRED');
-    const profile = await this.repo.getEligibleProfile(input.userId, input.workspaceId);
-    const email = normalizeEmail(profile.email);
-    const phone = normalizeIndonesianPhone(profile.phone);
-    if (!email || !phone) throw new TrialEligibilityError('TRIAL_PROFILE_INCOMPLETE');
-    if (profile.plan !== 'free') throw new TrialEligibilityError('TRIAL_PLAN_INELIGIBLE');
+    const { email, phone } = await this.eligibleIdentity(input.userId, input.workspaceId);
     const startsAt = this.now();
     const endsAt = new Date(startsAt.getTime() + 60 * 86_400_000);
     return this.repo.claim({
       userId: input.userId,
       workspaceId: input.workspaceId,
+      claimTokenHash: hashTrialClaimToken(input.claimToken),
       emailHash: hashIdentity(`email:${email}`, this.identityPepper),
       phoneHash: hashIdentity(`phone:${phone}`, this.identityPepper),
       deviceHash: hashDeviceToken(input.deviceToken),
@@ -54,6 +84,15 @@ export class TrialService {
       startsAt,
       endsAt,
     });
+  }
+
+  private async eligibleIdentity(userId: string, workspaceId: string) {
+    const profile = await this.repo.getEligibleProfile(userId, workspaceId);
+    const email = normalizeEmail(profile.email);
+    const phone = normalizeIndonesianPhone(profile.phone);
+    if (!email || !phone) throw new TrialEligibilityError('TRIAL_PROFILE_INCOMPLETE');
+    if (profile.plan !== 'free') throw new TrialEligibilityError('TRIAL_PLAN_INELIGIBLE');
+    return { email, phone };
   }
 }
 
@@ -74,5 +113,9 @@ export function hashIdentity(value: string, pepper: string): string {
 }
 
 export function hashDeviceToken(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+export function hashTrialClaimToken(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }

@@ -30,7 +30,12 @@ function sendError(
     .send({ error: { code, message, requestId: requestId(req), retryable: false } });
 }
 
-async function authContext(req: FastifyRequest, reply: FastifyReply, secret: string, db?: Parameters<typeof authenticateWithDb>[1]['db']) {
+async function authContext(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  secret: string,
+  db?: Parameters<typeof authenticateWithDb>[1]['db'],
+) {
   const auth = await authenticateWithDb(req, { secret, ...(db ? { db } : {}) });
   if (!auth.workspaceId) {
     sendError(reply, req, 409, 'TRIAL_WORKSPACE_REQUIRED', 'Workspace aktif diperlukan.');
@@ -42,18 +47,42 @@ async function authContext(req: FastifyRequest, reply: FastifyReply, secret: str
 function handleError(err: unknown, req: FastifyRequest, reply: FastifyReply) {
   if (err instanceof ApiError) return reply.status(err.status).send(err.toEnvelope());
   if (err instanceof TrialConflictError || err instanceof TrialEligibilityError) {
-    if (err.code === 'TRIAL_DEVICE_REQUIRED' || err.code === 'TRIAL_PROFILE_INCOMPLETE') {
+    if (err.code === 'TRIAL_PROFILE_INCOMPLETE') {
       return sendError(reply, req, 400, err.code, 'Email dan nomor telepon wajib dilengkapi.');
+    }
+    if (err.code === 'TRIAL_DEVICE_REQUIRED') {
+      return sendError(reply, req, 400, err.code, 'Identitas perangkat tidak valid.');
+    }
+    if (err.code === 'TRIAL_CLAIM_LINK_REQUIRED') {
+      return sendError(reply, req, 400, err.code, 'Tautan klaim trial wajib digunakan.');
     }
     return sendError(
       reply,
       req,
       409,
       err.code,
-      'Trial tidak tersedia untuk akun atau perangkat ini.',
+      'Trial atau tautan klaim tidak tersedia untuk akun ini.',
     );
   }
   return sendError(reply, req, 500, 'INTERNAL_ERROR', 'Terjadi kesalahan internal.');
+}
+
+function hasEligibleTrialRole(roles: string[]): boolean {
+  return (
+    !roles.includes('superadmin') &&
+    !roles.includes('school_admin') &&
+    roles.some((role) => role === 'teacher' || role === 'subscriber')
+  );
+}
+
+function rejectIneligibleRole(reply: FastifyReply, request: FastifyRequest) {
+  return sendError(
+    reply,
+    request,
+    403,
+    'TRIAL_NOT_ELIGIBLE',
+    'Role ini tidak memenuhi syarat trial.',
+  );
 }
 
 export async function registerPlanRoutes(
@@ -104,26 +133,45 @@ export async function registerPlanRoutes(
     }
   });
 
+  app.post('/v1/me/plan/trial/claim-links', async (request, reply) => {
+    if (!options) return sendError(reply, request, 500, 'INTERNAL_ERROR', 'Trial unavailable');
+    try {
+      rateLimit(request, reply, 'trial-claim-link', 5, 60 * 60 * 1000);
+      const auth = await authContext(request, reply, options.jwtSecret, options.db);
+      if (!auth) return;
+      if (!hasEligibleTrialRole(auth.roles)) return rejectIneligibleRole(reply, request);
+      const issued = await options.trials.issueClaimLink({
+        userId: auth.userId,
+        workspaceId: auth.workspaceId!,
+      });
+      return reply
+        .header('cache-control', 'no-store')
+        .status(201)
+        .send({ data: { token: issued.token, expiresAt: issued.expiresAt.toISOString() } });
+    } catch (error) {
+      return handleError(error, request, reply);
+    }
+  });
+
   app.post('/v1/me/plan/trial/claim', async (request, reply) => {
     if (!options) return sendError(reply, request, 500, 'INTERNAL_ERROR', 'Trial unavailable');
     try {
       rateLimit(request, reply, 'trial-claim', 5, 24 * 60 * 60 * 1000);
       const auth = await authContext(request, reply, options.jwtSecret, options.db);
       if (!auth) return;
-      if (
-        auth.roles.includes('superadmin') ||
-        auth.roles.includes('school_admin') ||
-        !auth.roles.some((role) => role === 'teacher' || role === 'subscriber')
-      ) {
+      if (!hasEligibleTrialRole(auth.roles)) return rejectIneligibleRole(reply, request);
+      const body = request.body as { claimToken?: unknown; deviceToken?: unknown } | null;
+      const claimToken = body?.claimToken;
+      if (typeof claimToken !== 'string' || claimToken.length < 32 || claimToken.length > 512) {
         return sendError(
           reply,
           request,
-          403,
-          'TRIAL_NOT_ELIGIBLE',
-          'Role ini tidak memenuhi syarat trial.',
+          400,
+          'TRIAL_CLAIM_LINK_REQUIRED',
+          'Tautan klaim trial tidak valid.',
         );
       }
-      const deviceToken = (request.body as { deviceToken?: unknown } | null)?.deviceToken;
+      const deviceToken = body?.deviceToken;
       if (typeof deviceToken !== 'string' || deviceToken.length < 16 || deviceToken.length > 512) {
         return sendError(
           reply,
@@ -136,11 +184,12 @@ export async function registerPlanRoutes(
       await options.trials.claim({
         userId: auth.userId,
         workspaceId: auth.workspaceId!,
+        claimToken,
         deviceToken,
         ip: request.ip,
       });
       const summary = await service.getPlanSummary(auth.tenantId, auth.workspaceId!, deviceToken);
-      return reply.status(201).send({ data: summary });
+      return reply.header('cache-control', 'no-store').status(201).send({ data: summary });
     } catch (error) {
       return handleError(error, request, reply);
     }

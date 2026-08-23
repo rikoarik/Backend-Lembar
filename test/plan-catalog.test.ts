@@ -9,6 +9,7 @@ import { PlanService } from '../src/modules/plans/application/PlanService.js';
 import { WorkspacePlanRepository } from '../src/modules/plans/persistence/repository.js';
 import type { PlanCatalogEntry } from '../src/modules/plans/persistence/catalogRepository.js';
 import { mapCatalogRow } from '../src/modules/plans/persistence/catalogRepository.js';
+import { PRO_MONTHLY_TOKEN_LIMIT } from '../src/modules/plans/persistence/schema.js';
 
 // ── Catalog row mapper ────────────────────────────────────────────────────────
 describe('mapCatalogRow', () => {
@@ -109,23 +110,19 @@ describe('PlanService.getPlanSummary with catalog', () => {
     expect(summary.catalog.currency).toBe('IDR');
   });
 
-  it('falls back to 60_000 when no catalog (no DB)', async () => {
+  it('falls back to 30_000 when no catalog (no DB)', async () => {
     const svc = new PlanService(makeRepo('free', 0));
     const summary = await svc.getPlanSummary('t1', 'ws1');
-    expect(summary.tokenMonthlyLimit).toBe(60_000);
-    expect(summary.catalog.tokenMonthlyLimit).toBe(60_000);
+    expect(summary.tokenMonthlyLimit).toBe(30_000);
+    expect(summary.catalog.tokenMonthlyLimit).toBe(30_000);
   });
 
-  it('pro plan has null tokenMonthlyLimit', async () => {
-    const catalog = makeCatalog({
-      key: 'pro',
-      tokenMonthlyLimit: null,
-      priceAmount: 49_000,
-      billingPeriod: 'monthly',
-    });
-    const svc = new PlanService(makeRepo('pro', 0), undefined, undefined, catalog);
+  it('pro plan has a finite tokenMonthlyLimit fallback when catalog is unavailable', async () => {
+    // No catalog provided → fail-safe fallback constants apply. Every tier is
+    // finite; the product never promises unlimited AI.
+    const svc = new PlanService(makeRepo('pro', 0));
     const summary = await svc.getPlanSummary('t1', 'ws1');
-    expect(summary.tokenMonthlyLimit).toBeNull();
+    expect(summary.tokenMonthlyLimit).toBe(PRO_MONTHLY_TOKEN_LIMIT);
     expect(summary.catalog.priceAmount).toBe(49_000);
     expect(summary.catalog.billingPeriod).toBe('monthly');
   });

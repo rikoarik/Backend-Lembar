@@ -11,7 +11,12 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { ApiError, buildErrorEnvelope } from '../../../../common/errors/envelope.js';
 import type { AssessmentService } from '../../application/AssessmentService.js';
 import type { QuestionType, Difficulty } from '../../domain/Assessment.js';
-import { assessmentPrivateAuth, jwtActor, jwtWorkspace, type AssessmentRouteAuthOptions } from './privateAuth.js';
+import {
+  assessmentPrivateAuth,
+  jwtActor,
+  jwtWorkspace,
+  type AssessmentRouteAuthOptions,
+} from './privateAuth.js';
 
 const VALID_QUESTION_TYPES: QuestionType[] = [
   'multiple_choice',
@@ -20,6 +25,14 @@ const VALID_QUESTION_TYPES: QuestionType[] = [
   'true_false',
 ];
 const VALID_DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
+const VALID_ASSESSMENT_TYPES = [
+  'practice',
+  'daily',
+  'midterm',
+  'final',
+  'promotion',
+  'tka',
+] as const;
 
 interface CreateAssessmentBody {
   title: string;
@@ -28,6 +41,8 @@ interface CreateAssessmentBody {
   subjectId: string;
   subjectLabel?: string;
   gradeLabel?: string;
+  assessmentType?: string;
+  academicYear?: string;
   sourceUploadIds: string[];
   durationMinutes?: number;
   blueprintItems: Array<{
@@ -117,6 +132,35 @@ export async function registerAssessmentRoutes(
         );
       }
 
+      if (
+        body.assessmentType !== undefined &&
+        !VALID_ASSESSMENT_TYPES.includes(
+          body.assessmentType as (typeof VALID_ASSESSMENT_TYPES)[number],
+        )
+      ) {
+        return reply.status(400).send(
+          buildErrorEnvelope({
+            code: 'VALIDATION_FAILED',
+            message: `Invalid assessmentType: ${body.assessmentType}`,
+            requestId,
+            fieldErrors: { assessmentType: ['invalid_assessment_type'] },
+          }),
+        );
+      }
+      if (
+        body.academicYear !== undefined &&
+        (typeof body.academicYear !== 'string' || !/^\d{4}\/\d{4}$/.test(body.academicYear))
+      ) {
+        return reply.status(400).send(
+          buildErrorEnvelope({
+            code: 'VALIDATION_FAILED',
+            message: 'academicYear must use the format YYYY/YYYY',
+            requestId,
+            fieldErrors: { academicYear: ['invalid_academic_year'] },
+          }),
+        );
+      }
+
       // Validate blueprint item question types and difficulties
       for (const item of body.blueprintItems) {
         if (!VALID_QUESTION_TYPES.includes(item.questionType as QuestionType)) {
@@ -153,6 +197,8 @@ export async function registerAssessmentRoutes(
           subjectId: body.subjectId ?? '',
           subjectLabel: body.subjectLabel ?? null,
           gradeLabel: body.gradeLabel ?? null,
+          assessmentType: body.assessmentType ?? null,
+          academicYear: body.academicYear ?? null,
           sourceUploadIds: Array.isArray(body.sourceUploadIds) ? body.sourceUploadIds : [],
           blueprintItems: body.blueprintItems.map((item) => ({
             sequence: item.sequence,
@@ -165,7 +211,9 @@ export async function registerAssessmentRoutes(
           })),
           idempotencyKey,
           requestId,
-          ...(typeof body.durationMinutes === 'number' ? { durationMinutes: body.durationMinutes } : {}),
+          ...(typeof body.durationMinutes === 'number'
+            ? { durationMinutes: body.durationMinutes }
+            : {}),
         });
 
         const status = result.idempotent ? 200 : 201;

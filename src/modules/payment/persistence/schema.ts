@@ -55,7 +55,7 @@ export const paymentOrders = pgTable(
     ),
     planCheck: check(
       'payment_orders_plan_check',
-      sql`${t.fromPlan} in ('free','pro') and ${t.toPlan} in ('free','pro')`,
+      sql`${t.fromPlan} in ('free','pro','plus') and ${t.toPlan} in ('free','pro','plus')`,
     ),
     amountCheck: check('payment_orders_amount_non_negative', sql`${t.amountCents} >= 0`),
   }),

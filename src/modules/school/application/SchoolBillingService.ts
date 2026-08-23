@@ -38,7 +38,7 @@ export class SchoolBillingService {
       plan: plan.plan,
       seatCount,
       generationsUsedThisMonth: plan.generationsUsedThisMonth,
-      monthlyLimit: plan.plan === 'pro' ? null : FREE_MONTHLY_LIMIT,
+      monthlyLimit: plan.plan === 'free' ? FREE_MONTHLY_LIMIT : null,
       billingCycleStartedAt: plan.billingCycleStartedAt.toISOString(),
     };
   }

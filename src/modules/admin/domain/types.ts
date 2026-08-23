@@ -33,7 +33,7 @@ export interface AdminQualityReport {
 
 export interface AdminEntitlementInput {
   workspaceId: string;
-  plan: 'free' | 'pro';
+  plan: 'free' | 'pro' | 'plus';
   actorId: string;
 }
 

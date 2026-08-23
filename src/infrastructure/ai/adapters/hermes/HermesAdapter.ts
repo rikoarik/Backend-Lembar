@@ -118,6 +118,7 @@ export class HermesAdapter implements ProductAiAdapter {
     input: AiGenerateInput,
     providerName: string,
   ): Promise<ProviderResult> {
+    const modelId = input.modelOverride ?? provider.modelId;
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), provider.timeoutMs);
@@ -129,7 +130,7 @@ export class HermesAdapter implements ProductAiAdapter {
           'Authorization': `Bearer ${provider.apiKey}`,
         },
         body: JSON.stringify({
-          model: provider.modelId,
+          model: modelId,
           messages: [
             { role: 'system', content: 'You are an expert Indonesian education assistant. Always respond with valid JSON.' },
             { role: 'user', content: input.prompt },
@@ -150,7 +151,7 @@ export class HermesAdapter implements ProductAiAdapter {
         return {
           outcome: {
             kind: 'rate_limited',
-            providerModelId: provider.modelId,
+            providerModelId: modelId,
             retryAfterMs: retryAfter,
             redactedReasonFingerprint: fingerprint(`${providerName}:rate_limited`),
           },
@@ -164,7 +165,7 @@ export class HermesAdapter implements ProductAiAdapter {
         return {
           outcome: {
             kind: 'error',
-            providerModelId: provider.modelId,
+            providerModelId: modelId,
             redactedReasonFingerprint: fingerprint(`${providerName}:http:${response.status}:${body.length}`),
             retryable: response.status >= 500,
           },
@@ -186,7 +187,7 @@ export class HermesAdapter implements ProductAiAdapter {
         return {
           outcome: {
             kind: 'error',
-            providerModelId: provider.modelId,
+            providerModelId: modelId,
             redactedReasonFingerprint: fingerprint(`${providerName}:empty_response`),
             retryable: true,
           },
@@ -201,7 +202,7 @@ export class HermesAdapter implements ProductAiAdapter {
         return {
           outcome: {
             kind: 'schema_invalid',
-            providerModelId: provider.modelId,
+            providerModelId: modelId,
             redactedResponseFingerprint: fingerprint(`${providerName}:parse:${responseText.length}`),
             reason: 'parse_error',
             responseText,
@@ -216,7 +217,7 @@ export class HermesAdapter implements ProductAiAdapter {
           promptTemplateId: input.promptTemplateId,
           requestTokensEstimate: data.usage?.prompt_tokens ?? input.tokenEstimateHint ?? Math.ceil(input.prompt.length / 4),
           responseText,
-          providerModelId: provider.modelId,
+          providerModelId: modelId,
           providerRequestId: typeof (data as { id?: unknown }).id === 'string' ? (data as { id: string }).id : null,
           ...(data.usage?.prompt_tokens !== undefined ? { promptTokensActual: data.usage.prompt_tokens } : {}),
           ...(data.usage?.completion_tokens !== undefined ? { completionTokensActual: data.usage.completion_tokens } : {}),
@@ -228,7 +229,7 @@ export class HermesAdapter implements ProductAiAdapter {
       return {
         outcome: {
           kind: 'error',
-          providerModelId: provider.modelId,
+          providerModelId: modelId,
           redactedReasonFingerprint: fingerprint(`${providerName}:${isAbort ? 'timeout' : 'exception'}`),
           retryable: !isAbort,
         },

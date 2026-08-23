@@ -71,6 +71,10 @@ export interface AssessmentConfigSnapshot {
   gradeLabel?: string;
   subjectId: string;
   subjectLabel?: string;
+  /** Generator-selected assessment type used for the printed exam heading. */
+  assessmentType?: string;
+  /** Academic year displayed directly below the printed exam heading. */
+  academicYear?: string;
   sourceUploadIds: string[];
   blueprintItems: BlueprintItemConfig[];
   /** Optional duration in minutes exposed to students via public share. */
