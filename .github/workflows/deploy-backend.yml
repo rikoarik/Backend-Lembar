@@ -16,28 +16,17 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to VPS
+      - name: Deploy Docker services to VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
+          host: 43.156.208.51
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
           script: |
-            cd ~/Projects/Backend-Lembar
-            
-            # Pull latest changes
-            git pull origin dev
-            
-            # Install dependencies
-            pnpm install --frozen-lockfile
-            
-            # Build
-            pnpm run build
-            
-            # Restart PM2
-            pm2 restart lembar-api --update-env
-            
-            # Check status
-            pm2 status lembar-api
-            
-            echo "✅ Backend deployed successfully!"
+            set -eu
+            cd /home/hermes/Projects/Backend-Lembar
+            git -c safe.directory=/home/hermes/Projects/Backend-Lembar pull --ff-only origin dev
+            docker compose up --build --detach --remove-orphans
+            docker compose ps
+            curl --fail --silent --show-error http://127.0.0.1:4000/health >/dev/null

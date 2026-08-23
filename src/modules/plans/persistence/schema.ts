@@ -35,7 +35,7 @@ export type PlanType = (typeof PLAN_TYPES)[number];
  * table is unavailable (tests / no DB).
  */
 export const FREE_MONTHLY_TOKEN_LIMIT = 30_000;
-export const PRO_MONTHLY_TOKEN_LIMIT = 250_000;
+export const PRO_MONTHLY_TOKEN_LIMIT = 300_000;
 export const PLUS_MONTHLY_TOKEN_LIMIT = 300_000;
 /** @deprecated compatibility only. */
 export const FREE_MONTHLY_LIMIT = 3;

@@ -35,7 +35,7 @@ export class PlanService {
   private async catalogFor(key: PlanType): Promise<PlanCatalogEntry> {
     const found = await this.catalog?.find(key);
     if (found) return found;
-    // ponytail: fail-safe for tests/no DB; remove once migration 0034 is mandatory everywhere.
+    // ponytail: fail-safe for tests/no DB; remove once migration 0035 is mandatory everywhere.
     // Every tier is finite — the product never promises unlimited AI.
     const tokenMonthlyLimit =
       key === 'plus'
@@ -43,7 +43,7 @@ export class PlanService {
         : key === 'pro'
           ? PRO_MONTHLY_TOKEN_LIMIT
           : FREE_MONTHLY_TOKEN_LIMIT;
-    const priceAmount = key === 'plus' ? 149_000 : key === 'pro' ? 49_000 : 0;
+    const priceAmount = key === 'plus' ? 149_000 : key === 'pro' ? 149_000 : 0;
     return {
       key,
       displayName: key === 'plus' ? 'Plus' : key === 'pro' ? 'Pro' : 'Free',
@@ -51,7 +51,10 @@ export class PlanService {
       currency: 'IDR',
       billingPeriod: key === 'free' ? null : 'monthly',
       tokenMonthlyLimit,
-      features: [],
+      features:
+        key === 'pro'
+          ? ['Menggunakan GPT-5.6 Sol terbaru untuk generasi yang lebih baik.']
+          : [],
       active: true,
       revision: 1,
       updatedAt: new Date(0).toISOString(),
