@@ -17,12 +17,12 @@ export class PostgresQuestionReviewStore implements QuestionReviewStore {
     const { rows } = await pool.query<ReviewedQuestionRow>(
       `INSERT INTO reviewed_questions (
         id, original_question_id, assessment_version_id, workspace_id, blueprint_sequence,
-        question_type, difficulty, stem, options, answer, explanation, source_ids,
+        question_type, difficulty, stem, options, answer, explanation, source_ids, image,
         status, version, etag, candidate_id, is_finalized, created_at, updated_at
       ) VALUES (
         $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5,
-        $6, $7, $8, $9::jsonb, $10, $11, $12::jsonb,
-        $13, $14, $15, $16::uuid, $17, $18::timestamptz, $19::timestamptz
+        $6, $7, $8, $9::jsonb, $10, $11, $12::jsonb, $13::jsonb,
+        $14, $15, $16, $17::uuid, $18, $19::timestamptz, $20::timestamptz
       )
       ON CONFLICT (id) DO UPDATE SET
         original_question_id = EXCLUDED.original_question_id,
@@ -36,6 +36,7 @@ export class PostgresQuestionReviewStore implements QuestionReviewStore {
         answer = EXCLUDED.answer,
         explanation = EXCLUDED.explanation,
         source_ids = EXCLUDED.source_ids,
+        image = EXCLUDED.image,
         status = EXCLUDED.status,
         version = EXCLUDED.version,
         etag = EXCLUDED.etag,
@@ -57,6 +58,7 @@ export class PostgresQuestionReviewStore implements QuestionReviewStore {
         question.answer,
         question.explanation,
         JSON.stringify(question.sourceIds),
+        question.image === undefined ? null : JSON.stringify(question.image),
         question.status,
         question.version,
         question.etag,
@@ -252,6 +254,7 @@ interface ReviewedQuestionRow {
   answer: string;
   explanation: string;
   source_ids: string[];
+  image: ReviewedQuestion['image'] | null;
   status: ReviewedQuestion['status'];
   version: number;
   etag: string;
@@ -299,6 +302,7 @@ function mapReviewedQuestion(row: ReviewedQuestionRow): ReviewedQuestion {
     answer: row.answer,
     explanation: row.explanation,
     sourceIds: [...row.source_ids],
+    ...(row.image != null ? { image: { ...row.image } } : {}),
     status: row.status,
     version: row.version,
     etag: row.etag,

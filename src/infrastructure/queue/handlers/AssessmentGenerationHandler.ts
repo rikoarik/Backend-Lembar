@@ -15,6 +15,10 @@ import type {
   Difficulty,
   AssessmentsStore,
 } from '../../../modules/assessments/domain/Assessment.js';
+import {
+  normalizeQuestionGenerationContext,
+  normalizeQuestionImageGenerationSettings,
+} from '../../../modules/assessments/domain/QuestionGeneration.js';
 
 export interface AssessmentGenerationHandlerOptions {
   questionGenerationService: QuestionGenerationService;
@@ -49,18 +53,26 @@ export class AssessmentGenerationHandler implements JobHandler {
       const assessmentVersionId = String(payload.assessmentVersionId ?? payload.assessmentId ?? jobId);
       const blueprintItems = Array.isArray(payload.blueprintItems) ? payload.blueprintItems : [];
       const blueprintSchemaVersion = String(payload.blueprintSchemaVersion ?? '1.0');
+      const imageGeneration = normalizeQuestionImageGenerationSettings(payload.imageGeneration);
+      const generationContext = normalizeQuestionGenerationContext(payload.generationContext);
 
-      // Map raw payload items to typed blueprint items
-      const typedBlueprint = blueprintItems.map((item: any, idx: number) => ({
-        sequence: Number(item.sequence ?? idx),
-        questionType: (item.questionType ?? item.question_type ?? 'multiple_choice') as QuestionType,
-        difficulty: (item.difficulty ?? 'medium') as Difficulty,
-        cognitiveLevel: (item.cognitiveLevel ?? item.cognitive_level ?? null) as string | null,
-        topicHint: (item.topicHint ?? item.topic_hint ?? null) as string | null,
-        outcomeId: (item.outcomeId ?? item.outcome_id ?? null) as string | null,
-        sourceUploadId: (item.sourceUploadId ?? item.source_upload_id ?? null) as string | null,
-        citationIds: Array.isArray(item.citationIds) ? item.citationIds : [],
-      }));
+      // Map raw payload items to typed blueprint items.
+      const typedBlueprint = blueprintItems.map((item: unknown, idx: number) => {
+        const raw = item && typeof item === 'object' ? (item as Record<string, unknown>) : {};
+        const stringOrNull = (value: unknown) => (typeof value === 'string' ? value : null);
+        return {
+          sequence: Number(raw.sequence ?? idx),
+          questionType: (raw.questionType ?? raw.question_type ?? 'multiple_choice') as QuestionType,
+          difficulty: (raw.difficulty ?? 'medium') as Difficulty,
+          cognitiveLevel: stringOrNull(raw.cognitiveLevel ?? raw.cognitive_level),
+          topicHint: stringOrNull(raw.topicHint ?? raw.topic_hint),
+          outcomeId: stringOrNull(raw.outcomeId ?? raw.outcome_id),
+          sourceUploadId: stringOrNull(raw.sourceUploadId ?? raw.source_upload_id),
+          citationIds: Array.isArray(raw.citationIds)
+            ? raw.citationIds.filter((id): id is string => typeof id === 'string')
+            : [],
+        };
+      });
 
       // If no blueprint items, generate a default set of 5 questions
       if (typedBlueprint.length === 0) {
@@ -94,6 +106,8 @@ export class AssessmentGenerationHandler implements JobHandler {
         },
         requestId: jobId,
         jobId,
+        imageGeneration,
+        generationContext,
         ...(context.reportProgress ? { onProgress: context.reportProgress } : {}),
       });
 
@@ -140,6 +154,7 @@ export class AssessmentGenerationHandler implements JobHandler {
           questionsSucceeded: succeeded.length,
           questionsFailed: failed,
           totalSchemaRepairAttempts: result.totalSchemaRepairAttempts,
+          imagesGenerated: result.imagesGenerated,
           hasFailures: result.hasFailures,
         },
       };

@@ -292,6 +292,44 @@ describe('B3-03 QuestionGenerationService', () => {
       expect(result.questions[0]!.versionMetadata.schemaRepairAttempts).toBe(0);
     });
 
+    it('uses bounded teacher context to guide the prompt without replacing the blueprint', async () => {
+      const prompts: string[] = [];
+      const aiService = {
+        run: async (request: { prompt: string }) => {
+          prompts.push(request.prompt);
+          return makeValidAiResponse();
+        },
+      } as unknown as ProductAiService;
+      const blueprintService = createMockBlueprintService(VALID_BLUEPRINT);
+      const service = new QuestionGenerationService({
+        store: questionStore,
+        blueprintService,
+        aiService,
+        env: TEST_AI_ENV,
+      });
+
+      await service.generateQuestions({
+        workspaceId: WORKSPACE_ID,
+        assessmentVersionId: ASSESSMENT_VERSION_ID,
+        blueprintItems: VALID_BLUEPRINT.items,
+        blueprintSchemaVersion: '1.0.0',
+        coverageTargets: { minTotalItems: 1, maxTotalItems: 10 },
+        requestId: 'req-1',
+        generationContext: {
+          sourceMode: 'catalog_and_pdf',
+          materialIds: ['material-pecahan'],
+          teacherFocus: 'Utamakan penalaran dan contoh kehidupan sehari-hari.',
+          exampleQuestion: 'Gunakan gaya bahasa sederhana, jangan menyalin ini.',
+        },
+      });
+
+      expect(prompts[0]).toContain('Source mode: catalog_and_pdf');
+      expect(prompts[0]).toContain('Selected material IDs: material-pecahan');
+      expect(prompts[0]).toContain('Teacher focus: Utamakan penalaran');
+      expect(prompts[0]).toContain('Style reference (do not copy its wording or answer)');
+      expect(prompts[0]).toContain('Cognitive level: understand');
+    });
+
     it('should accumulate schemaRepairAttempts across items', async () => {
       // First item fails, second succeeds
       const aiService = createMockAiService([

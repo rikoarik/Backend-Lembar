@@ -146,5 +146,6 @@ function deepCopyQuestion(q: ReviewedQuestion): ReviewedQuestion {
     ...q,
     options: q.options.map((o) => ({ ...o })),
     sourceIds: [...q.sourceIds],
+    ...(q.image !== undefined ? { image: q.image ? { ...q.image } : null } : {}),
   };
 }

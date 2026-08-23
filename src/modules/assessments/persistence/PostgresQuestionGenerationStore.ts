@@ -21,13 +21,13 @@ export class PostgresQuestionGenerationStore implements QuestionGenerationStore 
     const sql = `INSERT INTO "generated_questions" (
       "id", "workspace_id", "assessment_version_id", "blueprint_sequence",
       "question_type", "difficulty", "stem", "options", "answer",
-      "explanation", "source_ids", "version_metadata", "created_at"
+      "explanation", "source_ids", "image", "version_metadata", "created_at"
     ) VALUES %ROWS%
     ON CONFLICT ("id") DO NOTHING
     RETURNING *`;
     const params: unknown[] = [];
     const tuples = questions.map((q, i) => {
-      const base = i * 13;
+      const base = i * 14;
       const createdAt = q.createdAt ? new Date(q.createdAt) : new Date();
       params.push(
         q.id,
@@ -41,10 +41,11 @@ export class PostgresQuestionGenerationStore implements QuestionGenerationStore 
         q.answer,
         q.explanation,
         JSON.stringify(q.sourceIds),
+        q.image === undefined ? null : JSON.stringify(q.image),
         JSON.stringify(q.versionMetadata),
         createdAt,
       );
-      return `($${base + 1}::uuid, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::jsonb, $${base + 9}, $${base + 10}, $${base + 11}::jsonb, $${base + 12}::jsonb, $${base + 13}::timestamptz)`;
+      return `($${base + 1}::uuid, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}::jsonb, $${base + 9}, $${base + 10}, $${base + 11}::jsonb, $${base + 12}::jsonb, $${base + 13}::jsonb, $${base + 14}::timestamptz)`;
     });
     const finalSql = sql.replace('%ROWS%', tuples.join(', '));
     const result = await this.exec.query<QuestionRow>(finalSql, params);
@@ -90,6 +91,7 @@ interface QuestionRow {
   answer: string;
   explanation: string;
   source_ids: unknown;
+  image: unknown | null;
   version_metadata: unknown;
   created_at: Date | string;
 }
@@ -109,6 +111,7 @@ function rowToQuestion(row: QuestionRow): GeneratedQuestion {
     answer: row.answer,
     explanation: row.explanation,
     sourceIds: row.source_ids as GeneratedQuestion['sourceIds'],
+    ...(row.image != null ? { image: row.image as NonNullable<GeneratedQuestion['image']> } : {}),
     versionMetadata: row.version_metadata as GeneratedQuestion['versionMetadata'],
     createdAt: created.toISOString(),
   };

@@ -129,6 +129,27 @@ describe('AssessmentService', () => {
 
       expect(result.version.configSnapshot.sourceUploadIds).toContain(UPLOAD_ID);
     });
+
+    it('captures bounded teacher generation context in the immutable snapshot', async () => {
+      const { service } = makeService();
+
+      const result = await service.createConfig({
+        ...BASE_INPUT,
+        generationContext: {
+          sourceMode: 'catalog_and_pdf',
+          materialIds: ['material-1', 'material-2'],
+          teacherFocus: 'Utamakan penalaran pecahan.',
+          exampleQuestion: 'Gunakan konteks berbagi makanan tanpa menyalin contoh ini.',
+        },
+      });
+
+      expect(result.version.configSnapshot.generationContext).toEqual({
+        sourceMode: 'catalog_and_pdf',
+        materialIds: ['material-1', 'material-2'],
+        teacherFocus: 'Utamakan penalaran pecahan.',
+        exampleQuestion: 'Gunakan konteks berbagi makanan tanpa menyalin contoh ini.',
+      });
+    });
   });
 
   describe('createConfig — validation', () => {

@@ -14,10 +14,15 @@ import {
   ExportPdfHandler,
 } from '../handlers/index.js';
 import { InMemorySourceUploadsStore } from '../../../modules/uploads/persistence/InMemorySourceUploadsStore.js';
+import { PostgresSourceUploadsStore } from '../../../modules/uploads/persistence/PostgresSourceUploadsStore.js';
 import {
   InMemorySourceExtractionJobsStore,
   InMemorySourcePassagesStore,
 } from '../../../modules/sources/persistence/InMemorySourceExtractionStores.js';
+import {
+  PostgresSourceExtractionJobsStore,
+  PostgresSourcePassagesStore,
+} from '../../../modules/sources/persistence/PostgresSourceExtractionStores.js';
 import {
   SourceExtractionService,
   StubTextExtractorAdapter,
@@ -42,9 +47,11 @@ import {
   InMemoryAiAuditRecorder,
 } from '../../ai/persistence/AiAuditRepository.js';
 import { parseAiEnv } from '../../../config/ai.env.js';
+import { parseImageGenerationEnv } from '../../../config/image-generation.env.js';
 import { ConfigError } from '../../../config/errors.js';
 import { MockAiAdapter } from '../../ai/adapters/mock/MockAiAdapter.js';
 import { HermesAdapter } from '../../ai/adapters/hermes/HermesAdapter.js';
+import { OpenAiQuestionImageGenerator } from '../../ai/adapters/openai/OpenAiQuestionImageGenerator.js';
 import { closeDatabase, createDatabase, getPool, type Database } from '../../database/db.js';
 import { QUESTION_OUTPUT_SCHEMA } from '../../../modules/assessments/application/QuestionGenerationService.js';
 import { WorkspacePlanRepository } from '../../../modules/plans/persistence/repository.js';
@@ -61,6 +68,8 @@ export interface WorkerServiceOptions {
     | undefined;
   /** Optional: inject a custom AI adapter (HermesAdapter etc). If omitted, uses mock. */
   aiAdapter?: import('../../ai/domain/ProductAiAdapter.js').ProductAiAdapter;
+  /** Optional image generator override for tests or alternate providers. */
+  imageGenerator?: import('../../../modules/assessments/domain/QuestionGeneration.js').QuestionImageGenerator;
 }
 
 export interface WorkerServiceHealth {
@@ -104,10 +113,22 @@ export class WorkerService {
   }
 
   private setupHandlers(): void {
-    // SourceIngestionHandler requires storage + extraction service deps.
+    const databaseUrl = process.env.DATABASE_URL;
+    if (databaseUrl && databaseUrl.length > 0) {
+      this.managedDb = createDatabase({ connectionString: databaseUrl });
+    }
+
+    // Source ingestion and assessment generation must share durable stores when available.
     const storage = createStorageAdapter();
-    const jobsStore = new InMemorySourceExtractionJobsStore();
-    const passagesStore = new InMemorySourcePassagesStore();
+    const jobsStore = this.managedDb
+      ? new PostgresSourceExtractionJobsStore(this.managedDb)
+      : new InMemorySourceExtractionJobsStore();
+    const passagesStore = this.managedDb
+      ? new PostgresSourcePassagesStore(this.managedDb)
+      : new InMemorySourcePassagesStore();
+    const uploadsStore = this.managedDb
+      ? new PostgresSourceUploadsStore(this.managedDb)
+      : new InMemorySourceUploadsStore();
     const extractionService = new SourceExtractionService({
       jobsStore,
       passagesStore,
@@ -115,7 +136,7 @@ export class WorkerService {
     });
     this.registry.register(
       new SourceIngestionHandler({
-        uploadsStore: new InMemorySourceUploadsStore(),
+        uploadsStore,
         storage,
         extractionService,
       }),
@@ -131,6 +152,18 @@ export class WorkerService {
     }
 
     const aiAdapter = this.options.aiAdapter ?? buildAiAdapterFromEnv(aiEnv);
+    let imageGenerator = this.options.imageGenerator;
+    if (!imageGenerator) {
+      try {
+        const imageEnv = parseImageGenerationEnv(process.env);
+        if (imageEnv.enabled && imageEnv.apiKey) {
+          imageGenerator = new OpenAiQuestionImageGenerator({ env: imageEnv });
+        }
+      } catch {
+        // Invalid optional image configuration disables images without blocking text generation.
+        imageGenerator = undefined;
+      }
+    }
 
     // Register JSON schemas for every prompt template id the worker may dispatch.
     // ponytail: schema registry stays in-memory here. Add a Postgres-backed schema
@@ -141,10 +174,8 @@ export class WorkerService {
 
     // Audit recorder: prefer Postgres when DATABASE_URL is set, else fall back to
     // in-memory so local smoke / tests stay green without a database.
-    const databaseUrl = process.env.DATABASE_URL;
     let audit: AiAuditRepository | InMemoryAiAuditRecorder;
-    if (databaseUrl && databaseUrl.length > 0) {
-      this.managedDb = createDatabase({ connectionString: databaseUrl });
+    if (this.managedDb) {
       audit = new AiAuditRepository(this.managedDb);
     } else {
       audit = new InMemoryAiAuditRecorder();
@@ -200,7 +231,6 @@ export class WorkerService {
         : {}),
     });
 
-    const uploadsStore = new InMemorySourceUploadsStore();
     const retrievalStore = new InMemorySourceRetrievalStore({ passagesStore, uploadsStore });
     const sourceRetrievalService = new SourceRetrievalService({ retrievalStore: retrievalStore });
     const assessmentsStore = this.managedDb
@@ -226,6 +256,7 @@ export class WorkerService {
       blueprintService,
       aiService,
       env: aiEnv,
+      ...(imageGenerator ? { imageGenerator } : {}),
     });
 
     this.registry.register(

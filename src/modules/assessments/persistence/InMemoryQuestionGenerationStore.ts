@@ -9,19 +9,9 @@ export class InMemoryQuestionGenerationStore implements QuestionGenerationStore 
   private readonly questions: GeneratedQuestion[] = [];
 
   async saveQuestions(questions: GeneratedQuestion[]): Promise<GeneratedQuestion[]> {
-    const copies = questions.map((q) => ({
-      ...q,
-      options: [...q.options.map((opt) => ({ ...opt }))],
-      sourceIds: [...q.sourceIds],
-      versionMetadata: { ...q.versionMetadata },
-    }));
+    const copies = questions.map(copyQuestion);
     this.questions.push(...copies);
-    return copies.map((q) => ({
-      ...q,
-      options: [...q.options.map((opt) => ({ ...opt }))],
-      sourceIds: [...q.sourceIds],
-      versionMetadata: { ...q.versionMetadata },
-    }));
+    return copies.map(copyQuestion);
   }
 
   async getQuestionsByAssessmentVersionId(
@@ -30,12 +20,7 @@ export class InMemoryQuestionGenerationStore implements QuestionGenerationStore 
   ): Promise<GeneratedQuestion[]> {
     return this.questions
       .filter((q) => q.workspaceId === workspaceId && q.assessmentVersionId === assessmentVersionId)
-      .map((q) => ({
-        ...q,
-        options: [...q.options.map((opt) => ({ ...opt }))],
-        sourceIds: [...q.sourceIds],
-        versionMetadata: { ...q.versionMetadata },
-      }));
+      .map(copyQuestion);
   }
 
   async getQuestionById(
@@ -44,11 +29,18 @@ export class InMemoryQuestionGenerationStore implements QuestionGenerationStore 
   ): Promise<GeneratedQuestion | null> {
     const q = this.questions.find((q) => q.workspaceId === workspaceId && q.id === questionId);
     if (!q) return null;
-    return {
-      ...q,
-      options: [...q.options.map((opt) => ({ ...opt }))],
-      sourceIds: [...q.sourceIds],
-      versionMetadata: { ...q.versionMetadata },
-    };
+    return copyQuestion(q);
   }
+}
+
+function copyQuestion(question: GeneratedQuestion): GeneratedQuestion {
+  return {
+    ...question,
+    options: question.options.map((option) => ({ ...option })),
+    sourceIds: [...question.sourceIds],
+    ...(question.image !== undefined
+      ? { image: question.image ? { ...question.image } : null }
+      : {}),
+    versionMetadata: { ...question.versionMetadata },
+  };
 }

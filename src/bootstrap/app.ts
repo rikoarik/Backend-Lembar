@@ -57,7 +57,12 @@ import { InMemoryAssessmentsStore } from '../modules/assessments/persistence/InM
 import { PostgresAssessmentsStore } from '../modules/assessments/persistence/PostgresAssessmentsStore.js';
 import { registerAssessmentRoutes } from '../modules/assessments/adapters/http/routes.js';
 import { InMemorySourceUploadsStore } from '../modules/uploads/persistence/InMemorySourceUploadsStore.js';
+import { PostgresSourceUploadsStore } from '../modules/uploads/persistence/PostgresSourceUploadsStore.js';
 import { InMemorySourceExtractionJobsStore } from '../modules/sources/persistence/InMemorySourceExtractionStores.js';
+import {
+  PostgresSourceExtractionJobsStore,
+  PostgresSourcePassagesStore,
+} from '../modules/sources/persistence/PostgresSourceExtractionStores.js';
 // B5-04: History + bank soal
 import { HistoryService } from '../modules/assessments/application/HistoryService.js';
 import { InMemoryQuestionGenerationStore } from '../modules/assessments/persistence/InMemoryQuestionGenerationStore.js';
@@ -456,8 +461,12 @@ export async function buildApp(
     const assessmentStore = managedDb
       ? new PostgresAssessmentsStore(managedDb)
       : new InMemoryAssessmentsStore();
-    const uploadsStore = new InMemorySourceUploadsStore();
-    const extractionJobsStore = new InMemorySourceExtractionJobsStore();
+    const uploadsStore = managedDb
+      ? new PostgresSourceUploadsStore(managedDb)
+      : new InMemorySourceUploadsStore();
+    const extractionJobsStore = managedDb
+      ? new PostgresSourceExtractionJobsStore(managedDb)
+      : new InMemorySourceExtractionJobsStore();
     const questionGenStore = pool
       ? new PostgresQuestionGenerationStore(pool)
       : new InMemoryQuestionGenerationStore();
@@ -493,7 +502,9 @@ export async function buildApp(
     });
 
     // B3-02: Blueprint pipeline
-    const passagesStore = new InMemorySourcePassagesStore();
+    const passagesStore = managedDb
+      ? new PostgresSourcePassagesStore(managedDb)
+      : new InMemorySourcePassagesStore();
     const sourceRetrievalStore = new InMemorySourceRetrievalStore({ passagesStore, uploadsStore });
     const sourceRetrievalService = new SourceRetrievalService({
       retrievalStore: sourceRetrievalStore,

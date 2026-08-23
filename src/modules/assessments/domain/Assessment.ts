@@ -12,6 +12,11 @@
  *   AssessmentService, not in the domain types.
  */
 
+import type {
+  QuestionGenerationContext,
+  QuestionImageGenerationSettings,
+} from './QuestionGeneration.js';
+
 export type AssessmentStatus = 'draft' | 'generating' | 'ready' | 'failed' | 'archived';
 export type AssessmentVersionStatus = 'draft' | 'generating' | 'ready' | 'failed';
 export type QuestionType = 'multiple_choice' | 'short_answer' | 'essay' | 'true_false';
@@ -79,6 +84,10 @@ export interface AssessmentConfigSnapshot {
   blueprintItems: BlueprintItemConfig[];
   /** Optional duration in minutes exposed to students via public share. */
   durationMinutes?: number | undefined;
+  /** Bounded image-generation preferences captured at submission time. */
+  imageGeneration?: QuestionImageGenerationSettings;
+  /** Teacher-authored generation context, frozen with the version for reproducibility. */
+  generationContext?: QuestionGenerationContext;
 }
 
 export interface BlueprintItemConfig {

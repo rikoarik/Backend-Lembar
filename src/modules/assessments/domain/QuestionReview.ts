@@ -13,7 +13,7 @@
  */
 
 import type { QuestionType, Difficulty } from './Assessment.js';
-import type { QuestionOption } from './QuestionGeneration.js';
+import type { QuestionImage, QuestionOption } from './QuestionGeneration.js';
 
 // ---- Review status ----
 
@@ -43,6 +43,8 @@ export interface ReviewedQuestion {
   rubric?: RubricCriterion[];
   /** Original source IDs from GeneratedQuestion — preserved for integrity */
   sourceIds: string[];
+  /** Optional visual aid copied from the generated question. */
+  image?: QuestionImage | null;
   status: QuestionReviewStatus;
   /** Monotonically incremented on every edit */
   version: number;
@@ -102,6 +104,7 @@ export interface CreateReviewedQuestionInput {
   answer: string;
   explanation: string;
   sourceIds: string[];
+  image?: QuestionImage | null;
 }
 
 export interface EditReviewedQuestionInput {

@@ -19,7 +19,7 @@
  */
 import { createHash, randomUUID } from 'node:crypto';
 
-import type { GeneratedQuestion } from '../domain/QuestionGeneration.js';
+import type { GeneratedQuestion, QuestionImage } from '../domain/QuestionGeneration.js';
 import type {
   EditReviewedQuestionInput,
   QuestionAuditEntry,
@@ -144,6 +144,9 @@ export class QuestionReviewService {
       answer: generatedQuestion.answer,
       explanation: generatedQuestion.explanation,
       sourceIds: [...generatedQuestion.sourceIds],
+      ...(generatedQuestion.image !== undefined
+        ? { image: copyQuestionImage(generatedQuestion.image) }
+        : {}),
       status: 'pending',
       version,
       etag: computeEtag(id, version),
@@ -417,6 +420,7 @@ export class QuestionReviewService {
       answer: original.answer,
       explanation: original.explanation,
       sourceIds: [...original.sourceIds],
+      ...(original.image !== undefined ? { image: copyQuestionImage(original.image) } : {}),
       status: 'pending',
       version: candidateVersion,
       etag: computeEtag(candidateId, candidateVersion),
@@ -482,6 +486,7 @@ export class QuestionReviewService {
       answer: candidate.answer,
       explanation: candidate.explanation,
       sourceIds: [...original.sourceIds], // source integrity: keep original sources
+      ...(candidate.image !== undefined ? { image: copyQuestionImage(candidate.image) } : {}),
       status: 'accepted',
       version: newVersion,
       etag: computeEtag(original.id, newVersion),
@@ -605,11 +610,33 @@ export class QuestionReviewService {
       assessmentVersionId: params.reviewed.assessmentVersionId,
       workspaceId: params.reviewed.workspaceId,
       action: params.action,
-      previousSnapshot: params.previous,
-      nextSnapshot: params.reviewed,
+      previousSnapshot: params.previous ? auditSafeSnapshot(params.previous) : null,
+      nextSnapshot: auditSafeSnapshot(params.reviewed),
       actorUserId: params.actorUserId,
       createdAt: this.clock().toISOString(),
     };
     await this.options.store.appendAudit(entry);
   }
+}
+
+function copyQuestionImage(image: QuestionImage | null | undefined): QuestionImage | null {
+  return image ? { ...image } : null;
+}
+
+function auditSafeSnapshot(question: ReviewedQuestion): ReviewedQuestion {
+  const image = question.image
+    ? {
+        alt: question.image.alt,
+        mimeType: question.image.mimeType,
+        providerModelId: question.image.providerModelId,
+      }
+    : question.image;
+
+  return {
+    ...question,
+    options: question.options.map((option) => ({ ...option })),
+    sourceIds: [...question.sourceIds],
+    ...(question.rubric ? { rubric: question.rubric.map((criterion) => ({ ...criterion })) } : {}),
+    ...(image !== undefined ? { image } : {}),
+  };
 }

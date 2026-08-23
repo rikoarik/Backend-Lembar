@@ -12,6 +12,10 @@ import { ApiError, buildErrorEnvelope } from '../../../../common/errors/envelope
 import type { AssessmentService } from '../../application/AssessmentService.js';
 import type { QuestionType, Difficulty } from '../../domain/Assessment.js';
 import {
+  normalizeQuestionGenerationContext,
+  normalizeQuestionImageGenerationSettings,
+} from '../../domain/QuestionGeneration.js';
+import {
   assessmentPrivateAuth,
   jwtActor,
   jwtWorkspace,
@@ -45,6 +49,8 @@ interface CreateAssessmentBody {
   academicYear?: string;
   sourceUploadIds: string[];
   durationMinutes?: number;
+  imageGeneration?: unknown;
+  generationContext?: unknown;
   blueprintItems: Array<{
     sequence: number;
     outcomeId?: string | null;
@@ -210,6 +216,8 @@ export async function registerAssessmentRoutes(
             sourceUploadId: item.sourceUploadId ?? null,
           })),
           idempotencyKey,
+          imageGeneration: normalizeQuestionImageGenerationSettings(body.imageGeneration),
+          generationContext: normalizeQuestionGenerationContext(body.generationContext),
           requestId,
           ...(typeof body.durationMinutes === 'number'
             ? { durationMinutes: body.durationMinutes }

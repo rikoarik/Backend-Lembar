@@ -8,17 +8,17 @@
  * reads return empty, never leak content.
  */
 import type { RetrievedPassage, SourceRetrievalStore } from '../domain/SourceRetrieval.js';
-import type { InMemorySourcePassagesStore } from './InMemorySourceExtractionStores.js';
-import type { InMemorySourceUploadsStore } from '../../uploads/persistence/InMemorySourceUploadsStore.js';
+import type { SourcePassagesStore } from '../domain/SourceExtraction.js';
+import type { SourceUploadsStore } from '../../uploads/domain/SourceUpload.js';
 
 export interface InMemorySourceRetrievalStoreOptions {
-  passagesStore: InMemorySourcePassagesStore;
-  uploadsStore: InMemorySourceUploadsStore;
+  passagesStore: SourcePassagesStore;
+  uploadsStore: SourceUploadsStore;
 }
 
 export class InMemorySourceRetrievalStore implements SourceRetrievalStore {
-  private readonly passagesStore: InMemorySourcePassagesStore;
-  private readonly uploadsStore: InMemorySourceUploadsStore;
+  private readonly passagesStore: SourcePassagesStore;
+  private readonly uploadsStore: SourceUploadsStore;
 
   constructor(options: InMemorySourceRetrievalStoreOptions) {
     this.passagesStore = options.passagesStore;

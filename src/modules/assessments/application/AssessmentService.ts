@@ -24,6 +24,14 @@ import type {
 } from '../domain/Assessment.js';
 import type { SourceUploadsStore } from '../../uploads/domain/SourceUpload.js';
 import type { SourceExtractionJobsStore } from '../../sources/domain/SourceExtraction.js';
+import type {
+  QuestionGenerationContext,
+  QuestionImageGenerationSettings,
+} from '../domain/QuestionGeneration.js';
+import {
+  normalizeQuestionGenerationContext,
+  normalizeQuestionImageGenerationSettings,
+} from '../domain/QuestionGeneration.js';
 
 // ---- Service input/output types ----
 
@@ -60,6 +68,10 @@ export interface CreateAssessmentConfigInput {
   idempotencyKey?: string | null;
   /** Duration in minutes, stored in configSnapshot JSONB. */
   durationMinutes?: number | null;
+  /** Optional image-generation settings, normalized and bounded server-side. */
+  imageGeneration?: QuestionImageGenerationSettings;
+  /** Teacher-authored context, normalized and retained with the immutable version snapshot. */
+  generationContext?: QuestionGenerationContext;
   requestId: string;
 }
 
@@ -92,6 +104,8 @@ function fingerprintConfig(input: CreateAssessmentConfigInput): string {
     assessmentType: input.assessmentType ?? null,
     academicYear: input.academicYear ?? null,
     durationMinutes: input.durationMinutes ?? null,
+    imageGeneration: normalizeQuestionImageGenerationSettings(input.imageGeneration),
+    generationContext: normalizeQuestionGenerationContext(input.generationContext),
     sourceUploadIds: [...input.sourceUploadIds].sort(),
     blueprintItems: [...input.blueprintItems].sort((a, b) => a.sequence - b.sequence),
   });
@@ -237,6 +251,8 @@ export class AssessmentService {
       sourceUploadId: item.sourceUploadId ?? null,
     }));
 
+    const imageGeneration = normalizeQuestionImageGenerationSettings(input.imageGeneration);
+    const generationContext = normalizeQuestionGenerationContext(input.generationContext);
     const configSnapshot: AssessmentConfigSnapshot & { _fingerprint: string } = {
       schemaVersion: '1',
       title: input.title,
@@ -249,6 +265,8 @@ export class AssessmentService {
       ...(input.academicYear != null ? { academicYear: input.academicYear } : {}),
       sourceUploadIds: [...input.sourceUploadIds],
       blueprintItems: blueprintItemConfigs,
+      imageGeneration,
+      generationContext,
       _fingerprint: fingerprint,
       ...(typeof input.durationMinutes === 'number'
         ? { durationMinutes: input.durationMinutes }

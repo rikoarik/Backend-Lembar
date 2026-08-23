@@ -29,8 +29,15 @@ import type {
   GenerateQuestionsResult,
   QuestionGenerationFailure,
   QuestionGenerationStore,
+  QuestionImageGenerator,
+  QuestionImageGenerationSettings,
   QuestionOption,
   QuestionVersionMetadata,
+  QuestionGenerationContext,
+} from '../domain/QuestionGeneration.js';
+import {
+  normalizeQuestionGenerationContext,
+  normalizeQuestionImageGenerationSettings,
 } from '../domain/QuestionGeneration.js';
 
 // ---- Service options ----
@@ -40,6 +47,7 @@ export interface QuestionGenerationServiceOptions {
   blueprintService: BlueprintPipelineService;
   aiService: ProductAiService;
   env: AiEnv;
+  imageGenerator?: QuestionImageGenerator;
   clock?: () => Date;
 }
 
@@ -50,6 +58,7 @@ export class QuestionGenerationService {
   private readonly blueprintService: BlueprintPipelineService;
   private readonly aiService: ProductAiService;
   private readonly env: AiEnv;
+  private readonly imageGenerator: QuestionImageGenerator | undefined;
   private readonly clock: () => Date;
 
   constructor(options: QuestionGenerationServiceOptions) {
@@ -57,6 +66,7 @@ export class QuestionGenerationService {
     this.blueprintService = options.blueprintService;
     this.aiService = options.aiService;
     this.env = options.env;
+    this.imageGenerator = options.imageGenerator;
     this.clock = options.clock ?? (() => new Date());
   }
 
@@ -77,6 +87,7 @@ export class QuestionGenerationService {
       return {
         questions: existing,
         totalSchemaRepairAttempts: 0,
+        imagesGenerated: existing.filter((question) => Boolean(question.image?.dataUrl)).length,
         hasFailures: false,
         failures: [],
       };
@@ -137,7 +148,9 @@ export class QuestionGenerationService {
     const questions: GeneratedQuestion[] = [];
     const failures: QuestionGenerationFailure[] = [];
     let totalSchemaRepairAttempts = 0;
+    let imagesGenerated = 0;
     const total = blueprint.items.length;
+    const imageGeneration = normalizeQuestionImageGenerationSettings(input.imageGeneration);
 
     for (const item of blueprint.items) {
       try {
@@ -146,9 +159,13 @@ export class QuestionGenerationService {
           assessmentVersionId,
           item,
           blueprint,
+          imageGeneration,
+          imagesGenerated < imageGeneration.maxImages,
           input.jobId,
+          normalizeQuestionGenerationContext(input.generationContext),
         );
         questions.push(result.question);
+        if (result.question.image?.dataUrl) imagesGenerated += 1;
         totalSchemaRepairAttempts += result.schemaRepairAttempts;
       } catch (err) {
         if (err instanceof SchemaRepairExhaustedError) {
@@ -187,6 +204,7 @@ export class QuestionGenerationService {
     return {
       questions,
       totalSchemaRepairAttempts,
+      imagesGenerated,
       hasFailures: failures.length > 0,
       failures,
     };
@@ -209,10 +227,13 @@ export class QuestionGenerationService {
     assessmentVersionId: string,
     item: BlueprintSnapshotItem,
     blueprint: BlueprintSnapshot,
-    jobId?: string,
+    imageGeneration: QuestionImageGenerationSettings,
+    imageBudgetAvailable: boolean,
+    jobId: string | undefined,
+    generationContext: QuestionGenerationContext,
   ): Promise<{ question: GeneratedQuestion; schemaRepairAttempts: number }> {
     // Build prompt for this question
-    const prompt = this.buildQuestionPrompt(item);
+    const prompt = this.buildQuestionPrompt(item, imageGeneration, generationContext);
 
     // Call AI service
     const aiRequest: ProductAiRequest =
@@ -263,27 +284,79 @@ export class QuestionGenerationService {
       aiResult.latencyMs,
     );
 
+    if (
+      imageGeneration.mode === 'auto' &&
+      imageBudgetAvailable &&
+      this.imageGenerator &&
+      parsed['imageRecommended'] === true
+    ) {
+      const imagePrompt = readBoundedString(parsed['imagePrompt'], 1_500);
+      const imageAlt = readBoundedString(parsed['imageAlt'], 300);
+      if (imagePrompt && imageAlt) {
+        try {
+          question.image = await this.imageGenerator.generate({
+            prompt: imagePrompt,
+            alt: imageAlt,
+            style: imageGeneration.style,
+          });
+        } catch {
+          // Image generation is an optional enhancement and must never fail the text question.
+          question.image = null;
+        }
+      }
+    }
+
     return {
       question,
       schemaRepairAttempts: aiResult.schemaRepairAttempts,
     };
   }
 
-  private buildQuestionPrompt(item: BlueprintSnapshotItem): string {
+  private buildQuestionPrompt(
+    item: BlueprintSnapshotItem,
+    imageGeneration: QuestionImageGenerationSettings,
+    generationContext: QuestionGenerationContext,
+  ): string {
     const sourceContext =
       item.citationIds.length > 0 ? `\nSource passages: ${item.citationIds.join(', ')}` : '';
+    const teacherContext = [
+      generationContext.materialIds.length > 0
+        ? `Selected material IDs: ${generationContext.materialIds.join(', ')}`
+        : '',
+      generationContext.teacherFocus ? `Teacher focus: ${generationContext.teacherFocus}` : '',
+      generationContext.exampleQuestion
+        ? `Style reference (do not copy its wording or answer): ${generationContext.exampleQuestion}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
 
-    return `Generate a ${item.difficulty} ${item.questionType} question.
+    return `Generate a ${item.difficulty} ${item.questionType} question in Indonesian for an Indonesian school context.
 ${item.topicHint ? `Topic: ${item.topicHint}` : ''}
 ${item.cognitiveLevel ? `Cognitive level: ${item.cognitiveLevel}` : ''}
+Source mode: ${generationContext.sourceMode}
+${teacherContext}
 ${sourceContext}
+
+Preserve the requested competency and cognitive level. Use local context only when it improves relevance; avoid stereotypes and do not force it into the question.
 
 Return a JSON object with:
 - "stem": the question text
 - "options": array of {key, text} (for MC: A,B,C,D; for T/F: true,false)
 - "answer": the correct answer (option key for MC, text for others)
 - "explanation": why the answer is correct
-- "sourceIds": array of source passage IDs used`;
+- "sourceIds": array of source passage IDs used
+- "imageRecommended": boolean; true only when a visual is materially needed for reasoning or interpretation
+- "imagePrompt": concise English image-generation prompt, or an empty string when not recommended
+- "imageAlt": concise Indonesian alternative text, or an empty string when not recommended
+
+Visual policy:
+- ${imageGeneration.mode === 'auto' ? 'An image may be generated for this question.' : 'No image will be generated, but still report whether one would materially help.'}
+- Recommend visuals only for geometry diagrams, maps, scientific processes, visual data, or similarly essential context.
+- Never recommend decorative imagery.
+- The visual must not reveal or strongly hint at the correct answer.
+- Avoid embedded words, labels, numbers, or symbols unless they are essential to solve the question.
+- Preferred style: ${imageGeneration.style}.`;
   }
 
   private buildQuestionFromAiResponse(
@@ -339,6 +412,11 @@ Return a JSON object with:
       createdAt: this.clock().toISOString(),
     };
   }
+}
+
+function readBoundedString(value: unknown, maxLength: number): string {
+  if (typeof value !== 'string') return '';
+  return value.trim().slice(0, maxLength);
 }
 
 // ---- Custom errors ----
@@ -399,5 +477,8 @@ export const QUESTION_OUTPUT_SCHEMA: Record<string, unknown> = {
       type: 'array',
       items: { type: 'string' },
     },
+    imageRecommended: { type: 'boolean' },
+    imagePrompt: { type: 'string', maxLength: 1500 },
+    imageAlt: { type: 'string', maxLength: 300 },
   },
 };
