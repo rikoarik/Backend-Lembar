@@ -335,6 +335,64 @@ paths:
                 $ref: "#/components/schemas/JobResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+  /v1/public/announcement:
+    get:
+      summary: Read the active global marketing announcement
+      tags: [Marketing]
+      operationId: getPublicAnnouncement
+      security: []
+      responses:
+        "200":
+          description: Current global announcement, including disabled state
+          headers:
+            Cache-Control: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlatformAnnouncementResponse" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /v1/admin/announcement:
+    get:
+      summary: Read the global announcement for superadmin editing
+      tags: [MarketingOps]
+      operationId: getAdminAnnouncement
+      responses:
+        "200":
+          description: Current global announcement and revision
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlatformAnnouncementResponse" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      summary: Update the global announcement with optimistic revision locking
+      tags: [MarketingOps]
+      operationId: updateAdminAnnouncement
+      parameters:
+        - $ref: "#/components/parameters/IfMatch"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlatformAnnouncementUpdateRequest" }
+      responses:
+        "200":
+          description: Updated announcement with incremented revision
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlatformAnnouncementResponse" }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /v1/public/marketing/global:
     get:
       summary: Read published global marketing content
@@ -803,6 +861,33 @@ components:
             failureCode: { type: [string, "null"] }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
+    PlatformAnnouncement:
+      type: object
+      additionalProperties: false
+      required: [enabled, label, message, ctaLabel, ctaHref, revision, updatedAt]
+      properties:
+        enabled: { type: boolean }
+        label: { type: string, minLength: 1, maxLength: 40 }
+        message: { type: string, minLength: 1, maxLength: 240 }
+        ctaLabel: { type: [string, "null"], minLength: 1, maxLength: 80 }
+        ctaHref: { type: [string, "null"], minLength: 1, maxLength: 500 }
+        revision: { type: integer, minimum: 1 }
+        updatedAt: { type: string, format: date-time }
+    PlatformAnnouncementResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: "#/components/schemas/PlatformAnnouncement" }
+    PlatformAnnouncementUpdateRequest:
+      type: object
+      additionalProperties: false
+      required: [enabled, label, message, ctaLabel, ctaHref]
+      properties:
+        enabled: { type: boolean }
+        label: { type: string, minLength: 1, maxLength: 40 }
+        message: { type: string, minLength: 1, maxLength: 240 }
+        ctaLabel: { type: [string, "null"], minLength: 1, maxLength: 80 }
+        ctaHref: { type: [string, "null"], minLength: 1, maxLength: 500 }
     MarketingCta:
       type: object
       additionalProperties: false

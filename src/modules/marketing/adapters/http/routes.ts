@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 
-import { type Database } from '../../../../infrastructure/database/db.js';
+import { getPool, type Database } from '../../../../infrastructure/database/db.js';
 import { MarketingRepository } from '../../domain/MarketingRepository.js';
 
 export interface RegisterMarketingRoutesOptions {
@@ -16,6 +16,41 @@ export async function registerMarketingRoutes(
   options: RegisterMarketingRoutesOptions,
 ): Promise<void> {
   const repo = new MarketingRepository(options.db);
+
+  app.get('/v1/public/announcement', async (_request, reply) => {
+    const pool = getPool(options.db);
+    if (!pool) return reply.status(503).send({ error: { code: 'DATABASE_UNAVAILABLE' } });
+    const result = await pool.query<{
+      enabled: boolean;
+      label: string;
+      message: string;
+      cta_label: string | null;
+      cta_href: string | null;
+      revision: number;
+      updated_at: Date;
+    }>(
+      `SELECT enabled, label, message, cta_label, cta_href, revision, updated_at
+         FROM platform_announcement
+        WHERE id = 'global'
+        LIMIT 1`,
+    );
+    const row = result.rows[0];
+    if (!row) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND' } });
+    return reply
+      .header('Cache-Control', CACHE_CONTROL_SHORT)
+      .status(200)
+      .send({
+        data: {
+          enabled: row.enabled,
+          label: row.label,
+          message: row.message,
+          ctaLabel: row.cta_label,
+          ctaHref: row.cta_href,
+          revision: row.revision,
+          updatedAt: row.updated_at.toISOString(),
+        },
+      });
+  });
 
   app.get('/v1/public/marketing/global', async (request, reply) => {
     const result = await repo.readGlobal(

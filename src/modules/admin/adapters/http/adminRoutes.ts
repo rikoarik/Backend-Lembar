@@ -35,6 +35,22 @@ import { validateQualityReportUpdate } from '../../application/qualityReportWork
 import { TrialEligibilityError, type TrialService } from '../../../plans/application/TrialService.js';
 import { TrialConflictError } from '../../../plans/persistence/trialRepository.js';
 
+export function isSafeAnnouncementHref(value: string): boolean {
+  if (!value) return true;
+  const hasUnsafeCharacter = Array.from(value).some((character) => {
+    const code = character.charCodeAt(0);
+    return character === '\\' || code <= 31 || code === 127;
+  });
+  if (hasUnsafeCharacter) return false;
+  if (value.startsWith('/')) return !value.startsWith('//');
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && Boolean(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? req.requestId ?? 'req_unknown';
 }
@@ -131,6 +147,116 @@ export async function registerAdminRoutes(
       /* best-effort */
     }
   };
+
+  app.get('/v1/admin/announcement', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const pool = getPool(db);
+    if (!pool) return reply.status(503).send({ error: { code: 'DATABASE_UNAVAILABLE' } });
+    const result = await pool.query<{
+      enabled: boolean;
+      label: string;
+      message: string;
+      cta_label: string | null;
+      cta_href: string | null;
+      revision: number;
+      updated_at: Date;
+    }>(
+      `SELECT enabled, label, message, cta_label, cta_href, revision, updated_at
+         FROM platform_announcement WHERE id = 'global' LIMIT 1`,
+    );
+    const row = result.rows[0];
+    if (!row) return reply.status(404).send({ error: { code: 'RESOURCE_NOT_FOUND' } });
+    await auditLog(request.jwtUser!.userId, 'announcement.read', 'announcement', 'global');
+    return reply.status(200).send({
+      data: {
+        enabled: row.enabled,
+        label: row.label,
+        message: row.message,
+        ctaLabel: row.cta_label,
+        ctaHref: row.cta_href,
+        revision: row.revision,
+        updatedAt: row.updated_at.toISOString(),
+      },
+    });
+  });
+
+  app.put('/v1/admin/announcement', { preHandler: [auth, superadmin] }, async (request, reply) => {
+    const pool = getPool(db);
+    if (!pool) return reply.status(503).send({ error: { code: 'DATABASE_UNAVAILABLE' } });
+    const body = request.body as {
+      enabled?: unknown;
+      label?: unknown;
+      message?: unknown;
+      ctaLabel?: unknown;
+      ctaHref?: unknown;
+    } | null;
+    const revision = Number(request.headers['if-match']);
+    const enabled = body?.enabled;
+    const label = typeof body?.label === 'string' ? body.label.trim() : '';
+    const message = typeof body?.message === 'string' ? body.message.trim() : '';
+    const ctaLabel = typeof body?.ctaLabel === 'string' ? body.ctaLabel.trim() : '';
+    const ctaHref = typeof body?.ctaHref === 'string' ? body.ctaHref.trim() : '';
+    const validHref = isSafeAnnouncementHref(ctaHref);
+    if (
+      typeof enabled !== 'boolean' ||
+      !Number.isInteger(revision) ||
+      revision < 1 ||
+      label.length < 1 ||
+      label.length > 40 ||
+      message.length < 1 ||
+      message.length > 240 ||
+      ctaLabel.length > 80 ||
+      ctaHref.length > 500 ||
+      Boolean(ctaLabel) !== Boolean(ctaHref) ||
+      !validHref
+    ) {
+      return reply.status(400).send({
+        error: { code: 'VALIDATION_FAILED', message: 'Data pengumuman tidak valid.' },
+      });
+    }
+    const updated = await pool.query<{
+      enabled: boolean;
+      label: string;
+      message: string;
+      cta_label: string | null;
+      cta_href: string | null;
+      revision: number;
+      updated_at: Date;
+    }>(
+      `UPDATE platform_announcement
+          SET enabled = $1,
+              label = $2,
+              message = $3,
+              cta_label = $4,
+              cta_href = $5,
+              revision = revision + 1,
+              updated_by = $6,
+              updated_at = now()
+        WHERE id = 'global' AND revision = $7
+        RETURNING enabled, label, message, cta_label, cta_href, revision, updated_at`,
+      [enabled, label, message, ctaLabel || null, ctaHref || null, request.jwtUser!.userId, revision],
+    );
+    const row = updated.rows[0];
+    if (!row) {
+      return reply.status(409).send({
+        error: { code: 'STATE_CONFLICT', message: 'Pengumuman sudah berubah. Muat ulang.' },
+      });
+    }
+    await auditLog(request.jwtUser!.userId, 'announcement.update', 'announcement', 'global', {
+      revision: row.revision,
+      enabled: row.enabled,
+    });
+    return reply.status(200).send({
+      data: {
+        enabled: row.enabled,
+        label: row.label,
+        message: row.message,
+        ctaLabel: row.cta_label,
+        ctaHref: row.cta_href,
+        revision: row.revision,
+        updatedAt: row.updated_at.toISOString(),
+      },
+    });
+  });
 
   // ── Dashboard KPI ────────────────────────────────────
   app.get('/v1/admin/dashboard', { preHandler: [auth, superadmin] }, async (request, reply) => {
