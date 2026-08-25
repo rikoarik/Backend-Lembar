@@ -135,6 +135,35 @@ export async function registerWebhookRoutes(
     const parsed = (request.body as Record<string, unknown>) ?? {};
 
     try {
+      if (gateway === 'pakasir') {
+        const transaction = (parsed['transaction'] as Record<string, unknown> | undefined) ?? parsed;
+        const amount = Number(transaction['amount'] ?? parsed['amount']);
+        const orderId =
+          (transaction['order_id'] as string | undefined) ?? (parsed['order_id'] as string | undefined);
+        const status = (transaction['status'] as string | undefined) ?? (parsed['status'] as string | undefined);
+        const project = (transaction['project'] as string | undefined) ?? (parsed['project'] as string | undefined);
+        const completedAt =
+          (transaction['completed_at'] as string | undefined) ??
+          (parsed['completed_at'] as string | undefined) ??
+          null;
+        if (!Number.isFinite(amount) || amount <= 0 || !orderId || !status || !project) {
+          return reply.status(400).send({
+            error: {
+              code: 'VALIDATION_FAILED',
+              message: 'Payload Pakasir tidak valid.',
+              requestId: getRequestId(request),
+              retryable: false,
+            },
+          });
+        }
+        const result = await paymentService.handleWebhook({
+          rawBody,
+          parsed: { ...parsed, order_id: orderId, amount, status, project, completed_at: completedAt },
+          signature,
+          gateway,
+        });
+        return reply.status(200).send({ data: result });
+      }
       const result = await paymentService.handleWebhook({
         rawBody,
         parsed,

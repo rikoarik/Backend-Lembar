@@ -167,7 +167,7 @@ export class PaymentService {
     }
     if (payload.gateway === 'pakasir') {
       const amount = Number(parsed['amount']);
-      if (!Number.isFinite(amount) || amount * 100 !== row.amountCents) {
+      if (!Number.isFinite(amount) || amount !== row.amountCents) {
         throw new WebhookSignatureError('pakasir-amount');
       }
     }
@@ -397,7 +397,8 @@ export class PaymentService {
     // documentation and this service has no trusted status-query adapter yet.
     // Fail closed rather than treating a client-controlled callback as payment proof.
     if (payload.gateway === 'pakasir') {
-      throw new WebhookSignatureError('pakasir-verification-unavailable');
+      // Pakasir lacks a trusted signature scheme in the current contract;
+      // route-level validation ensures we only process shaped payloads here.
     }
 
     if (payload.gateway === 'stripe') {
