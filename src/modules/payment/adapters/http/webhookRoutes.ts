@@ -398,7 +398,7 @@ export async function registerWebhookRoutes(
         currency: 'IDR',
       });
       const amount = serverAmount!;
-      await new Promise<void>((resolve, reject) => {
+      const pakasirPayload = await new Promise<Record<string, unknown>>((resolve, reject) => {
         const pakasirRequest = httpsRequest(
           'https://app.pakasir.com/api/transactioncreate/qris',
           {
@@ -406,12 +406,19 @@ export async function registerWebhookRoutes(
             headers: { 'content-type': 'application/json' },
           },
           (response) => {
-            response.resume();
-            response.on('end', () =>
-              response.statusCode && response.statusCode < 300
-                ? resolve()
-                : reject(new Error(`Pakasir returned HTTP ${response.statusCode ?? 0}`)),
-            );
+            const chunks: Buffer[] = [];
+            response.on('data', (chunk: Buffer) => chunks.push(chunk));
+            response.on('end', () => {
+              if (!response.statusCode || response.statusCode >= 300) {
+                reject(new Error(`Pakasir returned HTTP ${response.statusCode ?? 0}`));
+                return;
+              }
+              try {
+                resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>);
+              } catch {
+                reject(new Error('Pakasir returned invalid JSON'));
+              }
+            });
           },
         );
         pakasirRequest.on('error', reject);
@@ -419,8 +426,19 @@ export async function registerWebhookRoutes(
           JSON.stringify({ project: slug, order_id: orderId, amount, api_key: apiKey }),
         );
       });
-      const paymentUrl = `https://app.pakasir.com/pay/${encodeURIComponent(slug)}/${amount}?order_id=${encodeURIComponent(orderId)}`;
-      return reply.status(201).send({ paymentUrl });
+      const payment = pakasirPayload['payment'] as Record<string, unknown> | undefined;
+      const qrString = payment?.['payment_number'];
+      const totalPayment = Number(payment?.['total_payment']);
+      const expiredAt = payment?.['expired_at'];
+      if (typeof qrString !== 'string' || !qrString) throw new Error('Pakasir QR payload missing');
+      const paymentUrl = `https://app.pakasir.com/pay/${encodeURIComponent(slug)}/${amount}?order_id=${encodeURIComponent(orderId)}&qris_only=1`;
+      return reply.status(201).send({
+        paymentUrl,
+        qrString,
+        amount,
+        totalPayment: Number.isFinite(totalPayment) ? totalPayment : amount,
+        expiredAt: typeof expiredAt === 'string' ? expiredAt : null,
+      });
     } catch (err) {
       handleError(err, request, reply);
     }
