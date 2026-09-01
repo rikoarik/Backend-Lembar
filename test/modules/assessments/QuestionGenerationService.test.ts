@@ -330,6 +330,35 @@ describe('B3-03 QuestionGenerationService', () => {
       expect(prompts[0]).toContain('Cognitive level: understand');
     });
 
+    it('asks for a schema-valid catalog question when no source passage is supplied', async () => {
+      const prompts: string[] = [];
+      const aiService = {
+        run: async (request: { prompt: string }) => {
+          prompts.push(request.prompt);
+          return makeValidAiResponse();
+        },
+      } as unknown as ProductAiService;
+      const service = new QuestionGenerationService({
+        store: questionStore,
+        blueprintService: createMockBlueprintService(VALID_BLUEPRINT),
+        aiService,
+        env: TEST_AI_ENV,
+      });
+
+      await service.generateQuestions({
+        workspaceId: WORKSPACE_ID,
+        assessmentVersionId: ASSESSMENT_VERSION_ID,
+        blueprintItems: [VALID_BLUEPRINT.items[0]!],
+        blueprintSchemaVersion: '1.0.0',
+        coverageTargets: { minTotalItems: 1, maxTotalItems: 10 },
+        requestId: 'req-1',
+        generationContext: { sourceMode: 'catalog', materialIds: [], teacherFocus: '', exampleQuestion: '' },
+      });
+
+      expect(prompts[0]).toContain('No source passage is supplied. Generate a schema-valid question');
+      expect(prompts[0]).not.toContain('return an actionable domain failure');
+    });
+
     it('should accumulate schemaRepairAttempts across items', async () => {
       // First item fails, second succeeds
       const aiService = createMockAiService([
