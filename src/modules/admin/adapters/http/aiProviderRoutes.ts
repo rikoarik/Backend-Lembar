@@ -100,6 +100,7 @@ export async function registerAiProviderRoutes(
         fallbackApiKey: censorKey(env.OPENAI_API_KEY),
         fallbackModelId: env.OPENAI_MODEL_ID ?? 'gpt-4o-mini',
         timeoutMs: Number(env.AI_TIMEOUT_MS ?? 30000),
+        runtime: 'hermes',
         // Runtime status
         apiKeyPresent: Boolean(env.HERMES_API_KEY || env.OPENAI_API_KEY),
       },

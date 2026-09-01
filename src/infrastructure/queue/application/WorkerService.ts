@@ -51,7 +51,7 @@ import { parseAiEnv } from '../../../config/ai.env.js';
 import { parseImageGenerationEnv } from '../../../config/image-generation.env.js';
 import { ConfigError } from '../../../config/errors.js';
 import { MockAiAdapter } from '../../ai/adapters/mock/MockAiAdapter.js';
-import { HermesAdapter } from '../../ai/adapters/hermes/HermesAdapter.js';
+import { HermesRuntimeAdapter } from '../../ai/adapters/hermes/HermesRuntimeAdapter.js';
 import { OpenAiQuestionImageGenerator } from '../../ai/adapters/openai/OpenAiQuestionImageGenerator.js';
 import { closeDatabase, createDatabase, getPool, type Database } from '../../database/db.js';
 import { QUESTION_OUTPUT_SCHEMA } from '../../../modules/assessments/application/QuestionGenerationService.js';
@@ -359,7 +359,7 @@ export function createWorkerService(
 
 /**
  * Build the AI adapter from the parsed env. Mirrors parseAiEnv's driver contract:
- *   - 'hermes' → HermesAdapter (live calls to configured provider + fallback chain)
+ *   - 'hermes' → HermesRuntimeAdapter (isolated Hermes runtime owns configured provider + fallback chain)
  *   - everything else → MockAiAdapter (safe default, no provider spend)
  *
  * In production the MockAiAdapter is NOT a safe default: silently generating
@@ -371,25 +371,7 @@ export function createWorkerService(
  */
 export function buildAiAdapterFromEnv(env: ReturnType<typeof parseAiEnv>) {
   if (env.driver === 'hermes' && env.hermesApiKey) {
-    return new HermesAdapter({
-      primary: {
-        apiKey: env.hermesApiKey,
-        baseUrl: env.hermesBaseUrl,
-        modelId: env.modelId,
-        timeoutMs: env.timeoutMs,
-      },
-      fallbacks: env.openaiApiKey
-        ? [
-            {
-              apiKey: env.openaiApiKey,
-              baseUrl: env.openaiBaseUrl,
-              modelId: env.openaiModelId,
-              timeoutMs: env.timeoutMs,
-            },
-          ]
-        : [],
-      live: true,
-    });
+    return new HermesRuntimeAdapter(env);
   }
   if (process.env.NODE_ENV === 'production') {
     throw new ConfigError([
