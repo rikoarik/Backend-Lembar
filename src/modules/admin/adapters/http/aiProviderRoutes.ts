@@ -100,6 +100,7 @@ export async function registerAiProviderRoutes(
         fallbackApiKey: censorKey(env.OPENAI_API_KEY),
         fallbackModelId: env.OPENAI_MODEL_ID ?? 'gpt-4o-mini',
         timeoutMs: Number(env.AI_TIMEOUT_MS ?? 30000),
+        maxTokens: Number(env.AI_MAX_TOKENS ?? 4096),
         runtime: 'hermes',
         // Runtime status
         apiKeyPresent: Boolean(env.HERMES_API_KEY || env.OPENAI_API_KEY),
@@ -118,6 +119,7 @@ export async function registerAiProviderRoutes(
       fallbackApiKey?: string;
       fallbackModelId?: string;
       timeoutMs?: number;
+      maxTokens?: number;
     } | undefined;
 
     if (!body || typeof body !== 'object') {
@@ -142,6 +144,9 @@ export async function registerAiProviderRoutes(
     if (!isPlaceholder(body.fallbackModelId)) updates['OPENAI_MODEL_ID'] = body.fallbackModelId!.trim();
     if (body.timeoutMs !== undefined && Number.isFinite(body.timeoutMs)) {
       updates['AI_TIMEOUT_MS'] = String(body.timeoutMs);
+    }
+    if (body.maxTokens !== undefined && Number.isInteger(body.maxTokens) && body.maxTokens >= 1 && body.maxTokens <= 65_536) {
+      updates['AI_MAX_TOKENS'] = String(body.maxTokens);
     }
 
     if (Object.keys(updates).length === 0) {

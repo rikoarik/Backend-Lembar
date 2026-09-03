@@ -23,6 +23,7 @@ const TEST_AI_ENV: AiEnv = {
   baseUrl: null,
   apiKeyPresent: false,
   timeoutMs: 30_000,
+  maxTokens: 4_096,
   hermesApiKey: null,
   hermesBaseUrl: 'https://api.nousresearch.com',
   openaiApiKey: null,

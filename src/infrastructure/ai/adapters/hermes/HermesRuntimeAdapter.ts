@@ -57,7 +57,7 @@ export function runtimeConfig(env: AiEnv): Record<string, unknown> {
   });
   return {
     model: {
-      provider: 'custom:lembar-primary', default: env.modelId, max_tokens: 4096,
+      provider: 'custom:lembar-primary', default: env.modelId, max_tokens: env.maxTokens,
       extra_headers: { 'User-Agent': 'Lembar Hermes Runtime' },
     },
     ...(env.openaiApiKey ? { fallback_model: { provider: 'custom:lembar-fallback', model: env.openaiModelId } } : {}),

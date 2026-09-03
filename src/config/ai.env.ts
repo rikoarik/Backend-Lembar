@@ -34,6 +34,7 @@ export interface AiEnv {
   baseUrl: string | null;
   apiKeyPresent: boolean;
   timeoutMs: number;
+  maxTokens: number;
   // Hermes fallback chain
   hermesApiKey: string | null;
   hermesBaseUrl: string;
@@ -154,6 +155,14 @@ export function parseAiEnv(env: NodeJS.ProcessEnv = process.env): AiEnv {
     issues,
     'AI_TIMEOUT_MS',
   );
+  const maxTokens = parseBoundedInt(
+    readString(env, 'AI_MAX_TOKENS'),
+    4_096,
+    1,
+    65_536,
+    issues,
+    'AI_MAX_TOKENS',
+  );
 
   if (issues.length > 0) throw new ConfigError(issues);
 
@@ -165,6 +174,7 @@ export function parseAiEnv(env: NodeJS.ProcessEnv = process.env): AiEnv {
     baseUrl,
     apiKeyPresent,
     timeoutMs,
+    maxTokens,
     hermesApiKey: readString(env, 'HERMES_API_KEY') ?? null,
     hermesBaseUrl: readString(env, 'HERMES_BASE_URL') ?? 'https://api.nousresearch.com',
     openaiApiKey: readString(env, 'OPENAI_API_KEY') ?? null,
