@@ -101,6 +101,10 @@ export async function registerAiProviderRoutes(
         fallbackModelId: env.OPENAI_MODEL_ID ?? 'gpt-4o-mini',
         timeoutMs: Number(env.AI_TIMEOUT_MS ?? 30000),
         maxTokens: Number(env.AI_MAX_TOKENS ?? 4096),
+        imageEnabled: env.AI_IMAGE_ENABLED === 'true' || env.AI_IMAGE_ENABLED === '1',
+        imageBaseUrl: env.AI_IMAGE_BASE_URL ?? 'https://api.x.ai/v1',
+        imageApiKey: censorKey(env.AI_IMAGE_API_KEY),
+        imageModelId: env.AI_IMAGE_MODEL_ID ?? 'grok-imagine-image',
         runtime: 'hermes',
         // Runtime status
         apiKeyPresent: Boolean(env.HERMES_API_KEY || env.OPENAI_API_KEY),
@@ -120,6 +124,10 @@ export async function registerAiProviderRoutes(
       fallbackModelId?: string;
       timeoutMs?: number;
       maxTokens?: number;
+      imageEnabled?: boolean;
+      imageBaseUrl?: string;
+      imageApiKey?: string;
+      imageModelId?: string;
     } | undefined;
 
     if (!body || typeof body !== 'object') {
@@ -148,6 +156,10 @@ export async function registerAiProviderRoutes(
     if (body.maxTokens !== undefined && Number.isInteger(body.maxTokens) && body.maxTokens >= 1 && body.maxTokens <= 65_536) {
       updates['AI_MAX_TOKENS'] = String(body.maxTokens);
     }
+    if (body.imageEnabled !== undefined && typeof body.imageEnabled === 'boolean') updates['AI_IMAGE_ENABLED'] = String(body.imageEnabled);
+    if (!isPlaceholder(body.imageBaseUrl)) updates['AI_IMAGE_BASE_URL'] = body.imageBaseUrl!.trim();
+    if (!isPlaceholder(body.imageApiKey)) updates['AI_IMAGE_API_KEY'] = body.imageApiKey!.trim();
+    if (!isPlaceholder(body.imageModelId)) updates['AI_IMAGE_MODEL_ID'] = body.imageModelId!.trim();
 
     if (Object.keys(updates).length === 0) {
       return reply.status(200).send({ data: { updated: false, message: 'Tidak ada field yang berubah.' } });

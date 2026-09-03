@@ -35,6 +35,10 @@ export interface AiEnv {
   apiKeyPresent: boolean;
   timeoutMs: number;
   maxTokens: number;
+  imageEnabled: boolean;
+  imageApiKey: string | null;
+  imageBaseUrl: string;
+  imageModelId: string;
   // Hermes fallback chain
   hermesApiKey: string | null;
   hermesBaseUrl: string;
@@ -164,6 +168,16 @@ export function parseAiEnv(env: NodeJS.ProcessEnv = process.env): AiEnv {
     'AI_MAX_TOKENS',
   );
 
+  const imageEnabledRaw = readString(env, 'AI_IMAGE_ENABLED');
+  const imageEnabled = imageEnabledRaw === 'true' || imageEnabledRaw === '1';
+  if (imageEnabledRaw !== undefined && !['true', 'false', '1', '0'].includes(imageEnabledRaw)) {
+    issues.push({ key: 'AI_IMAGE_ENABLED', reason: 'must be true|false|1|0' });
+  }
+  const imageApiKey = readString(env, 'AI_IMAGE_API_KEY') ?? null;
+  const imageBaseUrl = readString(env, 'AI_IMAGE_BASE_URL') ?? 'https://api.x.ai/v1';
+  const imageModelId = readString(env, 'AI_IMAGE_MODEL_ID') ?? 'grok-imagine-image';
+  if (imageEnabled && !imageApiKey) issues.push({ key: 'AI_IMAGE_API_KEY', reason: 'required when AI_IMAGE_ENABLED=true' });
+
   if (issues.length > 0) throw new ConfigError(issues);
 
   return {
@@ -175,6 +189,10 @@ export function parseAiEnv(env: NodeJS.ProcessEnv = process.env): AiEnv {
     apiKeyPresent,
     timeoutMs,
     maxTokens,
+    imageEnabled,
+    imageApiKey,
+    imageBaseUrl,
+    imageModelId,
     hermesApiKey: readString(env, 'HERMES_API_KEY') ?? null,
     hermesBaseUrl: readString(env, 'HERMES_BASE_URL') ?? 'https://api.nousresearch.com',
     openaiApiKey: readString(env, 'OPENAI_API_KEY') ?? null,

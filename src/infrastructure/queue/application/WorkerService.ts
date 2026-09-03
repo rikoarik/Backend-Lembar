@@ -48,11 +48,11 @@ import {
   InMemoryAiAuditRecorder,
 } from '../../ai/persistence/AiAuditRepository.js';
 import { parseAiEnv } from '../../../config/ai.env.js';
-import { parseImageGenerationEnv } from '../../../config/image-generation.env.js';
+
 import { ConfigError } from '../../../config/errors.js';
 import { MockAiAdapter } from '../../ai/adapters/mock/MockAiAdapter.js';
 import { HermesRuntimeAdapter } from '../../ai/adapters/hermes/HermesRuntimeAdapter.js';
-import { OpenAiQuestionImageGenerator } from '../../ai/adapters/openai/OpenAiQuestionImageGenerator.js';
+import { HermesQuestionImageGenerator } from '../../ai/adapters/hermes/HermesQuestionImageGenerator.js';
 import { closeDatabase, createDatabase, getPool, type Database } from '../../database/db.js';
 import { QUESTION_OUTPUT_SCHEMA } from '../../../modules/assessments/application/QuestionGenerationService.js';
 import { WorkspacePlanRepository } from '../../../modules/plans/persistence/repository.js';
@@ -153,18 +153,9 @@ export class WorkerService {
     }
 
     const aiAdapter = this.options.aiAdapter ?? buildAiAdapterFromEnv(aiEnv);
-    let imageGenerator = this.options.imageGenerator;
-    if (!imageGenerator) {
-      try {
-        const imageEnv = parseImageGenerationEnv(process.env);
-        if (imageEnv.enabled && imageEnv.apiKey) {
-          imageGenerator = new OpenAiQuestionImageGenerator({ env: imageEnv });
-        }
-      } catch {
-        // Invalid optional image configuration disables images without blocking text generation.
-        imageGenerator = undefined;
-      }
-    }
+    const imageGenerator = this.options.imageGenerator ?? (
+      aiEnv.imageEnabled ? new HermesQuestionImageGenerator(aiEnv) : undefined
+    );
 
     // Register JSON schemas for every prompt template id the worker may dispatch.
     // ponytail: schema registry stays in-memory here. Add a Postgres-backed schema

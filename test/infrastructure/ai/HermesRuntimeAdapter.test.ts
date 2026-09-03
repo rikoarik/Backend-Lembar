@@ -9,6 +9,8 @@ const env = {
   openaiApiKey: 'fallback-key',
   openaiModelId: 'fallback-model',
   maxTokens: 777,
+  imageEnabled: true,
+  imageModelId: 'grok-imagine-image',
 } as any;
 
 describe('HermesRuntimeAdapter config', () => {
@@ -16,6 +18,7 @@ describe('HermesRuntimeAdapter config', () => {
     expect(runtimeConfig(env)).toMatchObject({
       model: { provider: 'custom:lembar-primary', default: 'primary-model', max_tokens: 777, extra_headers: { 'User-Agent': 'Lembar Hermes Runtime' } },
       fallback_model: { provider: 'custom:lembar-fallback', model: 'fallback-model' },
+      image_gen: { provider: 'xai', xai: { model: 'grok-imagine-image' } },
       custom_providers: [
         { name: 'lembar-primary', base_url: 'https://provider.example/v1', api_key: 'primary-key' },
         { name: 'lembar-fallback', base_url: 'https://fallback.example/v1', api_key: 'fallback-key' },

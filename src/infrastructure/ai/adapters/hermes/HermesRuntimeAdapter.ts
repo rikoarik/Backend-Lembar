@@ -26,7 +26,7 @@ export class HermesRuntimeAdapter implements ProductAiAdapter {
     try {
       await writeFile(join(home, 'config.yaml'), stringify(runtimeConfig(this.env)), { mode: 0o600 });
       const result = await runHermes(home, input.prompt, this.env.timeoutMs);
-      if (!result.ok) return { ok: true, value: result.outcome };
+      if (result.ok === false) return { ok: true, value: result.outcome };
       try {
         JSON.parse(result.text);
       } catch {
@@ -61,6 +61,7 @@ export function runtimeConfig(env: AiEnv): Record<string, unknown> {
       extra_headers: { 'User-Agent': 'Lembar Hermes Runtime' },
     },
     ...(env.openaiApiKey ? { fallback_model: { provider: 'custom:lembar-fallback', model: env.openaiModelId } } : {}),
+    ...(env.imageEnabled ? { image_gen: { provider: 'xai', xai: { model: env.imageModelId } } } : {}),
     custom_providers: providers,
     toolsets: ['safe'],
   };
