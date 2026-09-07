@@ -34,7 +34,7 @@ describe('school live regressions', () => {
   it('audit treats text metadata without applying JSON operators', async () => {
     query.mockImplementation(async (input: unknown) => {
       const sql = String(input ?? '');
-      if (sql.includes('suspended_at')) return { rows: [{ suspended: false }] };
+      if (sql.includes('FROM jwt_users')) return { rows: [{ roles: ['school_admin'], workspace_id: WORKSPACE_ID, suspended: false }] };
       if (sql.includes('COUNT(*)')) return { rows: [{ total: 0 }] };
       expect(sql).not.toContain('metadata->>');
       return { rows: [] };
@@ -52,7 +52,7 @@ describe('school live regressions', () => {
   it('usage uses the same free monthly limit as billing', async () => {
     query.mockImplementation(async (input: unknown) => {
       const sql = String(input ?? '');
-      if (sql.includes('suspended_at')) return { rows: [{ suspended: false }] };
+      if (sql.includes('FROM jwt_users')) return { rows: [{ roles: ['school_admin'], workspace_id: WORKSPACE_ID, suspended: false }] };
       if (sql.includes('SUM(units)')) return { rows: [{ quota_used: '0' }] };
       if (sql.includes('workspace_plans')) return { rows: [{ plan: 'free' }] };
       return { rows: [] };
@@ -71,7 +71,7 @@ describe('school live regressions', () => {
   it('notifications fail closed when outbox has no workspace_id', async () => {
     query.mockImplementation(async (input: unknown) => {
       const sql = String(input ?? '');
-      if (sql.includes('suspended_at')) return { rows: [{ suspended: false }] };
+      if (sql.includes('FROM jwt_users')) return { rows: [{ roles: ['school_admin'], workspace_id: WORKSPACE_ID, suspended: false }] };
       if (sql.includes('information_schema.tables')) return { rows: [{ exists: true }] };
       if (sql.includes('information_schema.columns')) return { rows: [{ exists: false }] };
       return { rows: [{ count: '1', id: 'global-secret' }] };
@@ -95,7 +95,7 @@ describe('school live regressions', () => {
   });
 
   it('notifications enforce suspension through database-backed JWT middleware', async () => {
-    query.mockResolvedValue({ rows: [{ suspended: true }] });
+    query.mockResolvedValue({ rows: [{ roles: ['school_admin'], workspace_id: WORKSPACE_ID, suspended: true }] });
     const app = Fastify();
     await registerSchoolNotificationsRoutes(app, { db, jwtSecret: SECRET });
     const response = await app.inject({
