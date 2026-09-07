@@ -7,8 +7,7 @@
  * Auth: JWT Bearer via createJwtAuthMiddleware + requireRole(['school_admin'])
  * workspaceId: from request.jwtUser.workspaceId
  *
- * Mechanism: updates auth_workspace_memberships.state to 'suspended' / 'active'.
- * The table already has a CHECK constraint allowing 'active' | 'suspended' | 'revoked'.
+ * Mechanism: updates jwt_users, the same source of truth used by JWT auth.
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
@@ -85,22 +84,20 @@ export async function registerSuspendRoutes(
         }
       }
 
-      // Update membership state to 'suspended' — only if this member belongs to the workspace
+      // jwt_users is the source of truth for JWT roles and workspace membership.
       const res = await pool.query<{ id: string; state: string }>(
-        `UPDATE auth_workspace_memberships
-            SET state = 'suspended'
-          WHERE account_id = $1
-            AND tenant_id  = $2
-            AND state      = 'active'
-          RETURNING id, state`,
+        `UPDATE jwt_users
+            SET suspended_at = COALESCE(suspended_at, now()), updated_at = now()
+          WHERE id = $1::uuid AND workspace_id = $2::uuid
+          RETURNING id, CASE WHEN suspended_at IS NULL THEN 'active' ELSE 'suspended' END AS state`,
         [memberId, workspaceId],
       );
 
       if (res.rows.length === 0) {
         // Either member not found or already suspended/revoked
         const check = await pool.query<{ state: string }>(
-          `SELECT state FROM auth_workspace_memberships
-            WHERE account_id = $1 AND tenant_id = $2`,
+          `SELECT CASE WHEN suspended_at IS NULL THEN 'active' ELSE 'suspended' END AS state
+             FROM jwt_users WHERE id = $1::uuid AND workspace_id = $2::uuid`,
           [memberId, workspaceId],
         );
         if (check.rows.length === 0) {
@@ -141,21 +138,19 @@ export async function registerSuspendRoutes(
         });
       }
 
-      // Update membership state back to 'active' — only if currently suspended
+      // Reactivate the JWT user in this workspace.
       const res = await pool.query<{ id: string; state: string }>(
-        `UPDATE auth_workspace_memberships
-            SET state = 'active'
-          WHERE account_id = $1
-            AND tenant_id  = $2
-            AND state      = 'suspended'
-          RETURNING id, state`,
+        `UPDATE jwt_users
+            SET suspended_at = NULL, suspended_reason = NULL, updated_at = now()
+          WHERE id = $1::uuid AND workspace_id = $2::uuid AND suspended_at IS NOT NULL
+          RETURNING id, 'active'::text AS state`,
         [memberId, workspaceId],
       );
 
       if (res.rows.length === 0) {
         const check = await pool.query<{ state: string }>(
-          `SELECT state FROM auth_workspace_memberships
-            WHERE account_id = $1 AND tenant_id = $2`,
+          `SELECT CASE WHEN suspended_at IS NULL THEN 'active' ELSE 'suspended' END AS state
+             FROM jwt_users WHERE id = $1::uuid AND workspace_id = $2::uuid`,
           [memberId, workspaceId],
         );
         if (check.rows.length === 0) {
