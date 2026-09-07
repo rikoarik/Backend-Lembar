@@ -12,6 +12,7 @@ import { InvalidInvitationError } from '../../application/SchoolService.js';
 import { createJwtAuthMiddleware, requireRole } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import type { Database } from '../../../../infrastructure/database/db.js';
 import { throwApiError } from '../../../../common/errors/apiError.js';
+import { generateJwt } from '../../../auth/infrastructure/jwtMultiRole.js';
 
 function getRequestId(req: FastifyRequest): string {
   return (req.headers['x-request-id'] as string | undefined) ?? 'req_unknown';
@@ -92,7 +93,18 @@ export async function registerSchoolRoutes(
 
     try {
       const result = await service.acceptInvitation({ token, password });
-      return reply.status(200).send({ data: result });
+      const jwt = generateJwt(
+        { userId: result.userId, email: result.email, roles: [result.role], workspaceId: result.workspaceId },
+        { secret: jwtSecret, expiryDays: 7 },
+      );
+      return reply.status(200).send({
+        data: {
+          token: jwt,
+          userId: result.userId,
+          workspaceId: result.workspaceId,
+          user: { id: result.userId, email: result.email, roles: [result.role], workspaceId: result.workspaceId },
+        },
+      });
     } catch (err) {
       if (err instanceof InvalidInvitationError) {
         return reply.status(404).send({
@@ -106,6 +118,12 @@ export async function registerSchoolRoutes(
       }
       throw err;
     }
+  });
+
+  app.get('/v1/invitations/preview', async (request, reply) => {
+    const { token } = request.query as { token?: string };
+    if (!token) return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Token undangan wajib diisi.' } });
+    return reply.status(200).send({ data: await service.previewInvitation(token) });
   });
 
   /**
