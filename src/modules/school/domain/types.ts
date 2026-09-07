@@ -43,6 +43,8 @@ export interface AcceptInvitationInput {
 export interface AcceptInvitationResult {
   userId: string;
   workspaceId: string;
+  email: string;
+  role: UserRole;
 }
 
 export type OnboardingStatus = 'not_started' | 'in_progress' | 'completed';

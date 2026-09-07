@@ -1,6 +1,7 @@
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { verifyJwt, type JwtPayload } from '../../modules/auth/infrastructure/jwtMultiRole.js';
 import { throwApiError } from '../errors/apiError.js';
+import { ApiError } from '../errors/envelope.js';
 import type { UserRole } from '../../modules/auth/persistence/jwtUsersSchema.js';
 import { getPool, type Database } from '../../infrastructure/database/db.js';
 
@@ -45,17 +46,35 @@ export function createJwtAuthMiddleware(options: JwtAuthMiddlewareOptions) {
     if (pool && request.jwtUser?.userId) {
       try {
         const result = await pool.query(
-          'SELECT suspended_at IS NOT NULL AS suspended FROM jwt_users WHERE id = $1',
+          `SELECT roles, workspace_id, suspended_at IS NOT NULL AS suspended
+             FROM jwt_users
+            WHERE id = $1`,
           [request.jwtUser.userId],
         );
-        const row = (result.rows as Array<{ suspended: boolean | string }>)[0];
+        const row = (result.rows as Array<{
+          roles: UserRole[];
+          workspace_id: string | null;
+          suspended: boolean | string;
+        }>)[0];
+        if (!row) {
+          throwApiError('invalid_token', 'Sesi tidak lagi berlaku');
+        }
         if (row && (row.suspended === true || row.suspended === 't' || row.suspended === 'true')) {
           throwApiError('account_suspended', 'Akun ditangguhkan. Hubungi administrator.');
         }
+        // JWT is only a signed session envelope. Current authorization always
+        // comes from the database so removals and role changes take effect
+        // immediately instead of waiting for token expiry.
+        request.jwtUser = {
+          ...request.jwtUser,
+          roles: row.roles,
+          workspaceId: row.workspace_id,
+        };
       } catch (err) {
-        if ((err as { code?: string }).code === 'AUTH_REQUIRED') throw err;
-        // If the query itself fails, allow the request rather than hiding an
-        // outage behind auth.
+        if (err instanceof ApiError) throw err;
+        // Authorization must fail closed. Allowing a stale JWT during a
+        // database outage makes revocation and membership changes ineffective.
+        throwApiError('forbidden', 'Autorisasi sedang tidak tersedia');
       }
     }
   };

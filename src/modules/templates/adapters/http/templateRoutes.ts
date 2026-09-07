@@ -4,7 +4,7 @@ import { throwApiError } from '../../../../common/errors/apiError.js';
 import { getPool, type Database } from '../../../../infrastructure/database/db.js';
 
 const sourceModes = new Set(['katalog', 'pdf', 'katalog+pdf']);
-const assessmentTypes = new Set(['practice', 'daily', 'midterm', 'final', 'tka']);
+const assessmentTypes = new Set(['practice', 'daily', 'midterm', 'final', 'tka', 'promotion']);
 const difficulties = new Set(['easy', 'medium', 'hard', 'mixed']);
 const reviewModes = new Set(['quick', 'detail']);
 
@@ -27,10 +27,27 @@ function cleanConfig(raw: unknown) {
   const materialIds = Array.isArray(value.materialIds)
     ? value.materialIds.filter((id): id is string => typeof id === 'string').slice(0, 100)
     : [];
+  const questionTypeCounts = value.questionTypeCounts && typeof value.questionTypeCounts === 'object' && !Array.isArray(value.questionTypeCounts)
+    ? Object.fromEntries(Object.entries(value.questionTypeCounts as Record<string, unknown>)
+      .filter(([key, count]) => ['multiple_choice', 'essay', 'true_false', 'matching'].includes(key) && Number.isInteger(Number(count)) && Number(count) >= 0 && Number(count) <= questionCount))
+    : {};
+  const integer = (key: string, min: number, max: number, fallback: number) => {
+    const parsed = Number(value[key] ?? fallback);
+    if (!Number.isInteger(parsed) || parsed < min || parsed > max) throwApiError('validation_error', `Isian ${key} tidak valid`);
+    return parsed;
+  };
+  const enumValue = (key: string, allowed: readonly string[], fallback: string) => {
+    const parsed = String(value[key] ?? fallback);
+    if (!allowed.includes(parsed)) throwApiError('validation_error', `Isian ${key} tidak valid`);
+    return parsed;
+  };
   return {
     sourceMode, curriculumVersionId: text('curriculumVersionId', 100), gradeId: text('gradeId', 100),
     subjectId: text('subjectId', 100), materialIds, sourceId: '', assessmentType, difficulty,
-    questionCount, reviewMode, teacherFocus: text('teacherFocus', 500), exampleQuestion: text('exampleQuestion', 2000),
+    questionCount, questionTypeCounts, reviewMode, teacherFocus: text('teacherFocus', 500), exampleQuestion: text('exampleQuestion', 2000),
+    academicYear: text('academicYear', 30), durationMinutes: integer('durationMinutes', 0, 480, 0),
+    imageMode: enumValue('imageMode', ['none', 'auto'], 'none'), imageMaxCount: integer('imageMaxCount', 0, 10, 0),
+    imageStyle: text('imageStyle', 100), imageProvider: text('imageProvider', 100),
   };
 }
 

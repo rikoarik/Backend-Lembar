@@ -156,16 +156,12 @@ export async function registerMemberRoutes(
       if (pool) {
         try {
           // name + lastActiveAt from jwt_users
-          const userRow = await pool.query<{
-            name: string | null;
-            last_active_at: string | null;
-          }>(
-            `SELECT name, last_active_at FROM jwt_users WHERE id = $1::uuid LIMIT 1`,
+          const userRow = await pool.query<{ name: string | null }>(
+            `SELECT name FROM jwt_users WHERE id = $1::uuid LIMIT 1`,
             [memberId],
           );
           if (userRow.rows.length > 0) {
             name = userRow.rows[0]!.name ?? null;
-            lastActiveAt = userRow.rows[0]!.last_active_at ?? null;
           }
 
           // assessmentCount — assessments authored by this member in the workspace
@@ -302,6 +298,15 @@ export async function registerMemberRoutes(
             requestId,
             retryable: false,
           },
+        });
+      }
+
+      const members = await service.listMembers(tenantId, workspaceId);
+      const target = members.find((member) => member.id === memberId);
+      if (target?.role === 'school_admin' && role !== 'school_admin'
+        && members.filter((member) => member.role === 'school_admin' && member.state === 'active').length <= 1) {
+        return reply.status(409).send({
+          error: { code: 'STATE_CONFLICT', message: 'Admin sekolah terakhir tidak dapat diturunkan perannya', requestId, retryable: false },
         });
       }
 

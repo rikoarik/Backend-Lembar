@@ -1122,7 +1122,7 @@ export async function registerAdminRoutes(
           .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Account not found' } });
 
       const issued = await passwordResetService.issue(id);
-      const resetUrl = `/reset-password?token=${encodeURIComponent(issued.token)}`;
+      const resetUrl = `/reset-sandi?token=${encodeURIComponent(issued.token)}`;
       const user = request.jwtUser!;
       await auditLog(user.userId, 'account.reset_password', 'user', id, {
         email: (res.rows[0] as any).email,
@@ -1130,7 +1130,7 @@ export async function registerAdminRoutes(
       return reply.status(200).send({
         data: {
           id,
-          sent: true,
+          sent: false,
           token: issued.token,
           resetUrl,
           expiresAt: issued.expiresAt.toISOString(),
@@ -1250,7 +1250,7 @@ export async function registerAdminRoutes(
           .send({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create account' } });
 
       const issued = await passwordResetService.issue(accountId);
-      const welcomeUrl = `/set-password?token=${encodeURIComponent(issued.token)}`;
+      const welcomeUrl = `/reset-sandi?token=${encodeURIComponent(issued.token)}`;
       const user = request.jwtUser!;
       await auditLog(user.userId, 'account.invite', 'user', accountId, {
         role: inputRole,
@@ -1259,6 +1259,7 @@ export async function registerAdminRoutes(
       return reply.status(201).send({
         data: {
           invited: true,
+          delivery: 'pending',
           accountId,
           token: issued.token,
           welcomeUrl,
@@ -1966,11 +1967,18 @@ export async function registerAdminRoutes(
 
   app.patch('/v1/admin/billing/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {
     const { id } = request.params as { id: string };
-    const body = request.body as { state?: string; plan?: string; seats?: number } | null;
+    const body = request.body as { state?: string; plan?: string; seats?: number; renewsAt?: string | null } | null;
     const updates: Record<string, unknown> = { updatedAt: new Date() };
     if (body?.state) updates.state = body.state;
     if (body?.plan) updates.plan = body.plan;
     if (body?.seats !== undefined) updates.seats = body.seats;
+    if (body?.renewsAt !== undefined) {
+      const renewsAt = body.renewsAt ? new Date(body.renewsAt) : null;
+      if (body.renewsAt && Number.isNaN(renewsAt?.getTime())) {
+        return reply.status(400).send({ error: { code: 'VALIDATION_FAILED', message: 'Tanggal perpanjangan tidak valid' } });
+      }
+      updates.renewsAt = renewsAt;
+    }
 
     const [updated] = await db
       .update(adminBilling)
@@ -1984,7 +1992,13 @@ export async function registerAdminRoutes(
 
     const user = request.jwtUser!;
     await auditLog(user.userId, 'billing.update', 'billing', id, body ?? {});
-    return reply.status(200).send({ data: { id, ...body } });
+    return reply.status(200).send({ data: {
+      id: updated.id,
+      state: updated.state,
+      plan: updated.plan,
+      seats: updated.seats,
+      renewsAt: updated.renewsAt ? updated.renewsAt.toISOString().slice(0, 10) : '',
+    } });
   });
 
   app.get('/v1/admin/billing/:id', { preHandler: [auth, superadmin] }, async (request, reply) => {

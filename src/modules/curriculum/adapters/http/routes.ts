@@ -1,12 +1,14 @@
 import type { FastifyInstance } from 'fastify';
 
 import { type Database } from '../../../../infrastructure/database/db.js';
+import { createJwtAuthMiddleware, requireRole } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import { CurriculumRepository, type ResourceKey } from '../../domain/CurriculumRepository.js';
 import { VersioningService } from '../../domain/VersioningService.js';
-import { bearerActor, limitOf, objectBody, resourceOf } from './schema.js';
+import { limitOf, objectBody, resourceOf } from './schema.js';
 
 export interface RegisterCurriculumRoutesOptions {
   db: Database;
+  jwtSecret: string;
 }
 
 export async function registerCurriculumRoutes(
@@ -14,6 +16,8 @@ export async function registerCurriculumRoutes(
   options: RegisterCurriculumRoutesOptions,
 ): Promise<void> {
   const service = new VersioningService(new CurriculumRepository(options.db));
+  const auth = createJwtAuthMiddleware({ secret: options.jwtSecret, db: options.db });
+  const superadminOnly = requireRole(['superadmin']);
 
   app.get('/v1/curriculum/curricula/:tenantSlug', async (request, reply) => {
     const { tenantSlug } = request.params as { tenantSlug: string };
@@ -33,11 +37,10 @@ export async function registerCurriculumRoutes(
     'outcomes',
     'materials',
   ] as const) {
-    registerResourceRoutes(app, service, resource);
+    registerResourceRoutes(app, service, resource, auth, superadminOnly);
   }
 
-  app.post('/v1/curriculum/:resource/:id/source-rights-gate', async (request) => {
-    bearerActor(request);
+  app.post('/v1/curriculum/:resource/:id/source-rights-gate', { preHandler: [auth, superadminOnly] }, async (request) => {
     const { resource: raw, id } = request.params as { resource: string; id: string };
     const resource = resourceOf(raw, request);
     const result = await service.sourceRightsGate(resource, id, request.requestId ?? 'req_unknown');
@@ -49,10 +52,10 @@ function registerResourceRoutes(
   app: FastifyInstance,
   service: VersioningService,
   resource: ResourceKey,
+  auth: ReturnType<typeof createJwtAuthMiddleware>,
+  superadminOnly: ReturnType<typeof requireRole>,
 ): void {
-  app.post(`/v1/curriculum/${resource}`, async (request, reply) => {
-    const actor = bearerActor(request);
-    void actor;
+  app.post(`/v1/curriculum/${resource}`, { preHandler: [auth, superadminOnly] }, async (request, reply) => {
     const result = await service.createDraft(
       resource,
       objectBody(request),
@@ -61,8 +64,7 @@ function registerResourceRoutes(
     return reply.header('ETag', result.etag).status(201).send({ data: result.data });
   });
 
-  app.put(`/v1/curriculum/${resource}/:id/draft`, async (request, reply) => {
-    bearerActor(request);
+  app.put(`/v1/curriculum/${resource}/:id/draft`, { preHandler: [auth, superadminOnly] }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const result = await service.updateDraft(
       resource,
@@ -73,8 +75,8 @@ function registerResourceRoutes(
     return reply.header('ETag', result.etag).status(200).send({ data: result.data });
   });
 
-  app.post(`/v1/curriculum/${resource}/:id/publish`, async (request, reply) => {
-    const actor = bearerActor(request);
+  app.post(`/v1/curriculum/${resource}/:id/publish`, { preHandler: [auth, superadminOnly] }, async (request, reply) => {
+    const actor = request.jwtUser!.userId;
     const { id } = request.params as { id: string };
     const result = await service.publish(resource, id, request.requestId ?? 'req_unknown', actor);
     return reply.header('ETag', result.etag).status(200).send({ data: result.data });

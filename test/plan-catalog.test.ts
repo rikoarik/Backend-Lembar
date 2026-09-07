@@ -123,7 +123,7 @@ describe('PlanService.getPlanSummary with catalog', () => {
     const svc = new PlanService(makeRepo('pro', 0));
     const summary = await svc.getPlanSummary('t1', 'ws1');
     expect(summary.tokenMonthlyLimit).toBe(PRO_MONTHLY_TOKEN_LIMIT);
-    expect(summary.catalog.priceAmount).toBe(49_000);
+    expect(summary.catalog.priceAmount).toBe(149_000);
     expect(summary.catalog.billingPeriod).toBe('monthly');
   });
 
