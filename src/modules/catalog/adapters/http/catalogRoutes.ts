@@ -51,6 +51,11 @@ export interface CatalogSubjectOption extends CatalogOption {
   jenjangList: ('sd' | 'smp' | 'sma' | 'smk')[];
 }
 
+export interface CatalogMaterialOption extends CatalogOption {
+  gradeId: string;
+  subjectId: string;
+}
+
 export interface RegisterCatalogRoutesOptions {
   db?: Database | undefined;
   jwtSecret?: string | undefined;
@@ -447,6 +452,22 @@ export async function registerCatalogRoutes(
     }
 
     const tenantId = request.jwtUser?.workspaceId;
+    const customMaterials: CatalogMaterialOption[] = [];
+    if (db) {
+      const pool = getPool(db);
+      if (pool) {
+        try {
+          const result = await pool.query<{ id: string; label: string; status: CatalogOption['status'] }>(
+            `SELECT id::text, label, status FROM admin_catalog_materials
+              WHERE grade_id = $1 AND subject_id = $2 AND status = 'active' ORDER BY label`,
+            [q.gradeId, q.subjectId],
+          );
+          customMaterials.push(...result.rows.map((row) => ({ ...row, gradeId: q.gradeId!, subjectId: q.subjectId! })));
+        } catch {
+          // Migration may not yet have run. The official catalog remains available.
+        }
+      }
+    }
     if (db && tenantId) {
       try {
         const rows = await db
@@ -468,13 +489,18 @@ export async function registerCatalogRoutes(
 
         if (rows.length > 0) {
           return reply.status(200).send({
-            data: rows
+            data: [
+              ...customMaterials,
+              ...rows
               .filter((r) => r.tenantId === tenantId)
               .map((r) => ({
                 id: r.id,
                 label: r.label,
                 status: 'active' as const,
+                gradeId: q.gradeId,
+                subjectId: q.subjectId,
               })),
+            ],
           });
         }
       } catch {
@@ -483,7 +509,7 @@ export async function registerCatalogRoutes(
     }
 
     return reply.status(200).send({
-      data: listOfficialMaterials(q.gradeId, q.subjectId),
+      data: [...customMaterials, ...listOfficialMaterials(q.gradeId, q.subjectId)],
     });
   });
 
@@ -650,6 +676,66 @@ export async function registerCatalogRoutes(
     });
 
     return reply.status(201).send({ data: newItem });
+  });
+
+  app.get('/v1/admin/catalog/materials', { preHandler: adminGuard }, async (request, reply) => {
+    const { gradeId, subjectId } = request.query as { gradeId?: string; subjectId?: string };
+    if (!gradeId || !subjectId) return validationError(reply, 'gradeId dan subjectId wajib diisi.', getRequestId(request));
+    const pool = db ? getPool(db) : null;
+    if (!pool) return reply.status(503).send({ error: { code: 'INTERNAL_ERROR', message: 'Database katalog tidak tersedia.' } });
+    const result = await pool.query<CatalogMaterialOption>(
+      `SELECT id::text, label, status, grade_id AS "gradeId", subject_id AS "subjectId"
+         FROM admin_catalog_materials WHERE grade_id=$1 AND subject_id=$2 ORDER BY label`,
+      [gradeId, subjectId],
+    );
+    return reply.status(200).send({ data: result.rows });
+  });
+
+  app.post('/v1/admin/catalog/materials', { preHandler: adminGuard }, async (request, reply) => {
+    const body = request.body as { gradeId?: unknown; subjectId?: unknown; label?: unknown; status?: unknown };
+    const requestId = getRequestId(request);
+    if (typeof body.gradeId !== 'string' || typeof body.subjectId !== 'string' || typeof body.label !== 'string' || !body.gradeId.trim() || !body.subjectId.trim() || !body.label.trim()) {
+      return validationError(reply, 'gradeId, subjectId, dan label wajib diisi.', requestId);
+    }
+    const status: CatalogStatus = body.status === 'archived' || body.status === 'unavailable' ? body.status : 'active';
+    const pool = db ? getPool(db) : null;
+    if (!pool) return reply.status(503).send({ error: { code: 'INTERNAL_ERROR', message: 'Database katalog tidak tersedia.' } });
+    try {
+      const result = await pool.query<CatalogMaterialOption>(
+        `INSERT INTO admin_catalog_materials (grade_id, subject_id, label, status)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id::text, label, status, grade_id AS "gradeId", subject_id AS "subjectId"`,
+        [body.gradeId.trim(), body.subjectId.trim(), body.label.trim(), status],
+      );
+      const item = result.rows[0]!;
+      await auditLog(db, request.jwtUser?.userId ?? 'unknown', 'catalog.material.create', 'material', item.id, { gradeId: item.gradeId, subjectId: item.subjectId, label: item.label });
+      return reply.status(201).send({ data: item });
+    } catch (error) {
+      if ((error as { code?: string }).code === '23505') return reply.status(409).send({ error: { code: 'STATE_CONFLICT', message: 'Materi sudah ada pada mata pelajaran ini.' } });
+      throw error;
+    }
+  });
+
+  app.patch('/v1/admin/catalog/materials/:id/status', { preHandler: adminGuard }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const body = request.body as { status?: unknown };
+    if (!isValidStatus(body.status)) return validationError(reply, `status harus salah satu dari: ${VALID_STATUSES.join(', ')}`, getRequestId(request));
+    const pool = db ? getPool(db) : null;
+    if (!pool) return reply.status(503).send({ error: { code: 'INTERNAL_ERROR', message: 'Database katalog tidak tersedia.' } });
+    const result = await pool.query(`UPDATE admin_catalog_materials SET status=$1, updated_at=now() WHERE id=$2::uuid RETURNING id`, [body.status, id]);
+    if (!result.rows[0]) return notFoundError(reply, `Materi '${id}' tidak ditemukan.`, getRequestId(request));
+    await auditLog(db, request.jwtUser?.userId ?? 'unknown', 'catalog.material.status', 'material', id, { status: body.status });
+    return reply.status(200).send({ data: { id, status: body.status } });
+  });
+
+  app.delete('/v1/admin/catalog/materials/:id', { preHandler: adminGuard }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    const pool = db ? getPool(db) : null;
+    if (!pool) return reply.status(503).send({ error: { code: 'INTERNAL_ERROR', message: 'Database katalog tidak tersedia.' } });
+    const result = await pool.query(`UPDATE admin_catalog_materials SET status='archived', updated_at=now() WHERE id=$1::uuid RETURNING id`, [id]);
+    if (!result.rows[0]) return notFoundError(reply, `Materi '${id}' tidak ditemukan.`, getRequestId(request));
+    await auditLog(db, request.jwtUser?.userId ?? 'unknown', 'catalog.material.archive', 'material', id);
+    return reply.status(200).send({ data: { id, archived: true } });
   });
 
   // DELETE /v1/admin/catalog/grades/:id  (soft delete → archived)
