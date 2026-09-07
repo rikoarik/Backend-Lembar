@@ -12,24 +12,15 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import { ApiError, buildErrorEnvelope } from '../../../../common/errors/envelope.js';
 import type { HistoryService } from '../../application/HistoryService.js';
+import type { Database } from '../../../../infrastructure/database/db.js';
+import { createJwtAuthMiddleware } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 
 function getRequestId(request: FastifyRequest): string {
   return (request.headers['x-request-id'] as string | undefined) ?? 'unknown';
 }
 
-function getWorkspaceId(request: FastifyRequest, reply: FastifyReply): string | null {
-  const wsId = request.headers['x-workspace-id'] as string | undefined;
-  if (!wsId) {
-    reply.status(400).send(
-      buildErrorEnvelope({
-        code: 'VALIDATION_FAILED',
-        message: 'x-workspace-id header is required',
-        requestId: getRequestId(request),
-      }),
-    );
-    return null;
-  }
-  return wsId;
+function getWorkspaceId(request: FastifyRequest): string | null {
+  return request.jwtUser?.workspaceId ?? null;
 }
 
 function handleError(err: unknown, request: FastifyRequest, reply: FastifyReply): void {
@@ -49,15 +40,17 @@ function handleError(err: unknown, request: FastifyRequest, reply: FastifyReply)
 export async function registerHistoryRoutes(
   app: FastifyInstance,
   service: HistoryService,
+  options: { jwtSecret: string; db?: Database | undefined },
 ): Promise<void> {
+  const auth = createJwtAuthMiddleware({ secret: options.jwtSecret, ...(options.db ? { db: options.db } : {}) });
   /**
    * GET /v1/history
    * Paginated assessment history for the requesting workspace.
    * Query params: limit (default 20, max 100), cursor (last seen assessment ID)
    */
-  app.get('/v1/history', async (request: FastifyRequest, reply: FastifyReply) => {
-    const workspaceId = getWorkspaceId(request, reply);
-    if (!workspaceId) return;
+  app.get('/v1/history', { preHandler: [auth] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = getWorkspaceId(request);
+    if (!workspaceId) return reply.status(403).send(buildErrorEnvelope({ code: 'PERMISSION_DENIED', message: 'Workspace aktif diperlukan.', requestId: getRequestId(request) }));
 
     const query = request.query as { limit?: string; cursor?: string };
     const limit = Math.min(parseInt(query.limit ?? '20', 10) || 20, 100);
@@ -80,9 +73,10 @@ export async function registerHistoryRoutes(
    */
   app.get(
     '/v1/history/:assessmentId',
+    { preHandler: [auth] },
     async (request: FastifyRequest, reply: FastifyReply) => {
-      const workspaceId = getWorkspaceId(request, reply);
-      if (!workspaceId) return;
+      const workspaceId = getWorkspaceId(request);
+      if (!workspaceId) return reply.status(403).send(buildErrorEnvelope({ code: 'PERMISSION_DENIED', message: 'Workspace aktif diperlukan.', requestId: getRequestId(request) }));
 
       const { assessmentId } = request.params as { assessmentId: string };
 
@@ -104,9 +98,9 @@ export async function registerHistoryRoutes(
    * Private question bank for the requesting workspace.
    * Query params: limit (default 20, max 100), after (cursor: offset index as string)
    */
-  app.get('/v1/bank/questions', async (request: FastifyRequest, reply: FastifyReply) => {
-    const workspaceId = getWorkspaceId(request, reply);
-    if (!workspaceId) return;
+  app.get('/v1/bank/questions', { preHandler: [auth] }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const workspaceId = getWorkspaceId(request);
+    if (!workspaceId) return reply.status(403).send(buildErrorEnvelope({ code: 'PERMISSION_DENIED', message: 'Workspace aktif diperlukan.', requestId: getRequestId(request) }));
 
     const query = request.query as { limit?: string; after?: string };
     const limit = Math.min(parseInt(query.limit ?? '20', 10) || 20, 100);
