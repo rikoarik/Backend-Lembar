@@ -6,6 +6,7 @@
  */
 import { randomBytes, createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
+import { hashPassword } from '../../auth/infrastructure/password.js';
 
 import type {
   SchoolWorkspace,
@@ -45,7 +46,7 @@ export interface SchoolInvitationStore {
   } | null>;
   markAccepted(tokenHash: string, userId: string): Promise<void>;
   saveMember(tenantId: string, workspaceId: string, member: SchoolMember): Promise<void>;
-  saveUser(id: string, email: string, passwordHash: string): Promise<{ id: string; email: string }>;
+  saveUser(id: string, email: string, passwordHash: string, workspaceId: string, role: SchoolMember['role']): Promise<{ id: string; email: string }>;
   getUserByEmail(email: string): Promise<{ id: string; email: string; passwordHash: string } | null>;
 }
 
@@ -53,11 +54,6 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
-}
-
-function hashPassword(password: string): string {
-  // Simple hash for test layer — production uses bcrypt via AuthService
-  return createHash('sha256').update(password).digest('hex');
 }
 
 export class SchoolService {
@@ -99,6 +95,13 @@ export class SchoolService {
     };
   }
 
+  async previewInvitation(token: string): Promise<{ status: 'pending' | 'expired' | 'invalid'; email?: string }> {
+    const invitation = await this.invitationStore.findByTokenHash(hashToken(token));
+    if (!invitation || invitation.state !== 'pending') return { status: 'invalid' };
+    if (invitation.expiresAt <= this.clock()) return { status: 'expired', email: invitation.email };
+    return { status: 'pending', email: invitation.email };
+  }
+
   async acceptInvitation(input: AcceptInvitationInput): Promise<AcceptInvitationResult> {
     const tokenHash = hashToken(input.token);
     const invitation = await this.invitationStore.findByTokenHash(tokenHash);
@@ -120,7 +123,9 @@ export class SchoolService {
       user = await this.invitationStore.saveUser(
         id,
         invitation.email,
-        hashPassword(input.password),
+        await hashPassword(input.password),
+        invitation.workspaceId,
+        invitation.role as SchoolMember['role'],
       ) as { id: string; email: string; passwordHash: string };
     }
 
@@ -136,7 +141,12 @@ export class SchoolService {
     // Mark invitation as accepted (one-time use)
     await this.invitationStore.markAccepted(tokenHash, user.id);
 
-    return { userId: user.id, workspaceId: invitation.workspaceId };
+    return {
+      userId: user.id,
+      workspaceId: invitation.workspaceId,
+      email: user.email,
+      role: invitation.role as SchoolMember['role'],
+    };
   }
 
   async listMembers(tenantId: string, workspaceId: string): Promise<SchoolMember[]> {
