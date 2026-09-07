@@ -387,7 +387,10 @@ export async function buildApp(
   }
 
   if (curriculumDb) {
-    await registerCurriculumRoutes(app, { db: curriculumDb });
+    await registerCurriculumRoutes(app, {
+      db: curriculumDb,
+      jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+    });
   }
   if (marketingDb) {
     await registerMarketingRoutes(app, { db: marketingDb });
@@ -540,7 +543,7 @@ export async function buildApp(
       ...(managedDb ? { db: managedDb } : {}),
     };
     registerAssessmentRoutes(app, assessmentService, assessmentAuth);
-    await registerHistoryRoutes(app, historyService);
+    await registerHistoryRoutes(app, historyService, assessmentAuth);
     await registerShareRoutes(app, shareLinkService, {
       assessmentsStore: assessmentStore,
       questionStore: questionGenStore,
