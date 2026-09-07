@@ -92,8 +92,9 @@ export class PostgresSchoolWorkspaceStore implements SchoolWorkspaceStore {
       email: string;
       roles: string[];
       created_at: Date;
+      suspended_at: Date | null;
     }>(
-      `SELECT id, email, roles, created_at
+      `SELECT id, email, roles, created_at, suspended_at
        FROM jwt_users
        WHERE workspace_id = $1::uuid
        ORDER BY created_at ASC`,
@@ -104,7 +105,7 @@ export class PostgresSchoolWorkspaceStore implements SchoolWorkspaceStore {
       id: r.id,
       email: r.email,
       role: (r.roles?.[0] ?? 'subscriber') as SchoolMember['role'],
-      state: 'active',
+      state: r.suspended_at ? 'suspended' : 'active',
       joinedAt: r.created_at.toISOString(),
     }));
   }
@@ -240,7 +241,7 @@ export class PostgresSchoolInvitationStore implements SchoolInvitationStore {
     );
   }
 
-  async saveMember(tenantId: string, _workspaceId: string, member: SchoolMember): Promise<void> {
+  async saveMember(_tenantId: string, workspaceId: string, member: SchoolMember): Promise<void> {
     const pool = getPool(this.db);
     if (!pool) return;
     // Members are stored in jwt_users.roles; no separate members table — workspace IS the tenant.
@@ -248,25 +249,27 @@ export class PostgresSchoolInvitationStore implements SchoolInvitationStore {
     await pool.query(
       `UPDATE jwt_users
        SET roles = array_append(array_remove(roles, $2::text), $2::text),
+           workspace_id = $3::uuid,
            updated_at = now()
        WHERE id = $1::uuid`,
-      [member.id, member.role],
+      [member.id, member.role, workspaceId],
     );
-    void tenantId;
   }
 
   async saveUser(
     id: string,
     email: string,
     passwordHash: string,
+    workspaceId: string,
+    role: string,
   ): Promise<{ id: string; email: string }> {
     const pool = getPool(this.db);
     if (!pool) return { id, email };
     await pool.query(
-      `INSERT INTO jwt_users (id, email, password_hash, created_at)
-       VALUES ($1::uuid, $2, $3, now())
+      `INSERT INTO jwt_users (id, email, username, name, password_hash, workspace_id, roles, created_at, updated_at)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6::uuid, ARRAY[$7]::text[], now(), now())
        ON CONFLICT (email) DO NOTHING`,
-      [id, email, passwordHash],
+      [id, email, `invite_${id.replace(/-/g, '').slice(0, 16)}`, email.split('@')[0] || 'Pengguna', passwordHash, workspaceId, role],
     );
     return { id, email };
   }
