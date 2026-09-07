@@ -11,6 +11,10 @@ const token = generateJwt(
   { userId: 'user', email: 'user@example.test', roles: ['teacher'], workspaceId: TENANT },
   { secret: SECRET, expiryDays: 1 },
 );
+const superadminToken = generateJwt(
+  { userId: 'admin', email: 'admin@example.test', roles: ['superadmin'], workspaceId: TENANT },
+  { secret: SECRET, expiryDays: 1 },
+);
 
 const rows = {
   grades: [
@@ -74,6 +78,19 @@ describe('catalog tenant isolation', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json().data.map((row: { id: string }) => row.id)).toContain(own);
     expect(response.json().data.map((row: { id: string }) => row.id)).not.toContain(other);
+  });
+
+  it('validates required material fields before creating a catalog material', async () => {
+    const app = Fastify();
+    await registerCatalogRoutes(app, { jwtSecret: SECRET });
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/catalog/materials',
+      headers: { authorization: `Bearer ${superadminToken}` },
+      payload: { title: 'Materi tanpa relasi' },
+    });
+    expect(response.statusCode).toBe(400);
+    await app.close();
   });
 
   it('rejects an invalid JWT instead of treating it as public', async () => {

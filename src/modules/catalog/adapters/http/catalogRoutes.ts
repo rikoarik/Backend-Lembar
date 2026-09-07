@@ -14,6 +14,7 @@
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, isNotNull } from 'drizzle-orm';
+import { MATERIAL_KINDS, APPROVED_SOURCE_RIGHTS, SOURCE_RIGHTS_VALUES } from '../../../curriculum/persistence/schema.js';
 import { randomUUID } from 'node:crypto';
 
 import type { Database } from '../../../../infrastructure/database/db.js';
@@ -650,6 +651,75 @@ export async function registerCatalogRoutes(
     });
 
     return reply.status(201).send({ data: newItem });
+  });
+
+  app.get('/v1/admin/catalog/outcomes', { preHandler: adminGuard }, async (request, reply) => {
+    const subjectId = String((request.query as { subjectId?: string }).subjectId ?? '');
+    const requestId = getRequestId(request);
+    if (!subjectId) return validationError(reply, 'subjectId wajib diisi.', requestId);
+    const pool = db ? getPool(db) : undefined;
+    if (!pool) return reply.status(503).send({ error: { code: 'CATALOG_UNAVAILABLE', message: 'Penyimpanan katalog belum tersedia.', requestId } });
+    const result = await pool.query(
+      `SELECT id, code, text FROM outcomes WHERE subject_id = $1 ORDER BY ordering, code`,
+      [subjectId],
+    );
+    return reply.status(200).send({ data: result.rows.map((row) => ({ id: row.id, label: `${row.code} — ${row.text}` })) });
+  });
+
+  // POST /v1/admin/catalog/materials — trusted parent linkage is derived from outcome.
+  app.post('/v1/admin/catalog/materials', { preHandler: adminGuard }, async (request, reply) => {
+    const body = request.body as {
+      outcomeId?: unknown;
+      code?: unknown;
+      kind?: unknown;
+      title?: unknown;
+      sourceRights?: unknown;
+      publish?: unknown;
+    };
+    const requestId = getRequestId(request);
+    const actor = (request as unknown as { user?: { id?: string } }).user;
+    if (
+      typeof body.outcomeId !== 'string' || !body.outcomeId ||
+      typeof body.code !== 'string' || !body.code.trim() ||
+      typeof body.title !== 'string' || !body.title.trim() ||
+      typeof body.kind !== 'string' || !(MATERIAL_KINDS as readonly string[]).includes(body.kind) ||
+      typeof body.sourceRights !== 'string' || !(SOURCE_RIGHTS_VALUES as readonly string[]).includes(body.sourceRights)
+    ) {
+      return validationError(reply, 'outcomeId, kode, jenis, judul, dan hak sumber yang valid wajib diisi.', requestId);
+    }
+    const pool = db ? getPool(db) : undefined;
+    if (!pool) return reply.status(503).send({ error: { code: 'CATALOG_UNAVAILABLE', message: 'Penyimpanan katalog belum tersedia.', requestId } });
+    const parent = await pool.query(
+      `SELECT id, subject_id, phase_id, grade_id, curriculum_id, tenant_id FROM outcomes WHERE id = $1 LIMIT 1`,
+      [body.outcomeId],
+    );
+    if (!parent.rows[0]) return notFoundError(reply, 'CP/Outcome tidak ditemukan.', requestId);
+    const publish = body.publish === true;
+    if (publish && !(APPROVED_SOURCE_RIGHTS as readonly string[]).includes(body.sourceRights)) {
+      return validationError(reply, 'Hak sumber harus internal, CC BY, atau CC BY-SA sebelum materi dipublikasikan.', requestId);
+    }
+    const p = parent.rows[0] as Record<string, string>;
+    try {
+      const inserted = await pool.query(
+        `INSERT INTO materials (outcome_id, subject_id, phase_id, grade_id, curriculum_id, tenant_id, code, kind, title, source_rights, ordering)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0) RETURNING id, title, published_version`,
+        [p.id, p.subject_id, p.phase_id, p.grade_id, p.curriculum_id, p.tenant_id, body.code.trim(), body.kind, body.title.trim(), body.sourceRights],
+      );
+      const item = inserted.rows[0] as { id: string; title: string };
+      if (publish) {
+        await pool.query(
+          `INSERT INTO material_versions (material_id, version, payload, published_by)
+           VALUES ($1, 1, jsonb_build_object('outcome_id',$2,'subject_id',$3,'phase_id',$4,'grade_id',$5,'curriculum_id',$6,'code',$7,'kind',$8,'title',$9,'source_rights',$10,'ordering',0), $11)`,
+          [item.id, p.id, p.subject_id, p.phase_id, p.grade_id, p.curriculum_id, body.code.trim(), body.kind, item.title, body.sourceRights, actor?.id ?? null],
+        );
+        await pool.query(`UPDATE materials SET published_version = 1, current_version = 1 WHERE id = $1`, [item.id]);
+      }
+      await auditLog(db, actor?.id ?? 'unknown', 'catalog.material.create', 'material', item.id, { publish });
+      return reply.status(201).send({ data: { id: item.id, title: item.title, published: publish } });
+    } catch (err) {
+      if ((err as { code?: string }).code === '23505') return validationError(reply, 'Kode materi sudah digunakan pada CP ini.', requestId);
+      throw err;
+    }
   });
 
   // DELETE /v1/admin/catalog/grades/:id  (soft delete → archived)
