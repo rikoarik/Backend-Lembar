@@ -659,6 +659,32 @@ export async function registerAdminRoutes(
   );
 
   // ── Plan Catalog ─────────────────────────────────────
+  const toAdminPlan = (row: {
+    key: string;
+    display_name: string;
+    price_amount: number;
+    currency: string;
+    billing_period: 'monthly' | null;
+    token_monthly_limit: number | string | null;
+    features: unknown;
+    active: boolean;
+    revision: number;
+    updated_at: Date;
+    updated_by: string | null;
+  }) => ({
+    key: row.key,
+    displayName: row.display_name,
+    priceAmount: Number(row.price_amount),
+    currency: row.currency,
+    billingPeriod: row.billing_period,
+    tokenMonthlyLimit: row.token_monthly_limit === null ? null : Number(row.token_monthly_limit),
+    features: Array.isArray(row.features) ? row.features.filter((feature): feature is string => typeof feature === 'string') : [],
+    active: row.active,
+    revision: row.revision,
+    updatedAt: row.updated_at.toISOString(),
+    updatedBy: row.updated_by,
+  });
+
   app.get('/v1/admin/plans', { preHandler: [auth, superadmin] }, async (_request, reply) => {
     const pool = getPool(db);
     if (!pool)
@@ -669,7 +695,7 @@ export async function registerAdminRoutes(
       `SELECT key,display_name,price_amount,currency,billing_period,token_monthly_limit,features,active,revision,updated_at,updated_by
        FROM plan_catalog ORDER BY CASE key WHEN 'free' THEN 0 ELSE 1 END`,
     );
-    return reply.status(200).send({ data: res.rows });
+    return reply.status(200).send({ data: res.rows.map(toAdminPlan) });
   });
 
   app.patch('/v1/admin/plans/:key', { preHandler: [auth, superadmin] }, async (request, reply) => {
@@ -859,7 +885,7 @@ export async function registerAdminRoutes(
     }
     const actor = request.jwtUser!;
     await auditLog(actor.userId, 'plan_catalog.update', 'plan_catalog', key, { ...body });
-    return reply.status(200).send({ data: res.rows[0] });
+    return reply.status(200).send({ data: toAdminPlan(res.rows[0]) });
   });
 
   app.post(
