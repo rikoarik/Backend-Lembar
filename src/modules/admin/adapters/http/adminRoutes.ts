@@ -766,14 +766,47 @@ export async function registerAdminRoutes(
         });
     }
 
-    const current = await pool.query<{ revision: number }>(
-      'SELECT revision FROM plan_catalog WHERE key=$1',
+    const current = await pool.query<{
+      revision: number;
+      display_name: string;
+      price_amount: number;
+      billing_period: string | null;
+      token_monthly_limit: number | null;
+      features: unknown;
+      active: boolean;
+    }>(
+      'SELECT revision, display_name, price_amount, billing_period, token_monthly_limit, features, active FROM plan_catalog WHERE key=$1',
       [key],
     );
     if (!current.rows[0])
       return reply
         .status(404)
         .send({ error: { code: 'RESOURCE_NOT_FOUND', message: 'Plan tidak ditemukan.' } });
+
+    if (active === true) {
+      const existing = current.rows[0];
+      const finalPrice = priceAmount ?? existing.price_amount;
+      const finalPeriod = billingPeriod ?? existing.billing_period;
+      const finalTokenLimit = tokenMonthlyLimit ?? existing.token_monthly_limit;
+      const finalFeatures = features ?? (Array.isArray(existing.features) ? existing.features : []);
+      const paid = key !== 'free';
+      if (
+        typeof finalTokenLimit !== 'number' ||
+        !Number.isInteger(finalTokenLimit) ||
+        finalTokenLimit <= 0 ||
+        !Array.isArray(finalFeatures) ||
+        finalFeatures.length === 0 ||
+        (paid && (typeof finalPrice !== 'number' || finalPrice <= 0 || finalPeriod !== 'monthly')) ||
+        (!paid && (finalPrice !== 0 || finalPeriod !== null))
+      ) {
+        return reply.status(400).send({
+          error: {
+            code: 'PLAN_ACTIVATION_INCOMPLETE',
+            message: 'Sebelum mengaktifkan paket: isi kuota token dan minimal satu fitur. Paket berbayar juga wajib harga > Rp0 dan periode bulanan; Free wajib harga Rp0 tanpa periode.',
+          },
+        });
+      }
+    }
 
     const sets: string[] = [];
     const vals: unknown[] = [];
