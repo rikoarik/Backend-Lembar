@@ -43,6 +43,18 @@ export interface CatalogOption {
   status: 'active' | 'archived' | 'unavailable';
 }
 
+/**
+ * `outcomeId` is the curriculum outcome (CP) a material belongs to. It is
+ * optional/additive: DB-backed tenant materials carry the uuid of the
+ * `materials.outcome_id` row, official catalog materials carry the derived
+ * `<subjectId>-cp` id. Consumers that need to attribute generated content to a
+ * curriculum anchor read this field first and may fall back to deriving it from
+ * the id shape when it is absent.
+ */
+export interface CatalogMaterialOption extends CatalogOption {
+  outcomeId?: string | null;
+}
+
 export interface CatalogGradeOption extends CatalogOption {
   jenjang: 'sd' | 'smp' | 'sma' | 'smk';
 }
@@ -454,6 +466,7 @@ export async function registerCatalogRoutes(
           .select({
             id: materials.id,
             label: materials.title,
+            outcomeId: materials.outcomeId,
             publishedVersion: materials.publishedVersion,
             tenantId: materials.tenantId,
           })
@@ -474,6 +487,10 @@ export async function registerCatalogRoutes(
               .map((r) => ({
                 id: r.id,
                 label: r.label,
+                // Tenant materials are keyed by uuid, so the owning outcome
+                // cannot be derived from the id shape the way the official
+                // catalog ids allow — expose it explicitly instead.
+                outcomeId: r.outcomeId ?? null,
                 status: 'active' as const,
               })),
           });

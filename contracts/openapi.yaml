@@ -529,7 +529,7 @@ paths:
                   data:
                     type: array
                     items:
-                      $ref: "#/components/schemas/CatalogOption"
+                      $ref: "#/components/schemas/CatalogMaterialOption"
         "400":
           $ref: "#/components/responses/ValidationError"
   /v1/sources/upload-intents:
@@ -3183,6 +3183,23 @@ components:
         id: { type: string }
         label: { type: string }
         status: { type: string, enum: [active, archived, unavailable] }
+    CatalogMaterialOption:
+      type: object
+      required: [id, label, status]
+      additionalProperties: true
+      description: >
+        A material offered for generation. `outcomeId` is the curriculum outcome
+        (CP) the material belongs to: tenant DB materials carry the uuid of
+        `materials.outcome_id`, official catalog materials carry the derived
+        `<subjectId>-cp` id. Consumers read it before falling back to deriving
+        the outcome from the material id shape.
+      properties:
+        id: { type: string }
+        label: { type: string }
+        status: { type: string, enum: [active, archived, unavailable] }
+        outcomeId:
+          type: [string, 'null']
+          description: Owning curriculum outcome id, or null when unknown.
     CatalogCurriculumVersion:
       type: object
       required: [id, curriculumVersionId, curriculumId, label, version, status]

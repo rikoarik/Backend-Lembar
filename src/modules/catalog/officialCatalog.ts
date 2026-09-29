@@ -109,6 +109,9 @@ export function listOfficialMaterials(gradeId: string, subjectId: string) {
     id: `${subjectId}-topic-${index + 1}`,
     label: topic,
     kind: 'topic' as const,
+    // Topics belong to the subject's single learning outcome; expose it so
+    // consumers do not have to reverse-engineer the id shape.
+    outcomeId: `${subjectId}-cp`,
     status: 'active' as const,
     provenance: OFFICIAL_CATALOG_PROVENANCE,
   }));
@@ -118,6 +121,7 @@ export function listOfficialMaterials(gradeId: string, subjectId: string) {
           id: `${subjectId}-cp`,
           label: record.description,
           kind: 'learning_outcome' as const,
+          outcomeId: `${subjectId}-cp`,
           learningAchievements: record.learningAchievements.filter(Boolean),
           status: 'active' as const,
           provenance: OFFICIAL_CATALOG_PROVENANCE,
