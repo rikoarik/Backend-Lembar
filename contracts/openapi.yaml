@@ -616,7 +616,10 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
         "415":
-          description: Content type is not application/pdf
+          description: >-
+            Unsupported media type, or the body does not carry the PDF signature
+            (`%PDF-`). The `content-type` header is client-controlled, so the
+            payload itself is checked.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -696,6 +699,13 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+        "415":
+          description: >-
+            The stored object is not a PDF (missing the `%PDF-` header or the
+            `%%EOF` trailer). The upload is moved to `rejected`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
   /v1/uploads/sources/{id}/access:
     post:
       summary: Get signed download intent

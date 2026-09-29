@@ -119,6 +119,16 @@ export function hasPdfTrailer(bytes: Buffer): boolean {
   return tail.includes(PDF_TRAILER_MARKER);
 }
 
+/**
+ * BUG-22 — a payload only counts as a PDF when it carries BOTH the `%PDF-`
+ * header and the `%%EOF` trailer. Used on the `verify` path, where the whole
+ * object is available, so a text file that merely borrows the header cannot be
+ * promoted to `verified`.
+ */
+export function isPdfPayload(bytes: Buffer): boolean {
+  return looksLikePdfMagic(bytes) && hasPdfTrailer(bytes);
+}
+
 export function contentHashOf(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -184,6 +194,28 @@ export class SourceUploadsService {
         requestId: input.requestId,
         status: 413,
         fieldErrors: { byteSize: ['Berkas terlalu besar.'] },
+      });
+    }
+    // BUG-22: `content-type` is client-controlled, so it proves nothing about
+    // the payload. A body that does not begin with `%PDF-` is rejected here —
+    // before any bytes are written to storage — so garbage can never reach the
+    // `verify` step or the generate flow via `sourceMode=pdf`.
+    if (!looksLikePdfMagic(input.bytes)) {
+      await this.audit({
+        uploadId: null,
+        workspaceId: input.workspaceId,
+        action: 'magic_check',
+        actorUserId: input.uploaderUserId,
+        requestId: input.requestId,
+        success: false,
+        failureCode: 'not_a_pdf',
+      });
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: 'Berkas bukan PDF yang valid.',
+        requestId: input.requestId,
+        status: 415,
+        fieldErrors: { file: ['Berkas tidak diawali penanda PDF (%PDF-).'] },
       });
     }
 
@@ -285,6 +317,36 @@ export class SourceUploadsService {
         message: 'Isi berkas tidak dapat diverifikasi.',
         requestId: input.requestId,
         status: 400,
+      });
+    }
+    // BUG-22: the hash comparison above only proves the object is the one we
+    // stored — it says nothing about the format. A file that arrived before the
+    // intake magic check existed (or via a path that skips it) would otherwise
+    // be promoted to `verified`. Read the bytes back and require a real PDF
+    // signature; this is the check the endpoint's name promises.
+    const object = await this.storage.getObject(storageKeyFor(input.uploadId));
+    if (!isPdfPayload(object.body)) {
+      await this.audit({
+        uploadId: input.uploadId,
+        workspaceId: input.workspaceId,
+        action: 'magic_check',
+        actorUserId: input.actorUserId,
+        requestId: input.requestId,
+        success: false,
+        failureCode: 'not_a_pdf',
+      });
+      await this.store.updateUploadStatus({
+        id: input.uploadId,
+        workspaceId: input.workspaceId,
+        status: 'rejected',
+        failureCode: 'not_a_pdf',
+      });
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: 'Berkas bukan PDF yang valid.',
+        requestId: input.requestId,
+        status: 415,
+        fieldErrors: { file: ['Berkas tidak memiliki penanda PDF (%PDF- … %%EOF).'] },
       });
     }
     await this.audit({

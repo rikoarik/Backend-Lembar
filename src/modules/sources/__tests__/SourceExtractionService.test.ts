@@ -77,6 +77,7 @@ class ThrowingExtractor implements TextExtractorAdapter {
 const noopStorage: StorageAdapter = {
   putObject: async () => ({ key: 'k', byteSize: 0, contentType: '', checksumSha256: '' }),
   headObject: async () => ({ key: 'k', byteSize: 0, contentType: '', checksumSha256: '' }),
+  getObject: async () => ({ key: 'k', body: Buffer.alloc(0), byteSize: 0, contentType: '', checksumSha256: '' }),
   getSignedUrl: async () => ({ url: 'http://localhost/x', expiresAtEpochMs: Date.now() + 60000 }),
   deleteObject: async () => {},
 };
