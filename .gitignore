@@ -13,3 +13,6 @@ coverage/
 agent-orchestrator.yaml
 .worktrees/
 .env.bak-*
+
+# runtime upload storage (private, per-instance)
+storage/
