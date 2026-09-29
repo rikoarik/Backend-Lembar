@@ -70,7 +70,18 @@ export function runtimeConfig(env: AiEnv): Record<string, unknown> {
 async function runHermes(home: string, prompt: string, timeoutMs: number): Promise<{ ok: true; text: string } | { ok: false; outcome: AiGenerateOutcome }> {
   return new Promise((resolve) => {
     const child = spawn(process.env.HERMES_RUNTIME_BIN ?? 'hermes', ['--oneshot', prompt, '--ignore-rules', '--toolsets', 'safe'], {
-      env: { ...process.env, HERMES_HOME: home, HERMES_ACCEPT_HOOKS: '1' }, stdio: ['ignore', 'pipe', 'pipe'],
+      // Each call gets a throwaway HERMES_HOME, so Hermes sees a cold home and would
+      // otherwise run its lazy-install tail (PM runtime + agent-browser/cua-driver
+      // downloads) on EVERY spawn — minutes of startup that blew past AI_TIMEOUT_MS
+      // and killed the child before the provider was ever called. Lazy installs are
+      // unnecessary here: this runtime only needs the model call, no optional tools.
+      env: {
+        ...process.env,
+        HERMES_HOME: home,
+        HERMES_ACCEPT_HOOKS: '1',
+        HERMES_DISABLE_LAZY_INSTALLS: '1',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = ''; let stderr = '';
     const timer = setTimeout(() => child.kill('SIGTERM'), timeoutMs);

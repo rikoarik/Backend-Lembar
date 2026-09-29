@@ -53,7 +53,16 @@ function imagePrompt(request: QuestionImageGenerationRequest): string {
 function runImageTool(home: string, prompt: string, timeoutMs: number, apiKey: string, baseUrl: string): Promise<string> {
   return new Promise((resolve) => {
     const child = spawn(process.env.HERMES_RUNTIME_BIN ?? 'hermes', ['--oneshot', prompt, '--ignore-rules', '--toolsets', 'image_gen'], {
-      env: { ...process.env, HERMES_HOME: home, HERMES_ACCEPT_HOOKS: '1', XAI_API_KEY: apiKey, XAI_BASE_URL: baseUrl },
+      // Same cold-HERMES_HOME penalty as the text adapter: without this the spawn
+      // runs Hermes' lazy-install tail before ever reaching the provider.
+      env: {
+        ...process.env,
+        HERMES_HOME: home,
+        HERMES_ACCEPT_HOOKS: '1',
+        HERMES_DISABLE_LAZY_INSTALLS: '1',
+        XAI_API_KEY: apiKey,
+        XAI_BASE_URL: baseUrl,
+      },
       stdio: ['ignore', 'pipe', 'ignore'],
     });
     let stdout = '';
