@@ -3454,6 +3454,7 @@ components:
             progressCurrent: { type: [integer, "null"] }
             progressTotal: { type: [integer, "null"] }
             failureCode: { type: [string, "null"] }
+            failureMessage: { type: [string, "null"] }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
     MarketingCta:

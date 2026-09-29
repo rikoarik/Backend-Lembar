@@ -26,6 +26,40 @@ export interface AssessmentGenerationHandlerOptions {
   assessmentsStore?: AssessmentsStore;
 }
 
+type GenerationFailure = { reason: string; message: string };
+
+/**
+ * Root-cause code for a job that failed to produce any question.
+ *
+ * The queue layer stores `lastError` verbatim and the job status API surfaces
+ * its `code`, so this must stay a stable, client-safe identifier rather than
+ * the generic `UNKNOWN` the worker falls back to when a handler returns a
+ * failure without an error.
+ */
+export function failureCodeFor(failures: ReadonlyArray<GenerationFailure>): string {
+  const reasons = new Set(failures.map((failure) => failure.reason));
+  if (reasons.size === 0) return 'GENERATION_ERROR';
+  if (reasons.size > 1) return 'GENERATION_FAILED';
+  const [only] = [...reasons];
+  switch (only) {
+    case 'provider_error':
+      return 'PROVIDER_ERROR';
+    case 'schema_repair_exhausted':
+      return 'SCHEMA_REPAIR_EXHAUSTED';
+    case 'insufficient_source':
+      return 'SOURCE_INSUFFICIENT';
+    default:
+      return 'GENERATION_ERROR';
+  }
+}
+
+/** Human-readable root cause, preserving the provider's own message. */
+export function failureMessageFor(failures: ReadonlyArray<GenerationFailure>): string {
+  const first = failures[0];
+  if (!first) return 'Pembuatan soal gagal tanpa detail kegagalan.';
+  return first.message || `Pembuatan soal gagal (${first.reason}).`;
+}
+
 export class AssessmentGenerationHandler implements JobHandler {
   readonly kind = 'assessment_generation' as const;
   private readonly questionGenerationService: QuestionGenerationService;
@@ -148,6 +182,15 @@ export class AssessmentGenerationHandler implements JobHandler {
 
       return {
         status: isSuccess ? 'success' : 'failure',
+        ...(isSuccess
+          ? {}
+          : {
+              error: {
+                code: failureCodeFor(result.failures),
+                message: failureMessageFor(result.failures),
+                details: { failures: result.failures },
+              },
+            }),
         output: {
           assessmentVersionId,
           questionsGenerated: result.questions.length,

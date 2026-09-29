@@ -31,6 +31,8 @@ export interface JobStatusView {
   progressCurrent: number | null;
   progressTotal: number | null;
   failureCode: string | null;
+  /** Root-cause message stored with the job failure (client-safe). */
+  failureMessage: string | null;
   createdAt: string;
   updatedAt: string;
 }

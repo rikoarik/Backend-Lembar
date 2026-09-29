@@ -199,6 +199,9 @@ export class JobStatusService {
       progressCurrent: typeof payload['progressCurrent'] === 'number' ? payload['progressCurrent'] : null,
       progressTotal: typeof payload['progressTotal'] === 'number' ? payload['progressTotal'] : null,
       failureCode: job.lastError ? ((job.lastError as { code?: string }).code ?? null) : null,
+      failureMessage: job.lastError
+        ? ((job.lastError as { message?: string }).message ?? null)
+        : null,
       createdAt: job.createdAt.toISOString(),
       updatedAt: job.updatedAt.toISOString(),
     };
