@@ -703,4 +703,66 @@ describe('B2-05: End-to-end job status and recovery', () => {
       ).rejects.toThrow(JobNotFoundError);
     });
   });
+
+  describe('failure detail reaches the client status view', () => {
+    test('a terminal failure surfaces the root code and message, not UNKNOWN', async () => {
+      const { service, spike, quotaStore, queueStore } = buildTestHarness();
+      const tenantId = randomUUID();
+      const workspaceId = randomUUID();
+      quotaStore.setBaseQuota(tenantId, workspaceId, 1000);
+
+      const submitted = await service.submit(
+        {
+          tenantId,
+          workspaceId,
+          actorId: 'user-1',
+          kind: 'assessment_generation',
+          idempotencyKey: randomUUID(),
+          fingerprint: { prompt: 'test' },
+          quotaUnits: 1,
+        },
+        { tenantId, workspaceId },
+      );
+
+      // The worker stores the handler's own error payload verbatim; a bare
+      // `{code}` would be exactly the shape the client used to see as UNKNOWN.
+      const claimed = await spike.claim('worker-a');
+      await queueStore.markDeadLetter(claimed!.id, 'worker-a', new Date(), {
+        code: 'SCHEMA_REPAIR_EXHAUSTED',
+        message: 'Schema repair exhausted for question at sequence 2',
+      });
+
+      const status = await service.getStatus(submitted.jobId, { tenantId, workspaceId });
+
+      expect(status.status).toBe('failed');
+      expect(status.failureCode).toBe('SCHEMA_REPAIR_EXHAUSTED');
+      expect(status.failureMessage).toBe('Schema repair exhausted for question at sequence 2');
+      expect(status.failureCode).not.toBe('UNKNOWN');
+    });
+
+    test('a job with no recorded error reports null failure detail', async () => {
+      const { service, quotaStore } = buildTestHarness();
+      const tenantId = randomUUID();
+      const workspaceId = randomUUID();
+      quotaStore.setBaseQuota(tenantId, workspaceId, 1000);
+
+      const submitted = await service.submit(
+        {
+          tenantId,
+          workspaceId,
+          actorId: 'user-1',
+          kind: 'assessment_generation',
+          idempotencyKey: randomUUID(),
+          fingerprint: { prompt: 'test' },
+          quotaUnits: 1,
+        },
+        { tenantId, workspaceId },
+      );
+
+      const status = await service.getStatus(submitted.jobId, { tenantId, workspaceId });
+
+      expect(status.failureCode).toBeNull();
+      expect(status.failureMessage).toBeNull();
+    });
+  });
 });
