@@ -117,9 +117,11 @@ export const sourceUploadAudit = pgTable(
   'source_upload_audit',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    uploadId: uuid('upload_id')
-      .notNull()
-      .references(() => sourceUploads.id, { onDelete: 'cascade' }),
+    // BUG-18: intake can fail before an upload row exists (unsupported content
+    // type), and that attempt must still be audited. A sentinel uuid used to be
+    // written here and violated the FK, turning a 415 into a 500 — the column
+    // is nullable so a failed intake is recorded against the workspace alone.
+    uploadId: uuid('upload_id').references(() => sourceUploads.id, { onDelete: 'cascade' }),
     action: text('action').$type<SourceUploadAuditActionDb>().notNull(),
     actorUserId: uuid('actor_user_id'),
     requestId: text('request_id'),

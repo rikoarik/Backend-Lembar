@@ -220,7 +220,7 @@ export class PostgresSourceUploadsStore implements SourceUploadsStore {
 
   private auditFromRow(row: typeof sourceUploadAudit.$inferSelect): SourceUploadAuditEntry {
     return {
-      uploadId: row.uploadId,
+      uploadId: row.uploadId ?? null,
       workspaceId: row.workspaceId,
       action: row.action,
       actorUserId: row.actorUserId ?? null,

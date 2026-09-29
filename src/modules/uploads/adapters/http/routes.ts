@@ -24,11 +24,15 @@ import {
 import type { StorageAdapter } from '../../../../infrastructure/storage/StorageAdapter.js';
 import { hasPermission } from '../../../auth/policy/Permissions.js';
 import { createUploadsService } from '../../application/createUploadsService.js';
+import {
+  DEFAULT_SOURCE_UPLOAD_MAX_BYTES,
+  SOURCE_UPLOAD_CONTENT_TYPE,
+} from '../../policy/UploadPolicies.js';
 
 export interface RegisterUploadRoutesOptions {
   db?: Database;
   storage?: StorageAdapter;
-  /** Hard ceiling for upload size; defaults to env SOURCE_UPLOAD_MAX_BYTES or 50 MiB. */
+  /** Hard ceiling for upload size; defaults to SOURCE_UPLOAD_MAX_BYTES or 50 MiB. */
   maxBytes?: number;
 }
 
@@ -39,12 +43,18 @@ export async function registerUploadRoutes(
   app: FastifyInstance,
   options: RegisterUploadRoutesOptions = {},
 ): Promise<void> {
+  // BUG-18: the cap must be a single value shared by the Fastify body limit,
+  // the intake handler, and the `maxBytes` echoed on success. Previously the
+  // route kept Fastify's 1 MiB default while advertising 50 MiB, so every
+  // source PDF above 1 MiB failed with a 500.
+  const maxBytes = options.maxBytes ?? DEFAULT_SOURCE_UPLOAD_MAX_BYTES;
+
   // Register an octet-stream / pdf parser that returns the raw body buffer so
   // the intake handler can enforce its own size cap rather than relying on
   // Fastify's JSON parser rejecting unknown media types with 415.
   app.addContentTypeParser(
     ['application/pdf', 'application/octet-stream'],
-    { parseAs: 'buffer' },
+    { parseAs: 'buffer', bodyLimit: maxBytes },
     (_request, body, done) => done(null, body),
   );
 
@@ -53,26 +63,18 @@ export async function registerUploadRoutes(
   const service = createUploadsService({
     storage,
     storageDriverName: driverName,
+    maxBytes,
     ...(options.db !== undefined ? { db: options.db } : {}),
-    ...(options.maxBytes !== undefined ? { maxBytes: options.maxBytes } : {}),
   });
 
-  app.post('/v1/uploads/sources/intake', async (request, reply) => {
+  app.post('/v1/uploads/sources/intake', { bodyLimit: maxBytes }, async (request, reply) => {
     const actor = requireAuthenticated(request);
     const workspaceId = workspaceIdOf(request);
     const tenantId = tenantIdOf(request);
-    const contentTypeHeader = headerString(request, 'content-type') ?? 'application/pdf';
+    const contentTypeHeader = headerString(request, 'content-type') ?? SOURCE_UPLOAD_CONTENT_TYPE;
     const contentType = (contentTypeHeader.split(';')[0] ?? '').trim().toLowerCase();
-    const bytes = await readBodyWithCap(request, reply, options.maxBytes);
+    const bytes = await readBodyWithCap(request, reply, maxBytes);
     const declaredByteSize = bytes.byteLength;
-    if (declaredByteSize > (options.maxBytes ?? Number.MAX_SAFE_INTEGER)) {
-      throw new ApiError({
-        code: 'VALIDATION_FAILED',
-        message: 'Ukuran berkas melebihi batas.',
-        requestId: request.requestId ?? 'req_unknown',
-        status: 413,
-      });
-    }
     const filename = headerString(request, 'x-source-filename');
     if (filename && Buffer.byteLength(filename, 'utf8') > MAX_FILENAME_BYTES) {
       throw new ApiError({

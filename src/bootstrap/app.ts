@@ -6,9 +6,11 @@ import Fastify, {
 import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 
 import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/errors/envelope.js';
+import { mapFastifyError } from '../common/errors/fastifyErrors.js';
 import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
 import { parseDatabaseEnv } from '../config/database.env.js';
 import { parseQueueEnv } from '../config/queue.env.js';
+import { resolveSourceUploadMaxBytes } from '../config/uploads.env.js';
 import {
   closeDatabase,
   createDatabase,
@@ -269,6 +271,16 @@ export async function buildApp(
       void reply.status(status).send(payload);
       return;
     }
+    // BUG-18: Fastify's content-type-parser errors (body over `bodyLimit`,
+    // unsupported media type, bad Content-Length, malformed JSON) carry the
+    // correct 4xx on `statusCode`. Mapping them here keeps them out of the 500
+    // branch so clients get a stable envelope instead of "unhandled error".
+    const mapped = mapFastifyError(err);
+    if (mapped) {
+      const { status, payload } = envelopeFor(mapped.status, mapped.code, mapped.message, id);
+      void reply.status(status).send(payload);
+      return;
+    }
     app.log.error({ err: { name: err.name, message: err.message } }, 'unhandled error');
     const { status, payload } = envelopeFor(
       500,
@@ -398,10 +410,10 @@ export async function buildApp(
     jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
     ...(authDb ? { db: authDb } : {}),
   });
-  await registerUploadRoutes(
-    app,
-    managedDb ? { db: managedDb } : options.uploadsDb ? { db: options.uploadsDb } : {},
-  );
+  await registerUploadRoutes(app, {
+    maxBytes: resolveSourceUploadMaxBytes(process.env),
+    ...(managedDb ? { db: managedDb } : options.uploadsDb ? { db: options.uploadsDb } : {}),
+  });
 
   // B6-04: Ops routes (metrics + leads)
   if (managedDb) {

@@ -610,6 +610,16 @@ paths:
           $ref: "#/components/responses/ValidationError"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: Payload exceeds SOURCE_UPLOAD_MAX_BYTES
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "415":
+          description: Content type is not application/pdf
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
   /v1/uploads/sources/{id}:
     get:
       summary: Read source upload metadata (redacted)

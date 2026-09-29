@@ -47,7 +47,7 @@ export interface SourceUploadVersion {
 }
 
 export interface SourceUploadAuditEntry {
-  uploadId: string;
+  uploadId: string | null;
   workspaceId: string;
   action: SourceUploadAuditAction;
   actorUserId: string | null;
@@ -58,7 +58,8 @@ export interface SourceUploadAuditEntry {
 }
 
 export interface AuditWriteInput {
-  uploadId: string;
+  /** Null when intake failed before an upload row existed (e.g. bad content type). */
+  uploadId: string | null;
   workspaceId: string;
   action: SourceUploadAuditAction;
   actorUserId: string | null;
