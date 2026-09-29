@@ -99,6 +99,32 @@ bentuk id tidak mengenali uuid).
   yang sama hijau di worktree utama. Kegagalan berasal dari resolusi
   `@testing-library/jest-dom` di environment worktree, bukan dari perubahan ini.
 
+## Re-verifikasi (run kanban t_0728adef, 2026-09-30 06:2x)
+
+Live proof diulang dari nol di run ini, bukan dikutip dari run sebelumnya:
+
+- `GET /v1/catalog/materials` (live, 127.0.0.1:4000, sesi guru, materi DB yang
+  dipublikasikan) mengembalikan `outcomeId` = `812e03f0-...` untuk material
+  `c7d68e99-...`.
+- Live test `app/v1/generate/submit/route.db-outcome.live.test.ts` dijalankan
+  dengan `LEMBAR_LIVE_PROOF=1` → **PASS 1/1** setelah commit `ad24ee4`
+  menambahkan `// @vitest-environment node`. Sebelum itu test gagal HANYA pada
+  langkah terakhir (`import('node:fs')` untuk menulis `/tmp/t0728.live.json`)
+  karena environment jsdom mengeksternalisasi `node:fs`; asersi live
+  (katalog → submit → payload) sudah lolos dan baris Postgres sudah tertulis.
+- `blueprint_items` untuk version hasil run ini
+  `e1aa3598-469d-45a9-9efb-c6e147daf7b3` → 4/4 baris `outcome_id =
+  812e03f0-cd2b-43f2-ad26-dccb7ad232da` (`outcome_id is not null` true untuk
+  keempatnya).
+- BE `test/modules/catalog/` 13/13 hijau; `pnpm typecheck` exit 0; eslint bersih
+  di berkas tersentuh. FE `route.test.ts` 7/7 + `material-outcomes.test.ts` 11/11
+  hijau; `pnpm typecheck` exit 0; eslint & prettier bersih di berkas tersentuh.
+- `pnpm lint` di FE gagal karena PATH me-resolve ESLint global 10.8.0 (dari
+  `~/.hermes`) alih-alih v9.18.0 milik repo — masalah environment, bukan
+  perubahan; memakai `node_modules/.bin/eslint` repo hasilnya bersih.
+- 249 kegagalan suite FE penuh sudah dikonfirmasi ada di `dev` (root `React.act
+  is not a function`, mismatch React 19 vs testing-library) — bukan dari task ini.
+
 ## Notes
 
 - Tidak ada deploy produksi. Proses `lembar-api` di-restart dengan build yang
