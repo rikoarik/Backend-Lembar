@@ -58,20 +58,23 @@ export async function registerUploadRoutes(
   app: FastifyInstance,
   options: RegisterUploadRoutesOptions = {},
 ): Promise<void> {
+  // BUG-18: the cap must be a single value shared by the Fastify body limit,
+  // the intake handler, and the `maxBytes` echoed on success. Previously the
+  // route kept Fastify's 1 MiB default while advertising 50 MiB, so every
+  // source PDF above 1 MiB failed with a 500.
+  const maxBytes = options.maxBytes ?? DEFAULT_SOURCE_UPLOAD_MAX_BYTES;
+
   // Register an octet-stream / pdf parser that returns the raw body buffer so
   // the intake handler can enforce its own size cap rather than relying on
   // Fastify's JSON parser rejecting unknown media types with 415.
   app.addContentTypeParser(
     ['application/pdf', 'application/octet-stream'],
-    { parseAs: 'buffer' },
+    { parseAs: 'buffer', bodyLimit: maxBytes },
     (_request, body, done) => done(null, body),
   );
 
   // BUG-19: the content PUT must accept the same payload size the intent
-  // advertised. Fastify's default is 1 MiB, so without an explicit body limit
-  // every PDF above 1 MiB would be rejected by the parser before the handler
-  // runs. (BUG-18 raises the same ceiling on the intake route.)
-  const contentBodyLimit = options.maxBytes ?? DEFAULT_SOURCE_UPLOAD_MAX_BYTES;
+  // advertised. Reuses the BUG-18 `maxBytes` value for the parser/body limit.
 
   const storage = options.storage ?? createStorageAdapter();
   const driverName = resolveStorageDriver();
@@ -80,26 +83,18 @@ export async function registerUploadRoutes(
     createUploadsService({
       storage,
       storageDriverName: driverName,
+      maxBytes,
       ...(options.db !== undefined ? { db: options.db } : {}),
-      ...(options.maxBytes !== undefined ? { maxBytes: options.maxBytes } : {}),
     });
 
-  app.post('/v1/uploads/sources/intake', async (request, reply) => {
+  app.post('/v1/uploads/sources/intake', { bodyLimit: maxBytes }, async (request, reply) => {
     const actor = requireAuthenticated(request);
     const workspaceId = workspaceIdOf(request);
     const tenantId = tenantIdOf(request);
-    const contentTypeHeader = headerString(request, 'content-type') ?? 'application/pdf';
+    const contentTypeHeader = headerString(request, 'content-type') ?? SOURCE_UPLOAD_CONTENT_TYPE;
     const contentType = (contentTypeHeader.split(';')[0] ?? '').trim().toLowerCase();
-    const bytes = await readBodyWithCap(request, reply, options.maxBytes);
+    const bytes = await readBodyWithCap(request, reply, maxBytes);
     const declaredByteSize = bytes.byteLength;
-    if (declaredByteSize > (options.maxBytes ?? Number.MAX_SAFE_INTEGER)) {
-      throw new ApiError({
-        code: 'VALIDATION_FAILED',
-        message: 'Ukuran berkas melebihi batas.',
-        requestId: request.requestId ?? 'req_unknown',
-        status: 413,
-      });
-    }
     const filename = headerString(request, 'x-source-filename');
     if (filename && Buffer.byteLength(filename, 'utf8') > MAX_FILENAME_BYTES) {
       throw new ApiError({
@@ -135,14 +130,14 @@ export async function registerUploadRoutes(
   // BUG-19 — write target handed out by `POST /v1/sources/upload-intents`.
   // Idempotent against re-PUT: a second PUT to an already-verified upload is a
   // 409 rather than a silent overwrite.
-  app.put('/v1/uploads/sources/:id/content', { bodyLimit: contentBodyLimit }, async (request, reply) => {
+  app.put('/v1/uploads/sources/:id/content', { bodyLimit: maxBytes }, async (request, reply) => {
     const actor = requireAuthenticated(request);
     requireSourceManage(actor, request);
     const { id } = request.params as { id: string };
     const workspaceId = workspaceIdOf(request);
     const contentTypeHeader = headerString(request, 'content-type') ?? SOURCE_UPLOAD_CONTENT_TYPE;
     const contentType = (contentTypeHeader.split(';')[0] ?? '').trim().toLowerCase();
-    const bytes = await readBodyWithCap(request, reply, options.maxBytes);
+    const bytes = await readBodyWithCap(request, reply, maxBytes);
     const result = await service.storeContent({
       workspaceId,
       uploadId: id,

@@ -11,10 +11,14 @@
  * here we keep the surface tight and DB-free so the lifecycle invariants are
  * always runnable without provisioning Postgres.
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { InMemoryAdapter } from '../../../src/infrastructure/storage/InMemoryAdapter.js';
-import { createInMemorySourceUploadsService } from '../../../src/modules/uploads/domain/SourceUploadsService.js';
+import {
+  createInMemorySourceUploadsService,
+  SourceUploadsService,
+} from '../../../src/modules/uploads/domain/SourceUploadsService.js';
+import { InMemorySourceUploadsStore } from '../../../src/modules/uploads/persistence/InMemorySourceUploadsStore.js';
 import {
   DEFAULT_SOURCE_UPLOAD_MAX_BYTES,
   PDF_MAGIC_PREFIX,
@@ -66,7 +70,7 @@ describe('B2-01 private source PDF upload lifecycle', () => {
       expect(result.maxBytes).toBe(DEFAULT_SOURCE_UPLOAD_MAX_BYTES);
     });
 
-    it('rejects a non-PDF declared content type with VALIDATION_FAILED', async () => {
+    it('rejects a non-PDF declared content type with VALIDATION_FAILED (415)', async () => {
       await expect(
         service.intake({
           workspaceId: WORKSPACE_A,
@@ -78,7 +82,7 @@ describe('B2-01 private source PDF upload lifecycle', () => {
           bytes: makePdfBytes(),
           requestId: REQUEST_ID,
         }),
-      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', status: 400 });
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', status: 415 });
     });
 
     it('rejects payloads exceeding the max-bytes policy with a 413-shaped error', async () => {
@@ -112,6 +116,41 @@ describe('B2-01 private source PDF upload lifecycle', () => {
       expect(audits.length).toBeGreaterThanOrEqual(1);
       expect(audits[0]?.action).toBe('intake');
       expect(audits[0]?.success).toBe(true);
+    });
+
+    it('records a failed intake audit without an upload row (no sentinel id)', async () => {
+      const store = new InMemorySourceUploadsStore();
+      const spy = vi.spyOn(store, 'appendAudit');
+      const svc = new SourceUploadsService({
+        store,
+        storage: new InMemoryAdapter(),
+        storageDriverName: 'memory',
+      });
+
+      await expect(
+        svc.intake({
+          workspaceId: WORKSPACE_A,
+          tenantId: TENANT_A,
+          uploaderUserId: UPLOADER,
+          filename: null,
+          contentType: 'text/plain',
+          declaredByteSize: 0,
+          bytes: makePdfBytes(),
+          requestId: REQUEST_ID,
+        }),
+      ).rejects.toMatchObject({ status: 415 });
+
+      // The rejected attempt must be audited against the workspace; before
+      // BUG-18 it wrote the all-zero uuid, which violated the
+      // source_upload_audit -> source_uploads FK and surfaced as a 500.
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0]?.[0]).toMatchObject({
+        uploadId: null,
+        workspaceId: WORKSPACE_A,
+        action: 'intake',
+        success: false,
+        failureCode: 'content_type_not_pdf',
+      });
     });
   });
 

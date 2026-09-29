@@ -45,7 +45,7 @@ interface MemoryVersion {
 
 interface MemoryAudit {
   id: string;
-  uploadId: string;
+  uploadId: string | null;
   workspaceId: string;
   action: SourceUploadAuditEntry['action'];
   actorUserId: string | null;

@@ -194,7 +194,7 @@ export class SourceUploadsService {
     const contentType = (input.contentType ?? '').toLowerCase();
     if (contentType !== SOURCE_UPLOAD_CONTENT_TYPE) {
       await this.audit({
-        uploadId: '00000000-0000-0000-0000-000000000000',
+        uploadId: null,
         workspaceId: input.workspaceId,
         action: 'intake',
         actorUserId: input.uploaderUserId,
@@ -202,11 +202,13 @@ export class SourceUploadsService {
         success: false,
         failureCode: 'content_type_not_pdf',
       });
+      // BUG-18: an unsupported media type is 415, not 400 — the client sent a
+      // format this endpoint does not accept.
       throw new ApiError({
         code: 'VALIDATION_FAILED',
-        message: 'Berkas harus berformat PDF.',
+        message: 'Tipe konten tidak didukung. Gunakan application/pdf.',
         requestId: input.requestId,
-        status: 400,
+        status: 415,
         fieldErrors: { contentType: ['Hanya application/pdf yang didukung.'] },
       });
     }

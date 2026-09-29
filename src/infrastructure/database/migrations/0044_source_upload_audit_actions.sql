@@ -1,4 +1,4 @@
--- BUG-19 — `POST /v1/sources/upload-intents` + `PUT /v1/uploads/sources/{id}/content`
+-- BUG-19 (0044) — `POST /v1/sources/upload-intents` + `PUT /v1/uploads/sources/{id}/content`
 -- introduce two upload-lifecycle audit transitions that the one-shot intake path
 -- did not have:
 --

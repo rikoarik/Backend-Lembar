@@ -6,9 +6,11 @@ import Fastify, {
 import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 
 import { ApiError, buildErrorEnvelope, type FieldErrors, type StableErrorCode } from '../common/errors/envelope.js';
+import { mapFastifyError } from '../common/errors/fastifyErrors.js';
 import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
 import { parseDatabaseEnv } from '../config/database.env.js';
 import { parseQueueEnv } from '../config/queue.env.js';
+import { resolveSourceUploadMaxBytes } from '../config/uploads.env.js';
 import {
   closeDatabase,
   createDatabase,
@@ -29,7 +31,6 @@ import { registerUploadRoutes } from '../modules/uploads/adapters/http/routes.js
 import { registerSourceRoutes } from '../modules/uploads/adapters/http/sourceRoutes.js';
 import { registerUploadsAuthHook } from '../modules/uploads/adapters/http/preHandler.js';
 import { createUploadsService } from '../modules/uploads/application/createUploadsService.js';
-import { DEFAULT_SOURCE_UPLOAD_MAX_BYTES } from '../modules/uploads/policy/UploadPolicies.js';
 import type { AuthService } from '../modules/auth/application/AuthService.js';
 
 // B6-04: Ops routes
@@ -178,20 +179,6 @@ export interface BuildAppOptions {
 const DEFAULT_SERVICE_NAME = 'lembar-api';
 const DEFAULT_SERVICE_VERSION = '0.0.0-b001';
 
-/**
- * Resolve `SOURCE_UPLOAD_MAX_BYTES` for the upload routes.
- *
- * Tolerant by design: a malformed or out-of-range value must not stop the API
- * from starting, so we fall back to the documented policy default.
- */
-function sourceUploadMaxBytes(): number {
-  const raw = process.env['SOURCE_UPLOAD_MAX_BYTES'];
-  if (raw === undefined || raw.trim().length === 0) return DEFAULT_SOURCE_UPLOAD_MAX_BYTES;
-  const parsed = Number(raw.trim());
-  if (!Number.isInteger(parsed) || parsed <= 0) return DEFAULT_SOURCE_UPLOAD_MAX_BYTES;
-  return parsed;
-}
-
 function envelopeFor(
   status: number,
   code: StableErrorCode,
@@ -232,6 +219,16 @@ export function installErrorHandler(app: FastifyInstance): void {
         id,
         err.fieldErrors,
       );
+      void reply.status(status).send(payload);
+      return;
+    }
+    // BUG-18: Fastify's content-type-parser errors (body over `bodyLimit`,
+    // unsupported media type, bad Content-Length, malformed JSON) carry the
+    // correct 4xx on `statusCode`. Mapping them here keeps them out of the 500
+    // branch so clients get a stable envelope instead of "unhandled error".
+    const mapped = mapFastifyError(err);
+    if (mapped) {
+      const { status, payload } = envelopeFor(mapped.status, mapped.code, mapped.message, id);
       void reply.status(status).send(payload);
       return;
     }
@@ -445,7 +442,7 @@ export async function buildApp(
   // and the content PUT writes its bytes, so they MUST see the same store.
   const sourcesUploadsService = createUploadsService({
     ...(uploadsDbForRoutes ? { db: uploadsDbForRoutes } : {}),
-    maxBytes: sourceUploadMaxBytes(),
+    maxBytes: resolveSourceUploadMaxBytes(process.env),
   });
   await registerSourceRoutes(app, {
     service: sourcesUploadsService,
@@ -456,7 +453,7 @@ export async function buildApp(
   await registerUploadRoutes(app, {
     // `SOURCE_UPLOAD_MAX_BYTES` is the documented cap; fall back to the policy
     // default when unset or malformed so a bad env value cannot stop the API.
-    maxBytes: sourceUploadMaxBytes(),
+    maxBytes: resolveSourceUploadMaxBytes(process.env),
     service: sourcesUploadsService,
     ...(uploadsDbForRoutes ? { db: uploadsDbForRoutes } : {}),
     ...(sourcesQueueStore ? { queueStore: sourcesQueueStore } : {}),
