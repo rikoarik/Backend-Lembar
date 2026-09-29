@@ -406,6 +406,66 @@ describe('AssessmentService', () => {
     });
   });
 
+  describe('createConfig — reviewMode persistence (BUG-21)', () => {
+    it('persists reviewMode detail in the immutable config snapshot', async () => {
+      const { service, store } = makeService();
+
+      const result = await service.createConfig({ ...BASE_INPUT, reviewMode: 'detail' });
+
+      expect(result.version.configSnapshot.reviewMode).toBe('detail');
+      const stored = await store.getVersionByNumber(WORKSPACE_ID, result.assessment.id, 1);
+      expect(stored!.configSnapshot.reviewMode).toBe('detail');
+    });
+
+    it('defaults reviewMode to quick when absent', async () => {
+      const { service, store } = makeService();
+
+      const result = await service.createConfig(BASE_INPUT);
+
+      expect(result.version.configSnapshot.reviewMode).toBe('quick');
+      const stored = await store.getVersionByNumber(WORKSPACE_ID, result.assessment.id, 1);
+      expect(stored!.configSnapshot.reviewMode).toBe('quick');
+    });
+
+    it('coerces an unrecognized reviewMode to quick', async () => {
+      const { service } = makeService();
+
+      const result = await service.createConfig({ ...BASE_INPUT, reviewMode: 'verbose' });
+
+      expect(result.version.configSnapshot.reviewMode).toBe('quick');
+    });
+
+    it('includes reviewMode in the idempotency fingerprint', async () => {
+      const { service } = makeService();
+
+      await service.createConfig({
+        ...BASE_INPUT,
+        idempotencyKey: 'idem-review-mode',
+        reviewMode: 'quick',
+      });
+
+      // Same key, only reviewMode differs -> different fingerprint -> conflict.
+      await expect(
+        service.createConfig({
+          ...BASE_INPUT,
+          idempotencyKey: 'idem-review-mode',
+          reviewMode: 'detail',
+        }),
+      ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED' });
+    });
+
+    it('replays idempotently when reviewMode is unchanged', async () => {
+      const { service } = makeService();
+      const input = { ...BASE_INPUT, idempotencyKey: 'idem-review-mode-same', reviewMode: 'detail' };
+
+      const first = await service.createConfig(input);
+      const second = await service.createConfig(input);
+
+      expect(second.idempotent).toBe(true);
+      expect(second.version.configSnapshot.reviewMode).toBe('detail');
+    });
+  });
+
   describe('listAssessments', () => {
     it('returns assessments for workspace', async () => {
       const { service } = makeService();

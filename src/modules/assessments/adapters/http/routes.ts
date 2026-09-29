@@ -37,6 +37,7 @@ const VALID_ASSESSMENT_TYPES = [
   'promotion',
   'tka',
 ] as const;
+const VALID_REVIEW_MODES = ['quick', 'detail'] as const;
 
 interface CreateAssessmentBody {
   title: string;
@@ -49,6 +50,7 @@ interface CreateAssessmentBody {
   academicYear?: string;
   sourceUploadIds: string[];
   durationMinutes?: number;
+  reviewMode?: string;
   imageGeneration?: unknown;
   generationContext?: unknown;
   blueprintItems: Array<{
@@ -167,6 +169,20 @@ export async function registerAssessmentRoutes(
         );
       }
 
+      if (
+        body.reviewMode !== undefined &&
+        !VALID_REVIEW_MODES.includes(body.reviewMode as (typeof VALID_REVIEW_MODES)[number])
+      ) {
+        return reply.status(400).send(
+          buildErrorEnvelope({
+            code: 'VALIDATION_FAILED',
+            message: `Invalid reviewMode: ${body.reviewMode}`,
+            requestId,
+            fieldErrors: { reviewMode: ['invalid_review_mode'] },
+          }),
+        );
+      }
+
       // Validate blueprint item question types and difficulties
       for (const item of body.blueprintItems) {
         if (!VALID_QUESTION_TYPES.includes(item.questionType as QuestionType)) {
@@ -216,6 +232,7 @@ export async function registerAssessmentRoutes(
             sourceUploadId: item.sourceUploadId ?? null,
           })),
           idempotencyKey,
+          reviewMode: body.reviewMode ?? null,
           imageGeneration: normalizeQuestionImageGenerationSettings(body.imageGeneration),
           generationContext: normalizeQuestionGenerationContext(body.generationContext),
           requestId,

@@ -869,7 +869,12 @@ paths:
         - $ref: "#/components/parameters/AssessmentId"
       responses:
         "200":
-          description: Assessment detail (assessment + latest version + blueprint items)
+          description: >-
+            Assessment detail (assessment + latest version + blueprint items).
+            The version carries the immutable config snapshot, which includes
+            `configSnapshot.reviewMode` (`quick` | `detail`) for assessments
+            created after BUG-21; versions created before the field existed omit
+            it and readers must treat absence as `quick`.
           content:
             application/json:
               schema:
@@ -3221,6 +3226,14 @@ components:
         sourceUploadIds:
           type: array
           items: { type: string }
+        reviewMode:
+          type: string
+          enum: [quick, detail]
+          default: quick
+          description: >-
+            Teacher's review depth. Persisted in the version config snapshot and
+            returned by GET /v1/workspaces/{workspaceId}/assessments/{assessmentId}
+            as `version.configSnapshot.reviewMode`. Omitted/unknown values default to `quick`.
         blueprintItems:
           type: array
           minItems: 1

@@ -22,6 +22,7 @@ import type {
   Difficulty,
   QuestionType,
 } from '../domain/Assessment.js';
+import { normalizeReviewMode } from '../domain/Assessment.js';
 import type { SourceUploadsStore } from '../../uploads/domain/SourceUpload.js';
 import type { SourceExtractionJobsStore } from '../../sources/domain/SourceExtraction.js';
 import type {
@@ -72,6 +73,8 @@ export interface CreateAssessmentConfigInput {
   imageGeneration?: QuestionImageGenerationSettings;
   /** Teacher-authored context, normalized and retained with the immutable version snapshot. */
   generationContext?: QuestionGenerationContext;
+  /** Teacher's review depth; normalized to quick|detail and persisted in configSnapshot. */
+  reviewMode?: string | null;
   requestId: string;
 }
 
@@ -106,6 +109,7 @@ function fingerprintConfig(input: CreateAssessmentConfigInput): string {
     durationMinutes: input.durationMinutes ?? null,
     imageGeneration: normalizeQuestionImageGenerationSettings(input.imageGeneration),
     generationContext: normalizeQuestionGenerationContext(input.generationContext),
+    reviewMode: normalizeReviewMode(input.reviewMode),
     sourceUploadIds: [...input.sourceUploadIds].sort(),
     blueprintItems: [...input.blueprintItems].sort((a, b) => a.sequence - b.sequence),
   });
@@ -253,6 +257,7 @@ export class AssessmentService {
 
     const imageGeneration = normalizeQuestionImageGenerationSettings(input.imageGeneration);
     const generationContext = normalizeQuestionGenerationContext(input.generationContext);
+    const reviewMode = normalizeReviewMode(input.reviewMode);
     const configSnapshot: AssessmentConfigSnapshot & { _fingerprint: string } = {
       schemaVersion: '1',
       title: input.title,
@@ -267,6 +272,7 @@ export class AssessmentService {
       blueprintItems: blueprintItemConfigs,
       imageGeneration,
       generationContext,
+      reviewMode,
       _fingerprint: fingerprint,
       ...(typeof input.durationMinutes === 'number'
         ? { durationMinutes: input.durationMinutes }

@@ -254,7 +254,12 @@ paths:
         - $ref: "#/components/parameters/AssessmentId"
       responses:
         "200":
-          description: Assessment detail
+          description: >-
+            Assessment detail. The `reviewMode` chosen at creation is persisted
+            in the assessment version's immutable config snapshot and is returned
+            here as `version.configSnapshot.reviewMode` (`quick` | `detail`);
+            versions predating the field omit it and readers treat absence as
+            `quick`.
           content:
             application/json:
               schema:

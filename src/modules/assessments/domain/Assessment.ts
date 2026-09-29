@@ -88,6 +88,21 @@ export interface AssessmentConfigSnapshot {
   imageGeneration?: QuestionImageGenerationSettings;
   /** Teacher-authored generation context, frozen with the version for reproducibility. */
   generationContext?: QuestionGenerationContext;
+  /**
+   * Teacher's review-depth choice (BUG-21). Persisted with the version so the
+   * review surface can resolve quick vs detail without a query parameter.
+   * Absent on versions created before this field existed; readers must treat
+   * absence as 'quick'.
+   */
+  reviewMode?: ReviewMode;
+}
+
+/** Review depth chosen by the teacher when composing an assessment. */
+export type ReviewMode = 'quick' | 'detail';
+
+/** Normalizes an unknown value to a valid ReviewMode, defaulting to 'quick'. */
+export function normalizeReviewMode(value: unknown): ReviewMode {
+  return value === 'detail' ? 'detail' : 'quick';
 }
 
 export interface BlueprintItemConfig {
