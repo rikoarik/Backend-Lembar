@@ -2,6 +2,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 
 import { fingerprint } from '../../common/redact.js';
 import type {
+  GetObjectResult,
   HeadObjectResult,
   PutObjectInput,
   PutObjectResult,
@@ -56,6 +57,18 @@ export class InMemoryAdapter implements StorageAdapter {
     if (!obj) throw new Error(`object not found: fingerprint=${fingerprint(key)}`);
     return {
       key,
+      byteSize: obj.body.byteLength,
+      contentType: obj.contentType,
+      checksumSha256: obj.checksumSha256,
+    };
+  }
+
+  async getObject(key: string): Promise<GetObjectResult> {
+    const obj = this.objects.get(key);
+    if (!obj) throw new Error(`object not found: fingerprint=${fingerprint(key)}`);
+    return {
+      key,
+      body: obj.body,
       byteSize: obj.body.byteLength,
       contentType: obj.contentType,
       checksumSha256: obj.checksumSha256,

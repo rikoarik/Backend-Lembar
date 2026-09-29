@@ -31,6 +31,15 @@ export interface HeadObjectResult {
   checksumSha256: string;
 }
 
+export interface GetObjectResult {
+  key: string;
+  body: Buffer;
+  byteSize: number;
+  contentType: string;
+  /** sha256 of the body, hex-encoded. */
+  checksumSha256: string;
+}
+
 export interface SignedUrlOptions {
   /** Lifetime in seconds. MUST be short (≤900 in production). */
   expiresInSeconds: number;
@@ -49,6 +58,12 @@ export interface StorageAdapter {
   putObject(input: PutObjectInput): Promise<PutObjectResult>;
   /** Returns an opaque head result. Adapters may throw if the key is unknown. */
   headObject(key: string): Promise<HeadObjectResult>;
+  /**
+   * Read the raw bytes back. Only privileged, workspace-scoped callers (the
+   * source-ingestion worker) may use this; the bytes are private and MUST NOT
+   * be returned through any HTTP route or written to logs.
+   */
+  getObject(key: string): Promise<GetObjectResult>;
   /** Issue a short-lived download intent. Returns a SignedUrl with strict expiry. */
   getSignedUrl(key: string, options: SignedUrlOptions): Promise<SignedUrl>;
   deleteObject(key: string): Promise<void>;

@@ -47,6 +47,9 @@ export const SOURCE_UPLOAD_AUDIT_ACTIONS = [
   'access_revoke',
   'delete_request',
   'delete_complete',
+  // BUG-19
+  'intent_create',
+  'content_store',
 ] as const;
 export type SourceUploadAuditActionDb = (typeof SOURCE_UPLOAD_AUDIT_ACTIONS)[number];
 

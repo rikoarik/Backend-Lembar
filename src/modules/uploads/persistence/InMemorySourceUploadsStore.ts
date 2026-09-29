@@ -108,6 +108,7 @@ export class InMemorySourceUploadsStore implements SourceUploadsStore {
     status: SourceUploadStatus;
     failureCode: string | null;
     magicSignature?: string | null;
+    byteSize?: number;
   }): Promise<SourceUpload> {
     const row = this.uploads.get(input.id);
     if (!row || row.workspaceId !== input.workspaceId) {
@@ -116,6 +117,7 @@ export class InMemorySourceUploadsStore implements SourceUploadsStore {
     row.status = input.status;
     row.failureCode = input.failureCode;
     if (input.magicSignature !== undefined) row.magicSignature = input.magicSignature;
+    if (input.byteSize !== undefined) row.byteSize = input.byteSize;
     row.updatedAt = new Date().toISOString();
     return this.toUpload(row);
   }
@@ -200,6 +202,7 @@ export class InMemorySourceUploadsStore implements SourceUploadsStore {
       uploadId: row.uploadId,
       version: row.version,
       storageDriver: row.storageDriver,
+      storageKey: row.storageKey,
       contentHash: row.contentHash,
       redactionClassification: row.redactionClassification,
       createdAt: row.createdAt,

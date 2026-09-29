@@ -73,10 +73,21 @@ class ThrowingExtractor implements TextExtractorAdapter {
   }
 }
 
-// Minimal no-op StorageAdapter for handler tests
+// Minimal StorageAdapter for handler tests. `getObject` must return a
+// non-empty body: since BUG-19 the handler reads the real object instead of
+// falling back to a `[stub]` sentinel, so an empty body is a genuine
+// EMPTY_UPLOAD and the happy-path test would fail.
+const STUB_OBJECT_BYTES = Buffer.from('stub upload bytes for extraction tests');
 const noopStorage: StorageAdapter = {
   putObject: async () => ({ key: 'k', byteSize: 0, contentType: '', checksumSha256: '' }),
   headObject: async () => ({ key: 'k', byteSize: 0, contentType: '', checksumSha256: '' }),
+  getObject: async (key: string) => ({
+    key,
+    body: STUB_OBJECT_BYTES,
+    byteSize: STUB_OBJECT_BYTES.byteLength,
+    contentType: 'application/pdf',
+    checksumSha256: '',
+  }),
   getSignedUrl: async () => ({ url: 'http://localhost/x', expiresAtEpochMs: Date.now() + 60000 }),
   deleteObject: async () => {},
 };

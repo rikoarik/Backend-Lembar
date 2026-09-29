@@ -23,6 +23,14 @@ export const DEFAULT_SOURCE_UPLOAD_MAX_BYTES = 52_428_800;
 export const SOURCE_SIGNED_URL_TTL_SECONDS = 300;
 
 /**
+ * BUG-19 — lifetime of an upload intent (the reserved slot the client PUTs the
+ * PDF into). Kept at the storage adapter's hard ceiling: the intent only
+ * authorises a write to a private key, and a stale intent is harmless because
+ * `storeContent` re-validates magic bytes, size, and ownership.
+ */
+export const SOURCE_UPLOAD_INTENT_TTL_SECONDS = 900;
+
+/**
  * Allowed content type for source uploads. Single value for MVP per
  * SECURITY-PRIVACY-OPERATIONS.md upload/source section.
  */

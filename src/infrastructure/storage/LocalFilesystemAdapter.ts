@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fingerprint } from '../../common/redact.js';
 import { assertShortExpiry } from './InMemoryAdapter.js';
 import type {
+  GetObjectResult,
   HeadObjectResult,
   PutObjectInput,
   PutObjectResult,
@@ -59,6 +60,18 @@ export class LocalFilesystemAdapter implements StorageAdapter {
     const body = await readFile(this.objectPath(key));
     return {
       key,
+      byteSize: body.byteLength,
+      contentType: manifest.contentType,
+      checksumSha256: manifest.checksumSha256,
+    };
+  }
+
+  async getObject(key: string): Promise<GetObjectResult> {
+    const manifest = await this.readManifest(key);
+    const body = await readFile(this.objectPath(key));
+    return {
+      key,
+      body,
       byteSize: body.byteLength,
       contentType: manifest.contentType,
       checksumSha256: manifest.checksumSha256,

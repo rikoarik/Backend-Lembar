@@ -5,7 +5,7 @@ import Fastify, {
 } from 'fastify';
 import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 
-import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/errors/envelope.js';
+import { ApiError, buildErrorEnvelope, type FieldErrors, type StableErrorCode } from '../common/errors/envelope.js';
 import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
 import { parseDatabaseEnv } from '../config/database.env.js';
 import { parseQueueEnv } from '../config/queue.env.js';
@@ -26,7 +26,10 @@ import { registerMarketingRoutes } from '../modules/marketing/adapters/http/rout
 import { registerMarketingOpsRoutes } from '../modules/marketing/adapters/http/opsRoutes.js';
 import { registerNotificationRoutes } from '../modules/notifications/adapters/http/routes.js';
 import { registerUploadRoutes } from '../modules/uploads/adapters/http/routes.js';
+import { registerSourceRoutes } from '../modules/uploads/adapters/http/sourceRoutes.js';
 import { registerUploadsAuthHook } from '../modules/uploads/adapters/http/preHandler.js';
+import { createUploadsService } from '../modules/uploads/application/createUploadsService.js';
+import { DEFAULT_SOURCE_UPLOAD_MAX_BYTES } from '../modules/uploads/policy/UploadPolicies.js';
 import type { AuthService } from '../modules/auth/application/AuthService.js';
 
 // B6-04: Ops routes
@@ -175,11 +178,26 @@ export interface BuildAppOptions {
 const DEFAULT_SERVICE_NAME = 'lembar-api';
 const DEFAULT_SERVICE_VERSION = '0.0.0-b001';
 
+/**
+ * Resolve `SOURCE_UPLOAD_MAX_BYTES` for the upload routes.
+ *
+ * Tolerant by design: a malformed or out-of-range value must not stop the API
+ * from starting, so we fall back to the documented policy default.
+ */
+function sourceUploadMaxBytes(): number {
+  const raw = process.env['SOURCE_UPLOAD_MAX_BYTES'];
+  if (raw === undefined || raw.trim().length === 0) return DEFAULT_SOURCE_UPLOAD_MAX_BYTES;
+  const parsed = Number(raw.trim());
+  if (!Number.isInteger(parsed) || parsed <= 0) return DEFAULT_SOURCE_UPLOAD_MAX_BYTES;
+  return parsed;
+}
+
 function envelopeFor(
   status: number,
   code: StableErrorCode,
   message: string,
   requestId: string,
+  fieldErrors?: FieldErrors,
 ): { status: number; payload: ReturnType<typeof buildErrorEnvelope> } {
   const retryable = status >= 500;
   return {
@@ -189,8 +207,43 @@ function envelopeFor(
       message,
       requestId,
       retryable,
+      ...(fieldErrors !== undefined ? { fieldErrors } : {}),
     }),
   };
+}
+
+/**
+ * Install the stable error envelope.
+ *
+ * Exported so route-level tests can build a bare Fastify instance and still get
+ * the production envelope — including `fieldErrors`. A test-local copy of this
+ * handler previously dropped `fieldErrors` silently, which meant no test could
+ * catch a regression in per-field validation output.
+ */
+export function installErrorHandler(app: FastifyInstance): void {
+  app.setErrorHandler((err: FastifyError, req, reply) => {
+    const id = req.requestId ?? 'req_unknown';
+    void reply.header(REQUEST_ID_HEADER, id);
+    if (err instanceof ApiError) {
+      const { status, payload } = envelopeFor(
+        err.status,
+        err.code,
+        err.message,
+        id,
+        err.fieldErrors,
+      );
+      void reply.status(status).send(payload);
+      return;
+    }
+    app.log.error({ err: { name: err.name, message: err.message } }, 'unhandled error');
+    const { status, payload } = envelopeFor(
+      500,
+      'INTERNAL_ERROR',
+      'Terjadi kesalahan pada server.',
+      id,
+    );
+    void reply.status(status).send(payload);
+  });
 }
 
 export async function buildApp(
@@ -261,23 +314,7 @@ export async function buildApp(
     void reply.status(status).send(payload);
   });
 
-  app.setErrorHandler((err: FastifyError, req, reply) => {
-    const id = req.requestId ?? 'req_unknown';
-    void reply.header(REQUEST_ID_HEADER, id);
-    if (err instanceof ApiError) {
-      const { status, payload } = envelopeFor(err.status, err.code, err.message, id);
-      void reply.status(status).send(payload);
-      return;
-    }
-    app.log.error({ err: { name: err.name, message: err.message } }, 'unhandled error');
-    const { status, payload } = envelopeFor(
-      500,
-      'INTERNAL_ERROR',
-      'Terjadi kesalahan pada server.',
-      id,
-    );
-    void reply.status(status).send(payload);
-  });
+  installErrorHandler(app);
 
   const managedDb = resolveManagedAuthDb(options);
   if (managedDb) {
@@ -398,10 +435,32 @@ export async function buildApp(
     jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
     ...(authDb ? { db: authDb } : {}),
   });
-  await registerUploadRoutes(
-    app,
-    managedDb ? { db: managedDb } : options.uploadsDb ? { db: options.uploadsDb } : {},
-  );
+
+  // BUG-19: `/v1/sources/*` (intent + state) and the content PUT share one
+  // uploads service and one queue store, so the reserved row, the byte write,
+  // and the extraction enqueue all observe the same state.
+  const uploadsDbForRoutes = managedDb ?? options.uploadsDb;
+  const sourcesQueueStore = managedDb ? createSharedQueueStore(process.env) : undefined;
+  // One service shared by both route modules: the intent route creates the row
+  // and the content PUT writes its bytes, so they MUST see the same store.
+  const sourcesUploadsService = createUploadsService({
+    ...(uploadsDbForRoutes ? { db: uploadsDbForRoutes } : {}),
+    maxBytes: sourceUploadMaxBytes(),
+  });
+  await registerSourceRoutes(app, {
+    service: sourcesUploadsService,
+    ...(uploadsDbForRoutes
+      ? { extractionJobsStore: new PostgresSourceExtractionJobsStore(uploadsDbForRoutes) }
+      : { extractionJobsStore: new InMemorySourceExtractionJobsStore() }),
+  });
+  await registerUploadRoutes(app, {
+    // `SOURCE_UPLOAD_MAX_BYTES` is the documented cap; fall back to the policy
+    // default when unset or malformed so a bad env value cannot stop the API.
+    maxBytes: sourceUploadMaxBytes(),
+    service: sourcesUploadsService,
+    ...(uploadsDbForRoutes ? { db: uploadsDbForRoutes } : {}),
+    ...(sourcesQueueStore ? { queueStore: sourcesQueueStore } : {}),
+  });
 
   // B6-04: Ops routes (metrics + leads)
   if (managedDb) {

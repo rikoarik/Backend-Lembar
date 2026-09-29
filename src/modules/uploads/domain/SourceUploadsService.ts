@@ -21,6 +21,7 @@ import {
   PDF_TRAILER_SCAN_WINDOW,
   SOURCE_SIGNED_URL_TTL_SECONDS,
   SOURCE_UPLOAD_CONTENT_TYPE,
+  SOURCE_UPLOAD_INTENT_TTL_SECONDS,
   redactionClassificationForStatus,
 } from '../policy/UploadPolicies.js';
 import { PostgresSourceUploadsStore } from '../persistence/PostgresSourceUploadsStore.js';
@@ -74,6 +75,48 @@ export interface DeleteInput {
   uploadId: string;
   actorUserId: string;
   requestId: string;
+}
+
+/**
+ * BUG-19 — reserve a private upload slot before any bytes exist.
+ *
+ * The client receives an opaque `sourceId` and a same-origin `uploadUrl`; the
+ * bytes are written by `storeContent` once the browser PUTs the PDF. Creating
+ * the row first means the source id is stable and observable even if the
+ * upload never completes (status stays `received`).
+ */
+export interface CreateIntentInput {
+  workspaceId: string;
+  tenantId: string;
+  uploaderUserId: string;
+  filename: string | null;
+  contentType: string;
+  declaredByteSize: number;
+  requestId: string;
+}
+
+export interface CreateIntentResult {
+  sourceId: string;
+  /** Origin-relative path; the browser resolves it against the app origin so the session cookie is sent. */
+  uploadUrl: string;
+  expiresAt: string;
+}
+
+export interface StoreContentInput {
+  workspaceId: string;
+  uploadId: string;
+  actorUserId: string;
+  contentType: string;
+  bytes: Buffer;
+  requestId: string;
+}
+
+export interface StoreContentResult {
+  uploadId: string;
+  status: SourceUploadStatus;
+  byteSize: number;
+  contentType: string;
+  maxBytes: number;
 }
 
 export interface IntakeResult {
@@ -239,6 +282,211 @@ export class SourceUploadsService {
       }
       throw err;
     }
+  }
+
+  /**
+   * BUG-19 — reserve a private upload slot and hand the client a write target.
+   *
+   * Creates the `source_uploads` row plus its version-1 pointer in status
+   * `received` (zero bytes) so `GET /v1/sources/{id}` is observable from the
+   * first moment. No storage object exists yet; `storeContent` writes it.
+   */
+  async createIntent(input: CreateIntentInput): Promise<CreateIntentResult> {
+    const contentType = (input.contentType ?? '').toLowerCase();
+    if (contentType !== SOURCE_UPLOAD_CONTENT_TYPE) {
+      // Deliberately not audited: `source_upload_audit.upload_id` is NOT NULL on
+      // the live schema, and no upload row exists yet at this point.
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: 'Tipe konten tidak didukung. Gunakan application/pdf.',
+        requestId: input.requestId,
+        status: 415,
+        fieldErrors: { contentType: ['Hanya application/pdf yang didukung.'] },
+      });
+    }
+    if (!Number.isInteger(input.declaredByteSize) || input.declaredByteSize <= 0) {
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: 'Ukuran berkas tidak valid.',
+        requestId: input.requestId,
+        status: 400,
+        fieldErrors: { sizeBytes: ['Ukuran berkas harus bilangan bulat positif.'] },
+      });
+    }
+    if (input.declaredByteSize > this.maxBytes) {
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: `Ukuran berkas melebihi batas ${this.maxBytes} byte.`,
+        requestId: input.requestId,
+        status: 413,
+        fieldErrors: { sizeBytes: ['Berkas terlalu besar.'] },
+      });
+    }
+
+    const sourceId = randomUUID();
+    const row = await this.store.insertUpload({
+      id: sourceId,
+      tenantId: input.tenantId,
+      workspaceId: input.workspaceId,
+      uploaderUserId: input.uploaderUserId,
+      filenameRedacted: redactedFilename(input.filename),
+      contentType,
+      // Declared size is recorded as a hint only; the authoritative byte size is
+      // written by `storeContent` once the bytes actually arrive.
+      byteSize: 0,
+      magicSignature: null,
+      status: 'received',
+      currentVersion: 1,
+    });
+    await this.store.insertVersion({
+      uploadId: row.id,
+      version: 1,
+      storageDriver: this.storageDriverName,
+      storageKey: storageKeyFor(row.id),
+      // Placeholder until the PUT lands; `storeContent` overwrites it with the
+      // sha256 of the real payload before the row is marked `verified`.
+      contentHash: '',
+      redactionClassification: redactionClassificationForStatus('received'),
+    });
+    await this.audit({
+      uploadId: row.id,
+      workspaceId: row.workspaceId,
+      action: 'intent_create',
+      actorUserId: input.uploaderUserId,
+      requestId: input.requestId,
+      success: true,
+    });
+
+    const expiresAt = new Date(
+      this.now().getTime() + SOURCE_UPLOAD_INTENT_TTL_SECONDS * 1000,
+    ).toISOString();
+    return {
+      sourceId: row.id,
+      // Origin-relative on purpose: the browser must send this through the app
+      // origin (BFF) so the httpOnly session cookie is attached. An absolute
+      // backend URL would bypass the BFF and drop the cookie.
+      uploadUrl: `/v1/uploads/sources/${row.id}/content`,
+      expiresAt,
+    };
+  }
+
+  /**
+   * BUG-19 — write the bytes for a reserved intent and mark it verified.
+   *
+   * Re-validates content type, non-empty body, size cap, and PDF magic/trailer
+   * before the row moves to `verified`, so a reserved slot cannot be turned into
+   * a verified source with arbitrary content.
+   */
+  async storeContent(input: StoreContentInput): Promise<StoreContentResult> {
+    const upload = await this.requireUpload(input.workspaceId, input.uploadId, input.requestId);
+    if (upload.status === 'deleted') {
+      throw new ApiError({
+        code: 'STATE_CONFLICT',
+        message: 'Berkas sudah dihapus.',
+        requestId: input.requestId,
+        status: 409,
+      });
+    }
+    if (upload.status === 'verified') {
+      throw new ApiError({
+        code: 'STATE_CONFLICT',
+        message: 'Berkas sudah pernah diunggah.',
+        requestId: input.requestId,
+        status: 409,
+      });
+    }
+
+    const contentType = (input.contentType ?? '').toLowerCase();
+    if (contentType !== SOURCE_UPLOAD_CONTENT_TYPE) {
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: 'Tipe konten tidak didukung. Gunakan application/pdf.',
+        requestId: input.requestId,
+        status: 415,
+        fieldErrors: { contentType: ['Hanya application/pdf yang didukung.'] },
+      });
+    }
+    if (input.bytes.byteLength === 0) {
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: 'Berkas kosong.',
+        requestId: input.requestId,
+        status: 400,
+      });
+    }
+    if (input.bytes.byteLength > this.maxBytes) {
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: `Ukuran berkas melebihi batas ${this.maxBytes} byte.`,
+        requestId: input.requestId,
+        status: 413,
+        fieldErrors: { byteSize: ['Berkas terlalu besar.'] },
+      });
+    }
+    if (!looksLikePdfMagic(input.bytes) || !hasPdfTrailer(input.bytes)) {
+      await this.audit({
+        uploadId: input.uploadId,
+        workspaceId: input.workspaceId,
+        action: 'magic_check',
+        actorUserId: input.actorUserId,
+        requestId: input.requestId,
+        success: false,
+        failureCode: 'not_a_pdf',
+      });
+      throw new ApiError({
+        code: 'VALIDATION_FAILED',
+        message: 'Berkas bukan PDF yang valid.',
+        requestId: input.requestId,
+        status: 415,
+        fieldErrors: { file: ['Berkas tidak memiliki penanda PDF (%PDF- … %%EOF).'] },
+      });
+    }
+
+    const stored = await this.storage.putObject({
+      key: storageKeyFor(input.uploadId),
+      body: input.bytes,
+      contentType,
+    });
+    await this.store.insertVersion({
+      uploadId: input.uploadId,
+      version: upload.currentVersion + 1,
+      storageDriver: this.storageDriverName,
+      storageKey: stored.key,
+      contentHash: stored.checksumSha256,
+      redactionClassification: redactionClassificationForStatus('verified'),
+    });
+    await this.audit({
+      uploadId: input.uploadId,
+      workspaceId: input.workspaceId,
+      action: 'magic_check',
+      actorUserId: input.actorUserId,
+      requestId: input.requestId,
+      success: true,
+    });
+    const updated = await this.store.updateUploadStatus({
+      id: input.uploadId,
+      workspaceId: input.workspaceId,
+      status: 'verified',
+      failureCode: null,
+      byteSize: stored.byteSize,
+      magicSignature: stored.checksumSha256,
+    });
+    await this.audit({
+      uploadId: input.uploadId,
+      workspaceId: input.workspaceId,
+      action: 'content_store',
+      actorUserId: input.actorUserId,
+      requestId: input.requestId,
+      success: true,
+    });
+
+    return {
+      uploadId: updated.id,
+      status: updated.status,
+      byteSize: updated.byteSize,
+      contentType: updated.contentType,
+      maxBytes: this.maxBytes,
+    };
   }
 
   async verify(input: VerifyInput): Promise<VerifyResult> {

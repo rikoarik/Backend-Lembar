@@ -15,7 +15,11 @@ export type SourceUploadAuditAction =
   | 'access_grant'
   | 'access_revoke'
   | 'delete_request'
-  | 'delete_complete';
+  | 'delete_complete'
+  // BUG-19: the two-step intent → content flow adds two transitions that the
+  // one-shot intake path did not have.
+  | 'intent_create'
+  | 'content_store';
 
 export type RedactionClassification = 'public_friendly' | 'user_private' | 'pending_review';
 
@@ -41,6 +45,11 @@ export interface SourceUploadVersion {
   uploadId: string;
   version: number;
   storageDriver: string;
+  /**
+   * BUG-19: the object key the source-ingestion worker reads the bytes from.
+   * Opaque and private — never log it, never return it over HTTP.
+   */
+  storageKey: string;
   contentHash: string;
   redactionClassification: RedactionClassification;
   createdAt: string;
@@ -108,6 +117,8 @@ export interface SourceUploadsStore {
     status: SourceUploadStatus;
     failureCode: string | null;
     magicSignature?: string | null;
+    /** BUG-19: set once the client PUTs the bytes for a reserved intent. */
+    byteSize?: number;
   }): Promise<SourceUpload>;
   insertVersion(row: InsertVersionInput): Promise<SourceUploadVersion>;
   currentVersionForUpload(

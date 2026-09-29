@@ -101,6 +101,7 @@ export class PostgresSourceUploadsStore implements SourceUploadsStore {
     status: SourceUploadStatus;
     failureCode: string | null;
     magicSignature?: string | null;
+    byteSize?: number;
   }): Promise<SourceUpload> {
     const [row] = await this.db
       .update(sourceUploads)
@@ -108,6 +109,7 @@ export class PostgresSourceUploadsStore implements SourceUploadsStore {
         status: input.status,
         failureCode: input.failureCode,
         ...(input.magicSignature !== undefined ? { magicSignature: input.magicSignature } : {}),
+        ...(input.byteSize !== undefined ? { byteSize: input.byteSize } : {}),
         updatedAt: new Date(),
       })
       .where(and(eq(sourceUploads.id, input.id), eq(sourceUploads.workspaceId, input.workspaceId)))
@@ -212,6 +214,7 @@ export class PostgresSourceUploadsStore implements SourceUploadsStore {
       uploadId: row.uploadId,
       version: row.version,
       storageDriver: row.storageDriver,
+      storageKey: row.storageKey,
       contentHash: row.contentHash,
       redactionClassification: row.redactionClassification,
       createdAt: row.createdAt.toISOString(),

@@ -17,6 +17,8 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { ApiError } from '../../../../common/errors/envelope.js';
 import type { Database } from '../../../../infrastructure/database/db.js';
+import type { QueueStore } from '../../../../infrastructure/queue/adapters/queue-store.js';
+import { submitJobToStore } from '../../../../infrastructure/queue/application/submitJob.js';
 import {
   createStorageAdapter,
   resolveStorageDriver,
@@ -24,12 +26,29 @@ import {
 import type { StorageAdapter } from '../../../../infrastructure/storage/StorageAdapter.js';
 import { hasPermission } from '../../../auth/policy/Permissions.js';
 import { createUploadsService } from '../../application/createUploadsService.js';
+import type { SourceUploadsService } from '../../domain/SourceUploadsService.js';
+import {
+  DEFAULT_SOURCE_UPLOAD_MAX_BYTES,
+  SOURCE_UPLOAD_CONTENT_TYPE,
+} from '../../policy/UploadPolicies.js';
 
 export interface RegisterUploadRoutesOptions {
   db?: Database;
   storage?: StorageAdapter;
-  /** Hard ceiling for upload size; defaults to env SOURCE_UPLOAD_MAX_BYTES or 50 MiB. */
+  /** Hard ceiling for upload size; defaults to SOURCE_UPLOAD_MAX_BYTES or 50 MiB. */
   maxBytes?: number;
+  /**
+   * BUG-19: shared queue store used to enqueue the `source_ingestion` job once
+   * the client PUTs the bytes for a reserved intent. Omitted in unit tests and
+   * in-memory smoke runs, where extraction is driven directly.
+   */
+  queueStore?: QueueStore;
+  /**
+   * BUG-19: shared uploads service. MUST be the same instance used by
+   * `registerSourceRoutes`, otherwise an intent created by the intent route is
+   * invisible here and every content PUT fails with 404.
+   */
+  service?: SourceUploadsService;
 }
 
 const MAX_FILENAME_BYTES = 200;
@@ -48,14 +67,22 @@ export async function registerUploadRoutes(
     (_request, body, done) => done(null, body),
   );
 
+  // BUG-19: the content PUT must accept the same payload size the intent
+  // advertised. Fastify's default is 1 MiB, so without an explicit body limit
+  // every PDF above 1 MiB would be rejected by the parser before the handler
+  // runs. (BUG-18 raises the same ceiling on the intake route.)
+  const contentBodyLimit = options.maxBytes ?? DEFAULT_SOURCE_UPLOAD_MAX_BYTES;
+
   const storage = options.storage ?? createStorageAdapter();
   const driverName = resolveStorageDriver();
-  const service = createUploadsService({
-    storage,
-    storageDriverName: driverName,
-    ...(options.db !== undefined ? { db: options.db } : {}),
-    ...(options.maxBytes !== undefined ? { maxBytes: options.maxBytes } : {}),
-  });
+  const service =
+    options.service ??
+    createUploadsService({
+      storage,
+      storageDriverName: driverName,
+      ...(options.db !== undefined ? { db: options.db } : {}),
+      ...(options.maxBytes !== undefined ? { maxBytes: options.maxBytes } : {}),
+    });
 
   app.post('/v1/uploads/sources/intake', async (request, reply) => {
     const actor = requireAuthenticated(request);
@@ -103,6 +130,50 @@ export async function registerUploadRoutes(
     const workspaceId = workspaceIdOf(request);
     const upload = await service.getRedacted(workspaceId, id, request.requestId ?? 'req_unknown');
     return { data: upload };
+  });
+
+  // BUG-19 — write target handed out by `POST /v1/sources/upload-intents`.
+  // Idempotent against re-PUT: a second PUT to an already-verified upload is a
+  // 409 rather than a silent overwrite.
+  app.put('/v1/uploads/sources/:id/content', { bodyLimit: contentBodyLimit }, async (request, reply) => {
+    const actor = requireAuthenticated(request);
+    requireSourceManage(actor, request);
+    const { id } = request.params as { id: string };
+    const workspaceId = workspaceIdOf(request);
+    const contentTypeHeader = headerString(request, 'content-type') ?? SOURCE_UPLOAD_CONTENT_TYPE;
+    const contentType = (contentTypeHeader.split(';')[0] ?? '').trim().toLowerCase();
+    const bytes = await readBodyWithCap(request, reply, options.maxBytes);
+    const result = await service.storeContent({
+      workspaceId,
+      uploadId: id,
+      actorUserId: actor.userId,
+      contentType,
+      bytes,
+      requestId: request.requestId ?? 'req_unknown',
+    });
+
+    // Enqueue extraction now that real bytes exist. Best-effort: a queue outage
+    // must not lose the upload the teacher already transferred, so the row stays
+    // `verified` and the client can retry the extraction enqueue.
+    if (options.queueStore) {
+      try {
+        await submitJobToStore(options.queueStore, {
+          workspaceId,
+          actorId: actor.userId,
+          kind: 'source_ingestion',
+          idempotencyKey: `source_ingestion:${id}`,
+          payload: { sourceId: id, uploadId: id },
+          // Extraction belongs to the upload the teacher already paid for; it
+          // must not consume an extra generation unit.
+          quotaUnits: 0,
+        });
+      } catch {
+        // Swallowed on purpose — see above. The retry path is
+        // `POST /v1/sources/{id}/extractions`.
+      }
+    }
+
+    return { data: result };
   });
 
   app.post('/v1/uploads/sources/:id/verify', async (request) => {
