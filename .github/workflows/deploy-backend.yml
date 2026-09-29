@@ -1,5 +1,12 @@
 name: Deploy Backend to VPS
 
+# Triggered on push to dev. The deploy body runs through `sudo -u hermes -H`
+# because the self-hosted runner executes as root with no HOME in its
+# environment: git then cannot read /root/.gitconfig, rejects the hermes-owned
+# checkout as "dubious ownership" (exit 128), has no ssh key for the origin
+# remote, and pm2 would attach to root's daemon instead of the one serving
+# api.lembar.web.id. See Frontend-Lembar commit 7337ecf for the same fix.
+
 on:
   push:
     branches: [dev]
@@ -11,18 +18,46 @@ on:
       - 'tsconfig.json'
       - 'tsconfig.build.json'
       - '.env.example'
+      - '.github/workflows/deploy-backend.yml'
+
+concurrency:
+  group: deploy-backend-dev
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: self-hosted
     steps:
-      - name: Deploy backend
-        working-directory: /home/hermes/Projects/Backend-Lembar
+      - name: Deploy verified commit
+        env:
+          TARGET_SHA: ${{ github.sha }}
         run: |
           set -eu
-          git fetch origin dev
-          git checkout -B dev ${{ github.sha }}
-          pnpm install --frozen-lockfile
-          pnpm run build
-          pm2 restart lembar-api lembar-worker --update-env
-          curl --fail --silent --show-error http://127.0.0.1:4000/health >/dev/null
+          sudo -u hermes -H env TARGET_SHA="${TARGET_SHA}" bash -lc '
+            set -eu
+            cd /home/hermes/Projects/Backend-Lembar
+            git fetch origin dev
+            # The primary checkout is the one pm2 serves from, so it has to move
+            # to the pushed SHA. Preserve any unpushed local tip first, so a
+            # deploy can never silently drop work that lives only on this host.
+            if old=$(git rev-parse --verify -q dev); then
+              if [ "$old" != "${TARGET_SHA}" ]; then
+                git branch -f "deploy-backup/$(date -u +%Y%m%dT%H%M%SZ)" "$old" 2>/dev/null || true
+              fi
+            fi
+            git checkout -B dev "${TARGET_SHA}"
+            pnpm install --frozen-lockfile
+            pnpm run build
+            pm2 restart lembar-api lembar-worker --update-env
+            # pm2 restart returns before the server is listening, so poll
+            # instead of curl-ing once and failing on connection refused.
+            for attempt in $(seq 1 30); do
+              if curl --fail --silent --show-error http://127.0.0.1:4000/health >/dev/null 2>&1; then
+                echo "deployed ${TARGET_SHA} (healthy after ${attempt} attempt(s))"
+                exit 0
+              fi
+              sleep 2
+            done
+            echo "app did not become healthy on :4000 after restart"
+            exit 1
+          '
