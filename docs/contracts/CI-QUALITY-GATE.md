@@ -43,7 +43,7 @@ direction.
 
 ## Secret scan
 
-`pnpm secret:scan` (`scripts/secret-scan.mjs`) scans the git-tracked tree only, so
+`pnpm secret:scan` (`scripts/secret-scan.ts`) scans the git-tracked tree only, so
 `node_modules/`, `dist/` and ignored `.env` files are out of scope by construction. Output never
 prints a value — only path, line, rule id and a redacted preview (2 characters + length).
 

@@ -7,9 +7,9 @@
 //
 // Exit codes: 0 clean, 1 findings, 2 script error.
 //
-// Output never prints a secret value: only path, line, pattern id and a
-// redacted preview (first 2 characters + length), per AGENTS.md
-// ("Never log secret, session/token, ... by default").
+// Output never prints a secret value: only path, line, rule id and a redacted
+// preview (first 2 characters + length), per AGENTS.md ("Never log secret,
+// session/token, ... by default").
 //
 // Detection strategy
 // ------------------
@@ -36,7 +36,7 @@
 // delete or loosen a rule to make this gate pass — fix the leak or add a
 // reasoned allowlist entry (AGENTS.md "Quality gates").
 import { execFileSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -138,11 +138,11 @@ const KEY_QUALIFIERS = new Set([
 const SCREAMING_SNAKE = /^[A-Z0-9_]+$/;
 
 /** True when the last word of `name` names a credential. */
-function isSecretName(name) {
+function isSecretName(name: string): boolean {
   const words = name
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .split(/[\s_-]+/)
-    .filter(Boolean)
+    .filter((word) => word.length > 0)
     .map((word) => word.toLowerCase());
   const last = words[words.length - 1];
   if (last === undefined) return false;
@@ -153,8 +153,9 @@ function isSecretName(name) {
   return CREDENTIAL_WORDS.has(last);
 }
 
-/** @type {Array<{ id: string, description: string, pattern: RegExp }>} */
-const SHAPE_RULES = [
+type ShapeRule = { id: string; description: string; pattern: RegExp };
+
+const SHAPE_RULES: ShapeRule[] = [
   {
     id: 'private-key-block',
     description: 'PEM/OpenSSH private key material',
@@ -213,13 +214,21 @@ const URL_WITH_PASSWORD = /\b[a-z][a-z0-9+.-]*:\/\/([^:@\s/'"]+):([^@\s/'"]+)@([
  */
 const QUOTED_ASSIGNMENT = /(["']?)([A-Za-z_][A-Za-z0-9_]*)\1\s*[:=]\s*(["'`])([^"'`\n]{1,200})\3/g;
 
-function isDevValue(value) {
+type Finding = {
+  file: string;
+  line: number;
+  rule: string;
+  description: string;
+  preview: string;
+};
+
+function isDevValue(value: string): boolean {
   const lower = value.toLowerCase();
   return DEV_VOCABULARY.some((word) => lower.includes(word));
 }
 
 /** Looks like an opaque credential rather than prose, a path, a URL or an error code. */
-function looksLikeSecretLiteral(value) {
+function looksLikeSecretLiteral(value: string): boolean {
   if (value.length < MIN_SECRET_LEN) return false;
   if (isDevValue(value)) return false;
   if (SCREAMING_SNAKE.test(value)) return false;
@@ -232,9 +241,8 @@ function looksLikeSecretLiteral(value) {
   return true;
 }
 
-function loadAllowlist() {
-  /** @type {Map<string, string>} */
-  const allow = new Map();
+function loadAllowlist(): Map<string, string> {
+  const allow = new Map<string, string>();
   if (!existsSync(allowPath)) return allow;
   for (const raw of readFileSync(allowPath, 'utf8').split('\n')) {
     const line = raw.trim();
@@ -251,7 +259,7 @@ function loadAllowlist() {
   return allow;
 }
 
-function trackedFiles() {
+function trackedFiles(): string[] {
   const out = execFileSync('git', ['ls-files', '-z'], {
     cwd: projectRoot,
     encoding: 'utf8',
@@ -260,14 +268,14 @@ function trackedFiles() {
   return out.split('\0').filter((f) => f.length > 0);
 }
 
-function redact(value) {
+function redact(value: string): string {
   if (value.length <= 2) return `** (len ${value.length})`;
   return `${value.slice(0, 2)}${'*'.repeat(Math.min(8, value.length - 2))} (len ${value.length})`;
 }
 
-function scanFile(rel, allow) {
+function scanFile(rel: string, allow: Map<string, string>): Finding[] {
   const abs = path.join(projectRoot, rel);
-  let text;
+  let text: string;
   try {
     text = readFileSync(abs, 'utf8');
   } catch {
@@ -277,9 +285,8 @@ function scanFile(rel, allow) {
   // textual and a NUL byte means this is not source.
   if (text.slice(0, 8192).includes('\0')) return [];
 
-  /** @type {Array<{file:string,line:number,rule:string,description:string,preview:string}>} */
-  const findings = [];
-  const push = (rule, description, line, value) => {
+  const findings: Finding[] = [];
+  const push = (rule: string, description: string, line: number, value: string): void => {
     if (allow.has(`${rel}:${rule}`)) return;
     findings.push({ file: rel, line, rule, description, preview: redact(value) });
   };
@@ -294,7 +301,7 @@ function scanFile(rel, allow) {
     }
 
     URL_WITH_PASSWORD.lastIndex = 0;
-    let urlMatch;
+    let urlMatch: RegExpExecArray | null;
     while ((urlMatch = URL_WITH_PASSWORD.exec(line)) !== null) {
       const password = urlMatch[2] ?? '';
       // Strip any :port so the local-host test sees the bare host.
@@ -311,7 +318,7 @@ function scanFile(rel, allow) {
     }
 
     QUOTED_ASSIGNMENT.lastIndex = 0;
-    let assignMatch;
+    let assignMatch: RegExpExecArray | null;
     while ((assignMatch = QUOTED_ASSIGNMENT.exec(line)) !== null) {
       const name = assignMatch[2] ?? '';
       const value = assignMatch[4] ?? '';
@@ -323,10 +330,10 @@ function scanFile(rel, allow) {
   return findings;
 }
 
-function main() {
+function main(): void {
   const allow = loadAllowlist();
   const files = trackedFiles();
-  const findings = [];
+  const findings: Finding[] = [];
   for (const file of files) findings.push(...scanFile(file, allow));
 
   if (findings.length === 0) {

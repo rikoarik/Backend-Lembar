@@ -6,3 +6,7 @@ contracts/
 src/infrastructure/database/migrations/meta/
 .claude/settings.local.json
 agent-orchestrator.yaml
+
+# Prettier has no parser for these extensions; they are not JS/TS/JSON/YAML/MD.
+scripts/quality-gate.sh
+scripts/secret-scan.allow

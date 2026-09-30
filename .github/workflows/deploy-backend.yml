@@ -59,21 +59,27 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
-      # The runner executes as root with no HOME, so git refuses the
-      # root-owned runner workspace as "dubious ownership" (exit 128) unless
-      # safe.directory is widened for this ephemeral container.
-      - name: Allow git to read the runner workspace
-        run: git config --global --add safe.directory '*'
-
-      - name: Show gate inputs
-        run: |
-          node --version
-          pnpm --version
-          git rev-parse HEAD
-          docker --version
-
+      # The runner executes as root with no HOME and without node/pnpm on its
+      # PATH (both live in /home/hermes/.local/bin), so the gate runs as the
+      # hermes user — the same pattern the deploy job uses below. That gives the
+      # gate hermes' toolchain, pnpm store, and docker group membership (needed
+      # by `pnpm test:db`). The checkout is chowned to hermes first because the
+      # runner workspace is root-owned.
       - name: Run quality gate
-        run: pnpm gate
+        run: |
+          set -eu
+          WORKSPACE="$PWD"
+          chown -R hermes:hermes "$WORKSPACE"
+          sudo -u hermes -H env WORKSPACE="$WORKSPACE" bash -lc '
+            set -eu
+            cd "$WORKSPACE"
+            export PATH="$HOME/.local/bin:$PATH"
+            node --version
+            pnpm --version
+            git rev-parse HEAD
+            docker --version
+            pnpm gate
+          '
 
   deploy:
     name: Deploy to VPS

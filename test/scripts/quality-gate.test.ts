@@ -15,7 +15,9 @@ describe('CI quality gate', () => {
     const scripts = (JSON.parse(await read('package.json')) as { scripts: Record<string, string> })
       .scripts;
 
-    expect(scripts['secret:scan']).toBe('node scripts/secret-scan.mjs');
+    expect(scripts['secret:scan']).toBe(
+      'node --experimental-strip-types --no-warnings scripts/secret-scan.ts',
+    );
     expect(scripts['gate']).toBe('bash scripts/quality-gate.sh');
   });
 
@@ -53,7 +55,7 @@ describe('CI quality gate', () => {
   });
 
   it('keeps the secret-scan allowlist reasoned and the pattern set documented', async () => {
-    const scanner = await read('scripts/secret-scan.mjs');
+    const scanner = await read('scripts/secret-scan.ts');
     const allow = await read('scripts/secret-scan.allow');
 
     // The scanner must keep refusing un-reasoned suppressions.
