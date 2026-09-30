@@ -203,7 +203,7 @@ sesuai jalur yang dipakai FE.
 - `vitest run test/modules/catalog/` **25/25 hijau** (4 berkas; 2 test baru
   mengunci regresi grade ganda + retensi topik).
 - `eslint src/modules/catalog/ test/modules/catalog/` bersih (exit 0).
-- Suite penuh: 818 passed / 1 failed / 92 skipped. Satu kegagalan,
+- Suite penuh: 820 passed / 1 failed / 92 skipped. Satu kegagalan,
   `plan-catalog.test.ts > pro plan has a finite tokenMonthlyLimit fallback`
   (`expected 149000 to be 49000`), **tidak tersentuh** oleh perubahan ini —
   `git diff origin/dev..dev -- src/modules/plans test/plan-catalog.test.ts`
