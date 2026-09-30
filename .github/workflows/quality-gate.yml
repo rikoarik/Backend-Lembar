@@ -1,0 +1,49 @@
+name: Quality Gate
+
+# Pre-merge gate: runs the same `pnpm gate` sequence as the `gate` job in
+# deploy-backend.yml, but on pull requests and on pushes to branches other than
+# dev, so a broken tree is caught before it reaches dev instead of only when the
+# deploy is already blocked.
+#
+# dev itself is intentionally excluded here: deploy-backend.yml's `gate` job
+# already gates dev pushes, and running both would duplicate a heavy job on the
+# single self-hosted runner for no extra signal.
+#
+# Runner requirement: same as deploy-backend.yml — self-hosted, with docker,
+# pnpm and Node 22 available. No secrets, no providers, no deploy.
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [dev]
+
+concurrency:
+  group: quality-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Quality gate
+    runs-on: self-hosted
+    timeout-minutes: 45
+    steps:
+      - name: Check out the commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      # The runner executes as root with no HOME, so git refuses the
+      # root-owned runner workspace as "dubious ownership" (exit 128) unless
+      # safe.directory is widened for this ephemeral container.
+      - name: Allow git to read the runner workspace
+        run: git config --global --add safe.directory '*'
+
+      - name: Show gate inputs
+        run: |
+          node --version
+          pnpm --version
+          git rev-parse HEAD
+          docker --version
+
+      - name: Run quality gate
+        run: pnpm gate

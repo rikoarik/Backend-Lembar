@@ -1,22 +1,46 @@
 name: Deploy Backend to VPS
 
+# Two jobs:
+#   gate   — runs the full AGENTS.md quality gate on the pushed commit.
+#   deploy — build + pm2 restart, and it `needs: gate`, so a red gate blocks
+#            the production deploy entirely.
+#
+# Why the gate lives here rather than in a separate workflow: GitHub Actions
+# `needs:` only reaches jobs inside the same workflow, and the requirement is
+# that a failing gate blocks *this* deploy. A separate workflow could run in
+# parallel and finish after the deploy had already shipped.
+#
+# Runner requirement (self-hosted): the `gate` job needs `docker` (for
+# `pnpm test:db` against compose.test.yaml's ephemeral Postgres on
+# 127.0.0.1:55432), `pnpm`, and a Node 22 toolchain on the runner's PATH. If
+# the runner loses docker, `test:db` fails and the deploy is blocked — which
+# is the intended fail-closed direction.
+#
 # Triggered on push to dev. The deploy body runs through `sudo -u hermes -H`
 # because the self-hosted runner executes as root with no HOME in its
 # environment: git then cannot read /root/.gitconfig, rejects the hermes-owned
 # checkout as "dubious ownership" (exit 128), has no ssh key for the origin
 # remote, and pm2 would attach to root's daemon instead of the one serving
-# api.lembar.web.id. See Frontend-Lembar commit 7337ecf for the same fix.
+# api.lembar.web.id. See Frontend-Lembar commit 7337ecf for the same fix. The
+# `gate` job needs none of that (it runs in the runner's own workspace), but it
+# is pinned to the same self-hosted label.
 
 on:
   push:
     branches: [dev]
     paths:
       - 'src/**'
+      - 'test/**'
+      - 'scripts/**'
       - 'contracts/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'tsconfig.json'
       - 'tsconfig.build.json'
+      - 'eslint.config.mjs'
+      - '.prettierrc.json'
+      - '.prettierignore'
+      - 'compose.test.yaml'
       - '.env.example'
       - '.github/workflows/deploy-backend.yml'
 
@@ -25,7 +49,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gate:
+    name: Quality gate
+    runs-on: self-hosted
+    timeout-minutes: 45
+    steps:
+      - name: Check out the pushed commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      # The runner executes as root with no HOME, so git refuses the
+      # root-owned runner workspace as "dubious ownership" (exit 128) unless
+      # safe.directory is widened for this ephemeral container.
+      - name: Allow git to read the runner workspace
+        run: git config --global --add safe.directory '*'
+
+      - name: Show gate inputs
+        run: |
+          node --version
+          pnpm --version
+          git rev-parse HEAD
+          docker --version
+
+      - name: Run quality gate
+        run: pnpm gate
+
   deploy:
+    name: Deploy to VPS
+    needs: gate
     runs-on: self-hosted
     steps:
       - name: Deploy verified commit
