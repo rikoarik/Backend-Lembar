@@ -132,6 +132,18 @@ requestId nyata: `req_ggimXIsAbZlkA8Fj` (CASE1), `req_LE1WsmSqHLKtN54T` (CASE2),
 Bukti mentah: `live-evidence-postfix.json`, `live-evidence-control.json` di
 `/home/hermes/.hermes/profiles/lembar-backend/cache/scratch/tc3e6a292/`.
 
+Verifikasi itu dijalankan pada build commit `6bc2388` (`pm2 lembar-api`
+online). Worklog ini lalu di-push terpisah sebagai `550bbba`, dan
+`git diff --stat 6bc2388 550bbba -- src/` **kosong** — jadi `src/` yang melayani
+produksi sekarang identik dengan `src/` yang diuji. `/health` 200
+(`uptimeSeconds: 134`). Pengulangan `curl` register setelahnya hanya menjawab
+429 karena limiter register (5/jam/IP) sudah terpakai oleh probe di atas — bukan
+kegagalan endpoint. Sebagai kontrol tambahan pada build yang sama, jalur lain
+yang memakai modul codeMap yang sama juga sudah benar:
+`POST /v1/auth/login {}` → 400 `VALIDATION_FAILED`, route tanpa auth → 401
+`AUTH_REQUIRED`, route tidak dikenal → 404 `RESOURCE_NOT_FOUND`, semuanya
+`retryable: false`.
+
 Data uji dibersihkan: baris `c3e6a292-*`, `probe-*`, `b20b-*` dihapus dari
 `jwt_users`, dan tenant yang ikut terbuat dihapus. Sisa: 0.
 
