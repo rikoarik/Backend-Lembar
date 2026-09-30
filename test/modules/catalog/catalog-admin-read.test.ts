@@ -24,7 +24,7 @@ import {
   registerCatalogRoutes,
 } from '../../../src/modules/catalog/adapters/http/catalogRoutes.js';
 import { isUuid } from '../../../src/modules/catalog/persistence/officialMaterialization.js';
-import { resolveOfficialSubject } from '../../../src/modules/catalog/officialCatalog.js';
+import { resolveOfficialSubject, materializedOfficialTopicMaterials } from '../../../src/modules/catalog/officialCatalog.js';
 
 const SECRET = 'catalog-admin-read-secret';
 const TENANT = '11111111-1111-1111-1111-111111111111';
@@ -128,6 +128,50 @@ describe('admin catalog read surface', () => {
     expect(subjects.statusCode).toBe(400);
     expect(materials.statusCode).toBe(400);
     expect(outcomes.statusCode).toBe(400);
+  });
+});
+
+describe('materialized official reference rows stay out of the pickers', () => {
+  /**
+   * Creating a material against an official CP materializes the official chain
+   * into the caller's tenant. Those rows carry `official-…` codes and mirror
+   * the snapshot, so the grade picker must not list them a second time.
+   */
+  const fakeDb = {
+    select: () => ({
+      from: () => ({
+        where: () => [
+          { id: 'own-grade', code: 'TENANT-1', label: 'Kelas buatan sekolah', publishedVersion: 1, tenantId: TENANT },
+          { id: 'mat-grade', code: 'official-grade-sd-mi-1', label: 'Kelas 1 SD/MI — Fase A', publishedVersion: 1, tenantId: TENANT },
+        ],
+      }),
+    }),
+  };
+
+  it('does not duplicate official grades after the chain was materialized', async () => {
+    const instance = Fastify();
+    await registerCatalogRoutes(instance, { db: fakeDb as never, jwtSecret: SECRET });
+    const response = await instance.inject({
+      method: 'GET',
+      url: '/v1/admin/catalog/grades',
+      headers: { authorization: `Bearer ${superadminToken}` },
+    });
+    await instance.close();
+
+    expect(response.statusCode).toBe(200);
+    const ids = (response.json().data as { id: string; label: string }[]).map((row) => row.label);
+    expect(ids).toContain('Kelas buatan sekolah');
+    // One snapshot entry per label — the materialized mirror must be filtered.
+    expect(ids.filter((label) => label === 'Kelas 1 SD/MI — Fase A')).toHaveLength(1);
+  });
+
+  it('keeps the snapshot topics when the official chain lives in the DB', () => {
+    // The DB branch owns the CP row; the snapshot topics have no DB rows, so
+    // dropping them would empty the topic list once a material was created.
+    const topics = materializedOfficialTopicMaterials('official-grade-sd-mi-1', OFFICIAL_SUBJECT);
+    expect(topics.length).toBeGreaterThan(0);
+    expect(topics.every((item) => item.kind === 'topic')).toBe(true);
+    expect(topics.some((item) => item.outcomeId === `${OFFICIAL_SUBJECT}-cp`)).toBe(true);
   });
 });
 

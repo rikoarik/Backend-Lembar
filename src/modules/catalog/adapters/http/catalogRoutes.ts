@@ -36,6 +36,7 @@ import {
   OFFICIAL_PHASES,
   listOfficialMaterials,
   listOfficialSubjects,
+  materializedOfficialTopicMaterials,
   resolveOfficialSubject,
 } from '../../officialCatalog.js';
 import {
@@ -309,6 +310,7 @@ async function listGradesFor(db: Database | undefined, request: FastifyRequest):
       const rows = await db
         .select({
           id: grades.id,
+          code: grades.code,
           label: grades.label,
           publishedVersion: grades.publishedVersion,
           tenantId: grades.tenantId,
@@ -322,6 +324,12 @@ async function listGradesFor(db: Database | undefined, request: FastifyRequest):
           ...rows
             .filter((r) => r.tenantId === tenantId)
             .filter((r) => !OFFICIAL_GRADES.some((grade) => grade.id === r.id))
+            // Creating a material against an official CP materializes the
+            // official chain into the caller's tenant (see
+            // `officialMaterialization`). Those rows mirror the snapshot, so
+            // listing them again would duplicate every official grade in the
+            // picker — they are reference data, not the caller's own grades.
+            .filter((r) => !(r.code ?? '').startsWith('official-'))
             .map((r) => ({ id: r.id, label: r.label, status: 'active' as const })),
         ];
       }
@@ -789,7 +797,19 @@ export async function registerCatalogRoutes(
       );
     }
     const tenantId = request.jwtUser?.workspaceId ?? null;
-    if (db && tenantId && isUuid(q.subjectId)) {
+    // The picker hands back official slugs, but a material created against an
+    // official CP is stored under the *materialized* chain uuids — so a slug
+    // query has to resolve to those uuids before it can match rows, otherwise a
+    // freshly created material is invisible to the admin who made it. Falls back
+    // to the official snapshot when nothing was materialized yet.
+    const pool = db ? getPool(db) : undefined;
+    const chain =
+      pool && tenantId && !isUuid(q.subjectId)
+        ? await findMaterializedOfficialChain(pool, q.subjectId, tenantId)
+        : null;
+    const effectiveSubjectId = chain?.subjectId ?? q.subjectId;
+    const effectiveGradeId = chain?.gradeId ?? q.gradeId;
+    if (db && tenantId && isUuid(effectiveSubjectId) && isUuid(effectiveGradeId)) {
       try {
         const rows = await db
           .select({
@@ -803,18 +823,26 @@ export async function registerCatalogRoutes(
           .where(
             and(
               eq(materials.tenantId, tenantId),
-              eq(materials.gradeId, q.gradeId),
-              eq(materials.subjectId, q.subjectId),
+              eq(materials.gradeId, effectiveGradeId),
+              eq(materials.subjectId, effectiveSubjectId),
             ),
           );
-        return reply.status(200).send({
-          data: rows.map((r) => ({
-            id: r.id,
-            label: r.label,
-            outcomeId: r.outcomeId ?? null,
-            status: r.publishedVersion ? ('active' as const) : ('draft' as const),
-          })),
-        });
+        if (rows.length > 0) {
+          return reply.status(200).send({
+            data: [
+              ...rows.map((r) => ({
+                id: r.id,
+                label: r.label,
+                outcomeId: r.outcomeId ?? null,
+                status: r.publishedVersion ? ('active' as const) : ('draft' as const),
+              })),
+              // The DB branch owns the official CP entry, but the snapshot
+              // topics have no DB rows — keep them so creating one material
+              // does not wipe the topic list out of the admin view.
+              ...materializedOfficialTopicMaterials(q.gradeId, q.subjectId),
+            ],
+          });
+        }
       } catch {
         // fall through to the official catalog
       }

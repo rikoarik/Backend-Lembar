@@ -131,6 +131,16 @@ export function listOfficialMaterials(gradeId: string, subjectId: string) {
   return [...cp, ...topics];
 }
 
+/**
+ * Snapshot topics for a materialized official subject. Once a material exists
+ * for the official CP the CP row itself comes from the DB, but the snapshot
+ * topics have no DB rows at all — without these the admin materials list would
+ * silently drop every topic the moment the first material was created.
+ */
+export function materializedOfficialTopicMaterials(gradeId: string, subjectId: string) {
+  return listOfficialMaterials(gradeId, subjectId).filter((item) => item.kind === 'topic');
+}
+
 export interface OfficialSubjectRef {
   subjectId: string;
   grade: (typeof OFFICIAL_GRADES)[number];
