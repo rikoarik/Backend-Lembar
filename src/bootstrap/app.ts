@@ -1,13 +1,8 @@
-import Fastify, {
-  type FastifyError,
-  type FastifyInstance,
-  type FastifyServerOptions,
-} from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 
-import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/errors/envelope.js';
-import { mapFastifyError } from '../common/errors/fastifyErrors.js';
-import { registerRequestId, REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
+import { registerErrorHandlers } from './errorHandlers.js';
+import { registerRequestId } from '../common/middleware/request-id.js';
 import { parseDatabaseEnv } from '../config/database.env.js';
 import { parseQueueEnv } from '../config/queue.env.js';
 import { resolveSourceUploadMaxBytes } from '../config/uploads.env.js';
@@ -178,24 +173,6 @@ export interface BuildAppOptions {
 const DEFAULT_SERVICE_NAME = 'lembar-api';
 const DEFAULT_SERVICE_VERSION = '0.0.0-b001';
 
-function envelopeFor(
-  status: number,
-  code: StableErrorCode,
-  message: string,
-  requestId: string,
-): { status: number; payload: ReturnType<typeof buildErrorEnvelope> } {
-  const retryable = status >= 500;
-  return {
-    status,
-    payload: buildErrorEnvelope({
-      code,
-      message,
-      requestId,
-      retryable,
-    }),
-  };
-}
-
 export async function buildApp(
   options: BuildAppOptions = {},
 ): Promise<FastifyInstance<Server, IncomingMessage, ServerResponse>> {
@@ -242,55 +219,9 @@ export async function buildApp(
     }
   }
 
-  app.setNotFoundHandler((req, reply) => {
-    const id = req.requestId ?? 'req_unknown';
-    const url = req.url;
-    const method = req.method;
-
-    // Helpful message for known-but-unregistered routes
-    const hints: Record<string, string> = {
-      '/v1/admin': 'Module admin belum di-register. Butuh AdminDataStore implementation.',
-      '/v1/catalog':
-        'Module catalog belum di-register. Endpoint ada di OpenAPI spec tapi belum ada backend implementation.',
-    };
-
-    const hintKey = Object.keys(hints).find((k) => url.startsWith(k));
-    const message = hintKey
-      ? `${hints[hintKey]} (${method} ${url})`
-      : `Endpoint tidak ditemukan: ${method} ${url}. Cek /docs untuk daftar endpoint yang tersedia.`;
-
-    const { status, payload } = envelopeFor(404, 'RESOURCE_NOT_FOUND', message, id);
-    void reply.header(REQUEST_ID_HEADER, id);
-    void reply.status(status).send(payload);
-  });
-
-  app.setErrorHandler((err: FastifyError, req, reply) => {
-    const id = req.requestId ?? 'req_unknown';
-    void reply.header(REQUEST_ID_HEADER, id);
-    if (err instanceof ApiError) {
-      const { status, payload } = envelopeFor(err.status, err.code, err.message, id);
-      void reply.status(status).send(payload);
-      return;
-    }
-    // BUG-18: Fastify's content-type-parser errors (body over `bodyLimit`,
-    // unsupported media type, bad Content-Length, malformed JSON) carry the
-    // correct 4xx on `statusCode`. Mapping them here keeps them out of the 500
-    // branch so clients get a stable envelope instead of "unhandled error".
-    const mapped = mapFastifyError(err);
-    if (mapped) {
-      const { status, payload } = envelopeFor(mapped.status, mapped.code, mapped.message, id);
-      void reply.status(status).send(payload);
-      return;
-    }
-    app.log.error({ err: { name: err.name, message: err.message } }, 'unhandled error');
-    const { status, payload } = envelopeFor(
-      500,
-      'INTERNAL_ERROR',
-      'Terjadi kesalahan pada server.',
-      id,
-    );
-    void reply.status(status).send(payload);
-  });
+  // Shared 404 + error handlers. Kept in `errorHandlers.ts` so route-level
+  // tests can mount the real envelope without booting the whole app.
+  registerErrorHandlers(app);
 
   const managedDb = resolveManagedAuthDb(options);
   if (managedDb) {
