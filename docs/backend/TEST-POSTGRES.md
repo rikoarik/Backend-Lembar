@@ -18,8 +18,19 @@ docker compose -p lembar-test -f compose.test.yaml down
 
 Do not use `docker compose down -v`, and do not stop or remove unrelated containers, databases, or volumes.
 
-## Current migration blocker
+## Migration history
 
-The runner applies SQL migrations in filename order from an empty schema. At the current revision that fails at the later marketing migration with `column "revision" of relation "marketing_content" already exists`. This is a migration-history defect, not an environment or connectivity defect. Resolve migration ordering/idempotency before treating `pnpm test:db` as a green quality gate.
+The runner applies SQL migrations in filename order from an empty schema.
 
-The environment and URL guard are still usable for focused suites after preparing a compatible schema, but this document deliberately does not provide a bypass that could target a non-test database.
+`0019_indonesian_education_training.sql` declared
+`id_grades.phase CHECK (phase IN ('A','B','C','D'))` while seeding Kurikulum
+Merdeka phases E and F, so a fresh provision failed with
+`new row for relation "id_grades" violates check constraint
+"id_grades_phase_check"`. The constraint now admits A–F, matching both the seed
+data and the later `0022_fix_id_grades_phase_constraint.sql` widening. Editing
+the file does not re-run it on an existing database: Drizzle's migrator applies
+by journal timestamp, not by content hash.
+
+The environment and URL guard remain in place; this document deliberately does
+not provide a bypass that could target a non-test database.
+

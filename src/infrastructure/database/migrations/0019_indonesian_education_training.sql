@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS id_grades (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   code integer NOT NULL UNIQUE,
   name text NOT NULL,
-  phase text NOT NULL CHECK (phase IN ('A', 'B', 'C', 'D')),
+  phase text NOT NULL CHECK (phase IN ('A', 'B', 'C', 'D', 'E', 'F')),
   description text NOT NULL DEFAULT '',
   created_at timestamptz NOT NULL DEFAULT now()
 );
