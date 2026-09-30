@@ -2,7 +2,7 @@
 // Separate from session-based auth tables (auth_accounts, auth_workspace_memberships)
 
 import { sql } from 'drizzle-orm';
-import { boolean, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 import { tenants } from '../../../infrastructure/database/schema.js';
 
@@ -26,6 +26,11 @@ export const jwtUsers = pgTable('jwt_users', {
     .$type<UserRole[]>()
     .default(sql`ARRAY['subscriber']::text[]`),
   workspaceId: uuid('workspace_id').references(() => tenants.id, { onDelete: 'set null' }),
+  /**
+   * BUG-21: bump on logout to revoke every JWT minted before the bump.
+   * Tokens carry the value they were signed with as the `sv` claim.
+   */
+  sessionVersion: integer('session_version').notNull().default(1),
   createdAt: timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .default(sql`now()`),

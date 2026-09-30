@@ -92,8 +92,9 @@ export async function registerAdminRoutes(
           workspace_id: string | null;
           password_hash: string | null;
           suspended_at: Date | null;
+          session_version: number;
         }>(
-          `SELECT id, email, name, username, roles, workspace_id, password_hash, suspended_at
+          `SELECT id, email, name, username, roles, workspace_id, password_hash, suspended_at, session_version
            FROM jwt_users WHERE email = $1 LIMIT 1`,
           [email],
         )
@@ -112,7 +113,13 @@ export async function registerAdminRoutes(
     }
 
     const token = generateJwt(
-      { userId: user.id, email: user.email, roles: user.roles as import('../../../auth/persistence/jwtUsersSchema.js').UserRole[], workspaceId: user.workspace_id },
+      {
+        userId: user.id,
+        email: user.email,
+        roles: user.roles as import('../../../auth/persistence/jwtUsersSchema.js').UserRole[],
+        workspaceId: user.workspace_id,
+        sv: Number(user.session_version) || 1,
+      },
       { secret: jwtSecret, expiryDays: parseInt(process.env.JWT_EXPIRY_DAYS || '7', 10) },
     );
     return reply.status(200).send({

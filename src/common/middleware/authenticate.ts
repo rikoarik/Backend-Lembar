@@ -8,6 +8,8 @@ export interface AuthenticatedContext {
   workspaceId: string | null;
   userId: string;
   roles: UserRole[];
+  /** BUG-21: the `sv` claim this token was minted with. */
+  sessionVersion: number;
 }
 
 export interface AuthenticateOptions {
@@ -34,6 +36,7 @@ export function authenticate(
     workspaceId: payload.workspaceId,
     userId: payload.userId,
     roles: payload.roles,
+    sessionVersion: payload.sv,
   };
 }
 

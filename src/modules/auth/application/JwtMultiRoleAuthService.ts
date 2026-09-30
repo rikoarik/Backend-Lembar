@@ -320,6 +320,11 @@ export class JwtMultiRoleAuthService {
         email: user.email,
         roles: user.roles,
         workspaceId: user.workspaceId,
+        // BUG-21: carry the revocation counter so logout can invalidate this
+        // token. Without it `verifyJwt` reads sv=1 while a logged-out account
+        // sits at 2, and every authenticated route answers 401 — including the
+        // /v1/auth/workspace/switch cases this task has to prove.
+        sv: user.sessionVersion,
       },
       this.jwtConfig,
     );

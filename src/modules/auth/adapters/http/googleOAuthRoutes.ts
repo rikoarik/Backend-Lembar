@@ -103,7 +103,14 @@ async function fetchGoogleUserInfo(accessToken: string): Promise<GoogleUserInfo>
 async function findOrCreateUser(
   db: Database,
   googleUser: GoogleUserInfo,
-): Promise<{ id: string; email: string; name: string; roles: UserRole[]; workspaceId: string | null }> {
+): Promise<{
+  id: string;
+  email: string;
+  name: string;
+  roles: UserRole[];
+  workspaceId: string | null;
+  sessionVersion: number;
+}> {
   // Check if user exists
   const existing = await db
     .select()
@@ -118,6 +125,7 @@ async function findOrCreateUser(
       name: existing[0].name,
       roles: existing[0].roles,
       workspaceId: existing[0].workspaceId,
+      sessionVersion: existing[0].sessionVersion,
     };
   }
 
@@ -177,6 +185,7 @@ async function findOrCreateUser(
     name: newUser.name,
     roles: newUser.roles,
     workspaceId: newUser.workspaceId,
+    sessionVersion: newUser.sessionVersion,
   };
 }
 
@@ -262,6 +271,7 @@ export async function registerGoogleOAuthRoutes(
           email: user.email,
           roles: user.roles,
           workspaceId: user.workspaceId,
+          sv: user.sessionVersion,
         },
         { secret: config.jwtSecret, expiryDays: config.jwtExpiryDays },
       );

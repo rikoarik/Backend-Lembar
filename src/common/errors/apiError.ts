@@ -19,6 +19,11 @@ export function throwApiError(
     password_too_short: 'VALIDATION_FAILED',
     invalid_name: 'VALIDATION_FAILED',
     invalid_roles: 'VALIDATION_FAILED',
+    // BUG-18/21/22: without this mapping `throwApiError('password_policy', …)`
+    // fell through to the INTERNAL_ERROR default, so a weak password on
+    // /v1/auth/register and /v1/auth/invitations/consume answered 500 (with
+    // retryable:true) instead of the 400 VALIDATION_FAILED the clients handle.
+    password_policy: 'VALIDATION_FAILED',
     email_exists: 'STATE_CONFLICT',
     workspace_creation_failed: 'INTERNAL_ERROR',
     user_creation_failed: 'INTERNAL_ERROR',

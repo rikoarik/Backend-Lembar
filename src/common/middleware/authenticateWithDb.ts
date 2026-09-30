@@ -17,12 +17,22 @@ export async function authenticateWithDb(
   if (!options.db || !auth.userId) return auth;
   const pool = getPool(options.db);
   if (!pool) return auth;
-  const result = await pool.query('SELECT suspended_at IS NOT NULL AS suspended FROM jwt_users WHERE id = $1', [
-    auth.userId,
-  ]);
-  const row = (result.rows as Array<{ suspended: boolean | string }>)[0];
+  const result = await pool.query(
+    'SELECT suspended_at IS NOT NULL AS suspended, session_version FROM jwt_users WHERE id = $1',
+    [auth.userId],
+  );
+  const row = (result.rows as Array<{ suspended: boolean | string; session_version?: number | string }>)[0];
   if (row && (row.suspended === true || row.suspended === 't' || row.suspended === 'true')) {
     throwApiError('account_suspended', 'Akun ditangguhkan. Hubungi administrator.');
+  }
+  // BUG-21: same revocation check as the JWT middleware — a token minted before
+  // the last logout is no longer valid. Skipped when the column is not part of
+  // the projection, so this cannot 401 every request by accident.
+  const stored = row?.session_version;
+  if (stored !== undefined && stored !== null && Number.isFinite(Number(stored))) {
+    if (Number(stored) !== auth.sessionVersion) {
+      throwApiError('invalid_token', 'Sesi sudah berakhir. Silakan masuk kembali.');
+    }
   }
   return auth;
 }

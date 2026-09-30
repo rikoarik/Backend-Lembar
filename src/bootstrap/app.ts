@@ -21,6 +21,7 @@ import { registerJobRoutes } from '../infrastructure/queue/adapters/http/jobRout
 import { createSharedQueueStore } from '../infrastructure/queue/createSharedQueueStore.js';
 import { registerAuthRoutes } from '../modules/auth/adapters/http/routes.js';
 import { registerJwtMultiRoleRoutes } from '../modules/auth/adapters/http/jwtMultiRoleRoutes.js';
+import { registerJwtAuthFlowRoutes } from '../modules/auth/adapters/http/jwtAuthFlowRoutes.js';
 import { registerPasswordResetRoutes } from '../modules/auth/adapters/http/passwordResetRoutes.js';
 import { registerGoogleOAuthRoutes } from '../modules/auth/adapters/http/googleOAuthRoutes.js';
 import { registerCurriculumRoutes } from '../modules/curriculum/adapters/http/routes.js';
@@ -333,6 +334,16 @@ export async function buildApp(
       jwtExpiryDays: parseInt(process.env.JWT_EXPIRY_DAYS || '7', 10),
     });
     await registerPasswordResetRoutes(app, { db: authDb });
+    // BUG-18/21/22: logout, recovery, workspace switch and the invitation
+    // preview/consume contract. The session-cookie `registerAuthRoutes` above
+    // stays disabled; these are the JWT-mode equivalents of the paths the FE
+    // (and its BFF) already call.
+    await registerJwtAuthFlowRoutes(app, {
+      db: authDb,
+      jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+      jwtExpiryDays: parseInt(process.env.JWT_EXPIRY_DAYS || '7', 10),
+      appUrl: process.env.PUBLIC_APP_URL || 'http://localhost:3000',
+    });
     // WA OTP routes — public endpoints
     await registerOtpRoutes(app, { db: authDb });
 

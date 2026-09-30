@@ -15,8 +15,10 @@ export interface JwtAuthMiddlewareOptions {
   /**
    * Optional DB pool provider. When supplied, the middleware rejects
    * requests whose user has `suspended_at IS NOT NULL` so that an existing
-   * token cannot outlive a suspension. Caller is responsible for wiring the
-   * same pool that owns the auth tables.
+   * token cannot outlive a suspension, and rejects tokens whose `sv` claim no
+   * longer matches `jwt_users.session_version` (BUG-21: how logout revokes an
+   * already-issued token). Caller is responsible for wiring the same pool that
+   * owns the auth tables.
    */
   db?: Database | undefined;
 }
@@ -45,15 +47,27 @@ export function createJwtAuthMiddleware(options: JwtAuthMiddlewareOptions) {
     if (pool && request.jwtUser?.userId) {
       try {
         const result = await pool.query(
-          'SELECT suspended_at IS NOT NULL AS suspended FROM jwt_users WHERE id = $1',
+          'SELECT suspended_at IS NOT NULL AS suspended, session_version FROM jwt_users WHERE id = $1',
           [request.jwtUser.userId],
         );
-        const row = (result.rows as Array<{ suspended: boolean | string }>)[0];
+        const row = (result.rows as Array<{ suspended: boolean | string; session_version?: number | string }>)[0];
         if (row && (row.suspended === true || row.suspended === 't' || row.suspended === 'true')) {
           throwApiError('account_suspended', 'Akun ditangguhkan. Hubungi administrator.');
         }
+        // BUG-21: a token minted before the last logout carries a stale
+        // version and must be treated exactly like an invalid token.
+        // Enforced only when the column is actually readable: a row that does
+        // not carry it (older replica, partial projection) must not turn every
+        // authenticated request into a 401.
+        const stored = row?.session_version;
+        if (stored !== undefined && stored !== null && Number.isFinite(Number(stored))) {
+          if (Number(stored) !== request.jwtUser.sv) {
+            throwApiError('invalid_token', 'Sesi sudah berakhir. Silakan masuk kembali.');
+          }
+        }
       } catch (err) {
-        if ((err as { code?: string }).code === 'AUTH_REQUIRED') throw err;
+        const code = (err as { code?: string }).code;
+        if (code === 'AUTH_REQUIRED') throw err;
         // If the query itself fails, allow the request rather than hiding an
         // outage behind auth.
       }

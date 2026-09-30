@@ -35,6 +35,15 @@ export class PasswordResetService {
   }
 
   async apply(token: string, newPassword: string): Promise<void> {
+    await this.applyAndReturnUser(token, newPassword);
+  }
+
+  /**
+   * Same as `apply`, but returns the affected user id so callers (e.g.
+   * `POST /v1/auth/recovery/complete`) can issue a fresh session without a
+   * second lookup.
+   */
+  async applyAndReturnUser(token: string, newPassword: string): Promise<string> {
     if (!token || !isValidPassword(newPassword)) {
       throw invalidReset('Token atau kata sandi tidak valid');
     }
@@ -67,6 +76,7 @@ export class PasswordResetService {
         row.id,
       ]);
       await client.query('COMMIT');
+      return row.user_id;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
