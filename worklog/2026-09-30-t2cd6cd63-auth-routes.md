@@ -151,12 +151,31 @@ probe_invitation_e2e.py -> 12/12 PASS
 ## Batas / non-scope
 
 - Tidak menyentuh FE.
-- **Belum di-deploy.** Perubahan di-commit di branch `wt/t_2cd6cd63` dan di-push
-  sebagai `fix/t_2cd6cd63-auth-routes`; **tidak** di-push ke `dev`, karena push ke
-  `dev` memicu workflow `deploy-backend.yml` = deploy produksi, dan itu butuh
-  persetujuan owner. `api.lembar.web.id` masih 404 untuk kelima endpoint itu.
-- Migrasi `0045` belum diterapkan ke DB live? Sudah — kolom `session_version` sudah
-  ada di DB live (`integer NOT NULL DEFAULT 1`) dan kode baru membacanya dengan aman.
+- **Sudah di-deploy.** Commit `3912a20` + `99c7e7d` di-push ke `dev` dan workflow
+  `deploy-backend.yml` run `36675380921` (57s) + `36675980370` (1m11s) **success**.
+  `pm2 lembar-api` online; `https://api.lembar.web.id/health` 200.
+- `contracts/openapi.yaml` diperbarui dengan kelima endpoint, jadi `/docs/json`
+  sekarang memuatnya (96 path; sebelumnya 90 dan kelimanya tidak ada).
+  `openapi:validate` hijau. `openapi:breaking` masih exit 1 — **pre-existing**:
+  drift baseline yang sama juga terjadi di worktree bersih `origin/dev` `91291d4`.
+- Migrasi `0045` sudah diterapkan ke DB live (`jwt_users.session_version`
+  `integer NOT NULL DEFAULT 1`).
+
+## Verifikasi live pasca-deploy (produksi)
+
+```
+probe_auth_routes.py https://api.lembar.web.id   -> 13/13 PASS
+probe_invitation_e2e.py https://api.lembar.web.id -> 12/12 PASS
+
+POST /v1/auth/logout              404 -> 200 {"data":{"loggedOut":true}}
+POST /v1/auth/recovery/request    404 -> 202 (pesan netral)
+POST /v1/auth/workspace/switch    404 -> 401 tanpa token / 403 ws asing / 200 ws sendiri
+GET  /v1/auth/invitations/preview 404 -> 200 {"data":{"status":"invalid"}}
+POST /v1/auth/invitations/consume 404 -> 400/404/410 sesuai kasus
+me-after-logout-must-401          401  req_ogUrIcDkrYdWEa6J   <- BUG-21 terbukti
+register password lemah           500 -> 400 VALIDATION_FAILED
+/docs/json                        kelima path ada (total 96 path)
+```
 
 ## Catatan kolaborasi (hotspot)
 
