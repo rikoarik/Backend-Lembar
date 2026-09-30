@@ -94,11 +94,13 @@ export class SourceIngestionHandler implements JobHandler {
         };
       }
 
-      // StorageAdapter does not yet expose a getObject method (deferred to B0-07 extension).
-      // Read bytes from payload if provided (integration path). When absent, fall back to
-      // a sentinel buffer so the stub extractor can produce synthetic pages (test/smoke path).
-      // Per D-004/B0-07: replace with storage.getObject(version.storageKey) when available.
-      const rawBytes: Buffer = this.extractBytesFromPayload(payload, version.storageDriver);
+      // Stage: scanning — fetch the raw bytes from storage.
+      //
+      // BUG-19: `StorageAdapter` now exposes `getObject`, so the worker reads
+      // the real private object by the storage key recorded on the current
+      // version. Previously this fell back to a `[stub]` sentinel buffer, which
+      // meant every extracted passage was synthetic regardless of the upload.
+      const rawBytes: Buffer = await this.readBytes(payload, version.storageKey);
 
       // Stage: extracting → chunking → indexing (delegated to SourceExtractionService)
       const result = await this.extractionService.run({
@@ -147,33 +149,48 @@ export class SourceIngestionHandler implements JobHandler {
   }
 
   /**
-   * Extract raw bytes from job payload.
+   * Read the raw bytes for an extraction run.
    *
-   * The full storage getObject path is deferred to when StorageAdapter gains
-   * a getObject method (B0-07 extension). For now:
-   * - If payload.bytes is a Buffer/Uint8Array/base64 string, use it.
-   * - Otherwise return a sentinel non-empty buffer so the stub extractor can
-   *   produce synthetic pages for smoke/test paths.
+   * Order of preference:
+   * 1. `payload.bytes` — a Buffer/Uint8Array/base64 string. Kept so in-process
+   *    smoke paths and unit tests can run without a storage backend.
+   * 2. `storage.getObject(version.storageKey)` — the real path: the object the
+   *    API wrote when the client PUT the PDF.
+   *
+   * An empty buffer is returned only when neither source is available, which
+   * means a genuinely missing upload; the extractor then fails with
+   * EMPTY_UPLOAD rather than silently producing fake passages.
    */
-  private extractBytesFromPayload(
+  private async readBytes(
     payload: Record<string, unknown>,
-    _storageDriver: string,
-  ): Buffer {
-    const raw = payload['bytes'];
-    if (raw instanceof Buffer) return raw;
-    if (raw instanceof Uint8Array) return Buffer.from(raw);
-    if (typeof raw === 'string') {
-      try {
-        return Buffer.from(raw, 'base64');
-      } catch {
-        // fall through to sentinel
-      }
+    storageKey: string,
+  ): Promise<Buffer> {
+    const fromPayload = readBytesFromPayload(payload);
+    if (fromPayload) return fromPayload;
+    try {
+      const object = await this.storage.getObject(storageKey);
+      return object.body;
+    } catch {
+      // Object missing or unreadable — surface it as an empty payload so the
+      // extraction pipeline reports a real failure code.
+      return Buffer.alloc(0);
     }
-    // No bytes in payload — return a sentinel 1-byte buffer so the extractor
-    // can produce synthetic output (stub/smoke path). Real bytes arrive via
-    // storage.getObject(version.storageKey) once StorageAdapter exposes it.
-    return Buffer.from('[stub]');
   }
+}
+
+/** Decode `payload.bytes` when the caller supplied the body inline. */
+function readBytesFromPayload(payload: Record<string, unknown>): Buffer | null {
+  const raw = payload['bytes'];
+  if (raw instanceof Buffer) return raw;
+  if (raw instanceof Uint8Array) return Buffer.from(raw);
+  if (typeof raw === 'string') {
+    try {
+      return Buffer.from(raw, 'base64');
+    } catch {
+      return null;
+    }
+  }
+  return null;
 }
 
 /** Codes that warrant a retry vs. terminal failure. */

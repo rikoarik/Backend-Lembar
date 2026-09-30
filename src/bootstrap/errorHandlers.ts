@@ -1,6 +1,6 @@
 import type { FastifyError, FastifyInstance } from 'fastify';
 
-import { ApiError, buildErrorEnvelope, type StableErrorCode } from '../common/errors/envelope.js';
+import { ApiError, buildErrorEnvelope, type FieldErrors, type StableErrorCode } from '../common/errors/envelope.js';
 import { mapFastifyError } from '../common/errors/fastifyErrors.js';
 import { REQUEST_ID_HEADER } from '../common/middleware/request-id.js';
 
@@ -19,12 +19,17 @@ const NOT_FOUND_HINTS: Readonly<Record<string, string>> = {
  * `retryable` is derived from the HTTP status: only 5xx failures are worth
  * retrying. A 4xx envelope must never advertise `retryable: true`, otherwise
  * clients retry invalid input forever.
+ *
+ * `fieldErrors` is threaded through so per-field validation output reaches the
+ * client. A previous handler dropped it silently, so no route could return
+ * field-level errors and no test could catch the regression.
  */
 export function envelopeFor(
   status: number,
   code: StableErrorCode,
   message: string,
   requestId: string,
+  fieldErrors?: FieldErrors,
 ): { status: number; payload: ReturnType<typeof buildErrorEnvelope> } {
   const retryable = status >= 500;
   return {
@@ -34,8 +39,52 @@ export function envelopeFor(
       message,
       requestId,
       retryable,
+      ...(fieldErrors !== undefined ? { fieldErrors } : {}),
     }),
   };
+}
+
+/**
+ * Install the stable error handler on an app instance.
+ *
+ * Exported on its own so route-level tests can mount the production handler on
+ * a bare Fastify instance — a test-local copy would silently drop
+ * `fieldErrors` and hide regressions in per-field validation output.
+ */
+export function installErrorHandler(app: FastifyInstance): void {
+  app.setErrorHandler((err: FastifyError, req, reply) => {
+    const id = req.requestId ?? 'req_unknown';
+    void reply.header(REQUEST_ID_HEADER, id);
+    if (err instanceof ApiError) {
+      const { status, payload } = envelopeFor(
+        err.status,
+        err.code,
+        err.message,
+        id,
+        err.fieldErrors,
+      );
+      void reply.status(status).send(payload);
+      return;
+    }
+    // BUG-18: Fastify's content-type-parser errors (body over `bodyLimit`,
+    // unsupported media type, bad Content-Length, malformed JSON) carry the
+    // correct 4xx on `statusCode`. Mapping them here keeps them out of the 500
+    // branch so clients get a stable envelope instead of "unhandled error".
+    const mapped = mapFastifyError(err);
+    if (mapped) {
+      const { status, payload } = envelopeFor(mapped.status, mapped.code, mapped.message, id);
+      void reply.status(status).send(payload);
+      return;
+    }
+    app.log.error({ err: { name: err.name, message: err.message } }, 'unhandled error');
+    const { status, payload } = envelopeFor(
+      500,
+      'INTERNAL_ERROR',
+      'Terjadi kesalahan pada server.',
+      id,
+    );
+    void reply.status(status).send(payload);
+  });
 }
 
 /**
@@ -61,31 +110,5 @@ export function registerErrorHandlers(app: FastifyInstance): void {
     void reply.status(status).send(payload);
   });
 
-  app.setErrorHandler((err: FastifyError, req, reply) => {
-    const id = req.requestId ?? 'req_unknown';
-    void reply.header(REQUEST_ID_HEADER, id);
-    if (err instanceof ApiError) {
-      const { status, payload } = envelopeFor(err.status, err.code, err.message, id);
-      void reply.status(status).send(payload);
-      return;
-    }
-    // BUG-18: Fastify's content-type-parser errors (body over `bodyLimit`,
-    // unsupported media type, bad Content-Length, malformed JSON) carry the
-    // correct 4xx on `statusCode`. Mapping them here keeps them out of the 500
-    // branch so clients get a stable envelope instead of "unhandled error".
-    const mapped = mapFastifyError(err);
-    if (mapped) {
-      const { status, payload } = envelopeFor(mapped.status, mapped.code, mapped.message, id);
-      void reply.status(status).send(payload);
-      return;
-    }
-    app.log.error({ err: { name: err.name, message: err.message } }, 'unhandled error');
-    const { status, payload } = envelopeFor(
-      500,
-      'INTERNAL_ERROR',
-      'Terjadi kesalahan pada server.',
-      id,
-    );
-    void reply.status(status).send(payload);
-  });
+  installErrorHandler(app);
 }

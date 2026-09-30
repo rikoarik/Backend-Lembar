@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 
-import { registerErrorHandlers } from './errorHandlers.js';
+import { installErrorHandler, registerErrorHandlers } from './errorHandlers.js';
 import { registerRequestId } from '../common/middleware/request-id.js';
 import { parseDatabaseEnv } from '../config/database.env.js';
 import { parseQueueEnv } from '../config/queue.env.js';
@@ -24,7 +24,9 @@ import { registerMarketingRoutes } from '../modules/marketing/adapters/http/rout
 import { registerMarketingOpsRoutes } from '../modules/marketing/adapters/http/opsRoutes.js';
 import { registerNotificationRoutes } from '../modules/notifications/adapters/http/routes.js';
 import { registerUploadRoutes } from '../modules/uploads/adapters/http/routes.js';
+import { registerSourceRoutes } from '../modules/uploads/adapters/http/sourceRoutes.js';
 import { registerUploadsAuthHook } from '../modules/uploads/adapters/http/preHandler.js';
+import { createUploadsService } from '../modules/uploads/application/createUploadsService.js';
 import type { AuthService } from '../modules/auth/application/AuthService.js';
 
 // B6-04: Ops routes
@@ -352,9 +354,31 @@ export async function buildApp(
     jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
     ...(authDb ? { db: authDb } : {}),
   });
-  await registerUploadRoutes(app, {
+
+  // BUG-19: `/v1/sources/*` (intent + state) and the content PUT share one
+  // uploads service and one queue store, so the reserved row, the byte write,
+  // and the extraction enqueue all observe the same state.
+  const uploadsDbForRoutes = managedDb ?? options.uploadsDb;
+  const sourcesQueueStore = managedDb ? createSharedQueueStore(process.env) : undefined;
+  // One service shared by both route modules: the intent route creates the row
+  // and the content PUT writes its bytes, so they MUST see the same store.
+  const sourcesUploadsService = createUploadsService({
+    ...(uploadsDbForRoutes ? { db: uploadsDbForRoutes } : {}),
     maxBytes: resolveSourceUploadMaxBytes(process.env),
-    ...(managedDb ? { db: managedDb } : options.uploadsDb ? { db: options.uploadsDb } : {}),
+  });
+  await registerSourceRoutes(app, {
+    service: sourcesUploadsService,
+    ...(uploadsDbForRoutes
+      ? { extractionJobsStore: new PostgresSourceExtractionJobsStore(uploadsDbForRoutes) }
+      : { extractionJobsStore: new InMemorySourceExtractionJobsStore() }),
+  });
+  await registerUploadRoutes(app, {
+    // `SOURCE_UPLOAD_MAX_BYTES` is the documented cap; fall back to the policy
+    // default when unset or malformed so a bad env value cannot stop the API.
+    maxBytes: resolveSourceUploadMaxBytes(process.env),
+    service: sourcesUploadsService,
+    ...(uploadsDbForRoutes ? { db: uploadsDbForRoutes } : {}),
+    ...(sourcesQueueStore ? { queueStore: sourcesQueueStore } : {}),
   });
 
   // B6-04: Ops routes (metrics + leads)
