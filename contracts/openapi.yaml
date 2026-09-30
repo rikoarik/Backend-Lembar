@@ -374,6 +374,225 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
+  /v1/auth/logout:
+    post:
+      summary: Revoke every JWT issued for the caller (BUG-21)
+      description: >
+        Increments `jwt_users.session_version`, which invalidates every token
+        minted before this call. Idempotent; a missing or already-revoked
+        bearer token still answers 200 so a best-effort client logout stays
+        quiet. The `sv` claim is the mechanism — a stateless JWT cannot be
+        un-signed, so revocation is version-based.
+      tags: [Identity]
+      operationId: logout
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Logged out (also returned when the token was already gone)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      loggedOut: { type: boolean }
+  /v1/auth/recovery/request:
+    post:
+      summary: Request a password recovery link (BUG-18)
+      description: >
+        Always answers 202 with the same neutral message whether or not the
+        address is registered, so the response cannot be used to enumerate
+        accounts. Writes a pending token to `password_resets`.
+      tags: [Identity]
+      operationId: requestRecovery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string, format: email }
+                identifier: { type: string, description: Alias for `email` }
+      responses:
+        "202":
+          description: Neutral acknowledgement
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        "429":
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/auth/recovery/complete:
+    post:
+      summary: Finish recovery with the emailed token
+      description: >
+        Applies the new password through the same `password_resets` store as
+        `/v1/auth/reset-password`; the two are interchangeable.
+      tags: [Identity]
+      operationId: completeRecovery
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token: { type: string }
+                newPassword: { type: string, format: password }
+      responses:
+        "200":
+          description: Password replaced
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      reset: { type: boolean }
+                      userId: { type: string, format: uuid }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+  /v1/auth/workspace/switch:
+    post:
+      summary: Switch the caller to another workspace (BUG-22)
+      description: >
+        Persists the active workspace and returns a fresh JWT carrying it.
+        Refuses a workspace the caller is not an active member of.
+      tags: [Identity]
+      operationId: switchWorkspace
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [workspaceId]
+              properties:
+                workspaceId: { type: string }
+      responses:
+        "200":
+          description: New session token and the active workspace
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      activeWorkspaceId: { type: string, format: uuid }
+                      token: { type: string }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not a member of that workspace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/auth/invitations/preview:
+    get:
+      summary: Read an invitation before accepting it
+      description: >
+        Public — an invitee has no JWT yet. Never returns the invited email or
+        the raw token, only whether the token is usable.
+      tags: [Identity]
+      operationId: previewInvitation
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Token state (pending / expired / revoked / invalid)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status: { type: string, enum: [pending, expired, revoked, invalid] }
+                      workspaceId: { type: string, format: uuid }
+                      workspaceName: { type: string }
+                      schoolName: { type: string }
+                      role: { type: string }
+                      expiresAt: { type: string, format: date-time }
+        "429":
+          description: Too many requests
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /v1/auth/invitations/consume:
+    post:
+      summary: Accept an invitation and set the account password
+      description: >
+        Official accept contract for the activation page. Public on purpose:
+        `POST /v1/invitations/accept` requires a JWT that a brand-new invitee
+        cannot have. One-time — the invitation flips to `accepted` inside the
+        same transaction. Send `dryRun: true` to get the preview payload
+        instead of consuming the token.
+      tags: [Identity]
+      operationId: consumeInvitation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+                password: { type: string, format: password }
+                dryRun: { type: boolean }
+      responses:
+        "200":
+          description: Invitation accepted and session token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      userId: { type: string, format: uuid }
+                      workspaceId: { type: string, format: uuid }
+                      token: { type: string }
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "404":
+          description: Token unknown or already used
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "410":
+          description: Token exists but has expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /v1/me:
     get:
       summary: Read the current account and workspace options
