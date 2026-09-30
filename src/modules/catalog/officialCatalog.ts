@@ -131,6 +131,40 @@ export function listOfficialMaterials(gradeId: string, subjectId: string) {
   return [...cp, ...topics];
 }
 
+export interface OfficialSubjectRef {
+  subjectId: string;
+  grade: (typeof OFFICIAL_GRADES)[number];
+  record: SnapshotRecord;
+  /** Curriculum outcome id used by the admin catalog (`<subjectId>-cp`). */
+  cpId: string;
+  /** Human label for the CP; never empty, even when the snapshot has no description. */
+  cpLabel: string;
+}
+
+/**
+ * Resolve an official subject id (the deterministic slug emitted by
+ * `listOfficialSubjects`) back to its snapshot record and grade. Returns null for
+ * unknown ids so callers can fall back to the DB branch instead of erroring.
+ */
+export function resolveOfficialSubject(subjectId: string): OfficialSubjectRef | null {
+  for (const record of snapshot.records) {
+    const id = recordSubjectId(record);
+    if (id !== subjectId) continue;
+    const grade = OFFICIAL_GRADES.find(
+      (item) => item.level === record.level && item.phase === record.phase,
+    );
+    if (!grade) continue;
+    return {
+      subjectId: id,
+      grade,
+      record,
+      cpId: `${id}-cp`,
+      cpLabel: record.description?.trim() || `CP ${record.label}`,
+    };
+  }
+  return null;
+}
+
 export function officialCatalogCoverage() {
   return Object.fromEntries(
     (Object.keys(PHASE_CLASSES) as OfficialLevel[]).map((level) => {

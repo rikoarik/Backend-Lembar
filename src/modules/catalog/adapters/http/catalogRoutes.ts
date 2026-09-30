@@ -13,6 +13,7 @@
  *   DELETE /v1/admin/catalog/subjects/:id
  */
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { Pool } from 'pg';
 import { and, eq, isNotNull } from 'drizzle-orm';
 import { MATERIAL_KINDS, APPROVED_SOURCE_RIGHTS, SOURCE_RIGHTS_VALUES } from '../../../curriculum/persistence/schema.js';
 import { randomUUID } from 'node:crypto';
@@ -35,7 +36,14 @@ import {
   OFFICIAL_PHASES,
   listOfficialMaterials,
   listOfficialSubjects,
+  resolveOfficialSubject,
 } from '../../officialCatalog.js';
+import {
+  OfficialOutcomeNotFound,
+  findMaterializedOfficialChain,
+  isUuid,
+  materializeOfficialOutcome,
+} from '../../persistence/officialMaterialization.js';
 
 export interface CatalogOption {
   id: string;
@@ -277,6 +285,161 @@ async function auditLog(
   }
 }
 
+/**
+ * Derive the official subject id from an official CP outcome id
+ * (`<officialSubjectId>-cp` → `<officialSubjectId>`). Returns null when the id is
+ * not an official CP id, so callers can treat it as "not found" rather than
+ * sending a non-uuid value to a `uuid` column.
+ */
+function officialSubjectIdFromOutcomeId(outcomeId: string): string | null {
+  if (!outcomeId.endsWith('-cp')) return null;
+  const subjectId = outcomeId.slice(0, -'-cp'.length);
+  return resolveOfficialSubject(subjectId) ? subjectId : null;
+}
+
+/**
+ * Grade options for a caller: the official snapshot grades plus any published
+ * grade rows owned by the caller's tenant. Shared by the public and admin read
+ * routes so both surfaces can never drift apart.
+ */
+async function listGradesFor(db: Database | undefined, request: FastifyRequest): Promise<unknown[]> {
+  const tenantId = request.jwtUser?.workspaceId;
+  if (db && tenantId) {
+    try {
+      const rows = await db
+        .select({
+          id: grades.id,
+          label: grades.label,
+          publishedVersion: grades.publishedVersion,
+          tenantId: grades.tenantId,
+        })
+        .from(grades)
+        .where(and(eq(grades.tenantId, tenantId), isNotNull(grades.publishedVersion)));
+
+      if (rows.length > 0) {
+        return [
+          ...OFFICIAL_GRADES,
+          ...rows
+            .filter((r) => r.tenantId === tenantId)
+            .filter((r) => !OFFICIAL_GRADES.some((grade) => grade.id === r.id))
+            .map((r) => ({ id: r.id, label: r.label, status: 'active' as const })),
+        ];
+      }
+    } catch {
+      // fall through to the official catalog
+    }
+  }
+  return OFFICIAL_GRADES;
+}
+
+/**
+ * Subject options for a grade. Official grades resolve straight from the
+ * snapshot; tenant grade uuids resolve from the DB and fall back to the legacy
+ * jenjang-filtered seed list. Shared by the public and admin read routes.
+ */
+async function listSubjectsFor(
+  db: Database | undefined,
+  gradeId: string,
+  request: FastifyRequest,
+): Promise<unknown[]> {
+  const tenantId = request.jwtUser?.workspaceId;
+  if (db && tenantId) {
+    try {
+      const rows = await db
+        .select({
+          id: subjects.id,
+          label: subjects.title,
+          publishedVersion: subjects.publishedVersion,
+          tenantId: subjects.tenantId,
+        })
+        .from(subjects)
+        .where(
+          and(
+            eq(subjects.tenantId, tenantId),
+            eq(subjects.gradeId, gradeId),
+            isNotNull(subjects.publishedVersion),
+          ),
+        );
+
+      if (rows.length > 0) {
+        return rows
+          .filter((r) => r.tenantId === tenantId)
+          .map((r) => ({
+            id: r.id,
+            label: r.label,
+            gradeId,
+            status: 'active' as const,
+          }));
+      }
+    } catch {
+      // fall through
+    }
+  }
+
+  const official = listOfficialSubjects(gradeId);
+  if (official.length > 0) return official;
+
+  // Legacy fallback: filter subjects by jenjang from gradeId
+  const jenjang = jenjangFromGradeId(gradeId);
+  const filtered = jenjang
+    ? FALLBACK_SUBJECTS.filter((s) => s.jenjangList.includes(jenjang))
+    : FALLBACK_SUBJECTS;
+
+  return filtered.map((s) => ({
+    id: s.id,
+    label: s.label,
+    gradeId,
+    status: s.status,
+  }));
+}
+
+/**
+ * Pure CP-option resolution for an official subject slug — no DB access, so it
+ * is unit-testable and cannot be the source of the `uuid` syntax 500. The DB
+ * lookup that upgrades this to the materialized outcome uuid lives in
+ * `listOutcomeOptions`.
+ */
+export function officialOutcomeOption(subjectId: string): { id: string; label: string }[] {
+  const ref = resolveOfficialSubject(subjectId);
+  if (!ref) return [];
+  return [{ id: ref.cpId, label: `CP — ${ref.cpLabel}` }];
+}
+
+/**
+ * CP/outcome options for a subject id. Tenant subject uuids read from the
+ * `outcomes` table; official subject slugs (`official-subject-…`) have no rows
+ * until something is materialized, so they answer straight from the snapshot.
+ *
+ * The id is never interpolated into a `uuid` column unless it is a real uuid —
+ * that mismatch was the original 500 (`invalid input syntax for type uuid`).
+ */
+async function listOutcomeOptions(
+  pool: Pool,
+  subjectId: string,
+  workspaceId: string | null,
+): Promise<{ id: string; label: string }[]> {
+  if (isUuid(subjectId)) {
+    const result = await pool.query<{ id: string; code: string; text: string }>(
+      `SELECT id, code, text FROM outcomes WHERE subject_id = $1::uuid ORDER BY ordering, code`,
+      [subjectId],
+    );
+    return result.rows.map((row) => ({ id: row.id, label: `${row.code} — ${row.text}` }));
+  }
+
+  const ref = resolveOfficialSubject(subjectId);
+  if (!ref) return [];
+
+  // Once a material has been created against this CP the chain exists in the
+  // DB; reuse the real uuid so a second material attaches to the same outcome
+  // instead of materializing a parallel one.
+  const existing = await findMaterializedOfficialChain(pool, subjectId, workspaceId);
+  if (existing) {
+    return [{ id: existing.outcomeId, label: `CP — ${ref.cpLabel}` }];
+  }
+
+  return officialOutcomeOption(subjectId);
+}
+
 // ── Route registration ────────────────────────────────────────────────────────
 
 export async function registerCatalogRoutes(
@@ -336,40 +499,7 @@ export async function registerCatalogRoutes(
     : async () => {};
 
   app.get('/v1/catalog/grades', { preHandler: optionalAuth }, async (request, reply) => {
-    const tenantId = request.jwtUser?.workspaceId;
-    if (db && tenantId) {
-      try {
-        const rows = await db
-          .select({
-            id: grades.id,
-            label: grades.label,
-            publishedVersion: grades.publishedVersion,
-            tenantId: grades.tenantId,
-          })
-          .from(grades)
-          .where(and(eq(grades.tenantId, tenantId), isNotNull(grades.publishedVersion)));
-
-        if (rows.length > 0) {
-          return reply.status(200).send({
-            data: [
-              ...OFFICIAL_GRADES,
-              ...rows
-                .filter((r) => r.tenantId === tenantId)
-                .filter((r) => !OFFICIAL_GRADES.some((grade) => grade.id === r.id))
-                .map((r) => ({
-                  id: r.id,
-                  label: r.label,
-                  status: 'active' as const,
-                })),
-            ],
-          });
-        }
-      } catch {
-        // fall through to fallback
-      }
-    }
-
-    return reply.status(200).send({ data: OFFICIAL_GRADES });
+    return reply.status(200).send({ data: await listGradesFor(db, request) });
   });
 
   app.get('/v1/catalog/phases', async (request, reply) => {
@@ -388,59 +518,7 @@ export async function registerCatalogRoutes(
       return validationError(reply, 'Query gradeId wajib diisi.', requestId);
     }
 
-    const tenantId = request.jwtUser?.workspaceId;
-    if (db && tenantId) {
-      try {
-        const rows = await db
-          .select({
-            id: subjects.id,
-            label: subjects.title,
-            publishedVersion: subjects.publishedVersion,
-            tenantId: subjects.tenantId,
-          })
-          .from(subjects)
-          .where(
-            and(
-              eq(subjects.tenantId, tenantId),
-              eq(subjects.gradeId, q.gradeId),
-              isNotNull(subjects.publishedVersion),
-            ),
-          );
-
-        if (rows.length > 0) {
-          return reply.status(200).send({
-            data: rows
-              .filter((r) => r.tenantId === tenantId)
-              .map((r) => ({
-                id: r.id,
-                label: r.label,
-                gradeId: q.gradeId,
-                status: 'active' as const,
-              })),
-          });
-        }
-      } catch {
-        // fall through
-      }
-    }
-
-    const official = listOfficialSubjects(q.gradeId);
-    if (official.length > 0) return reply.status(200).send({ data: official });
-
-    // Legacy fallback: filter subjects by jenjang from gradeId
-    const jenjang = jenjangFromGradeId(q.gradeId);
-    const filtered = jenjang
-      ? FALLBACK_SUBJECTS.filter((s) => s.jenjangList.includes(jenjang))
-      : FALLBACK_SUBJECTS;
-
-    return reply.status(200).send({
-      data: filtered.map((s) => ({
-        id: s.id,
-        label: s.label,
-        gradeId: q.gradeId,
-        status: s.status,
-      })),
-    });
+    return reply.status(200).send({ data: await listSubjectsFor(db, q.gradeId, request) });
   });
 
   app.get('/v1/catalog/materials', { preHandler: optionalAuth }, async (request, reply) => {
@@ -515,7 +593,7 @@ export async function registerCatalogRoutes(
       const { id } = request.params as { id: string };
       const body = request.body as { status?: unknown };
       const requestId = getRequestId(request);
-      const actor = (request as unknown as { user?: { id?: string } }).user;
+      const actor = request.jwtUser;
 
       if (!isValidStatus(body.status)) {
         return validationError(
@@ -542,7 +620,7 @@ export async function registerCatalogRoutes(
         }
       }
 
-      await auditLog(db, actor?.id ?? 'unknown', 'catalog.grade.status', 'grade', id, { status });
+      await auditLog(db, actor?.userId ?? 'unknown', 'catalog.grade.status', 'grade', id, { status });
 
       return reply.status(200).send({ data: { id, status } });
     },
@@ -556,7 +634,7 @@ export async function registerCatalogRoutes(
       const { id } = request.params as { id: string };
       const body = request.body as { status?: unknown };
       const requestId = getRequestId(request);
-      const actor = (request as unknown as { user?: { id?: string } }).user;
+      const actor = request.jwtUser;
 
       if (!isValidStatus(body.status)) {
         return validationError(
@@ -583,7 +661,7 @@ export async function registerCatalogRoutes(
         }
       }
 
-      await auditLog(db, actor?.id ?? 'unknown', 'catalog.subject.status', 'subject', id, {
+      await auditLog(db, actor?.userId ?? 'unknown', 'catalog.subject.status', 'subject', id, {
         status,
       });
 
@@ -595,7 +673,7 @@ export async function registerCatalogRoutes(
   app.post('/v1/admin/catalog/grades', { preHandler: adminGuard }, async (request, reply) => {
     const body = request.body as { label?: unknown; status?: unknown };
     const requestId = getRequestId(request);
-    const actor = (request as unknown as { user?: { id?: string } }).user;
+    const actor = request.jwtUser;
 
     if (typeof body.label !== 'string' || !body.label.trim()) {
       return validationError(reply, 'label wajib diisi (string).', requestId);
@@ -632,7 +710,7 @@ export async function registerCatalogRoutes(
       }
     }
 
-    await auditLog(db, actor?.id ?? 'unknown', 'catalog.grade.create', 'grade', id, {
+    await auditLog(db, actor?.userId ?? 'unknown', 'catalog.grade.create', 'grade', id, {
       label,
       status,
     });
@@ -644,7 +722,7 @@ export async function registerCatalogRoutes(
   app.post('/v1/admin/catalog/subjects', { preHandler: adminGuard }, async (request, reply) => {
     const body = request.body as { label?: unknown; status?: unknown };
     const requestId = getRequestId(request);
-    const actor = (request as unknown as { user?: { id?: string } }).user;
+    const actor = request.jwtUser;
 
     if (typeof body.label !== 'string' || !body.label.trim()) {
       return validationError(reply, 'label wajib diisi (string).', requestId);
@@ -662,7 +740,7 @@ export async function registerCatalogRoutes(
     };
     FALLBACK_SUBJECTS.push(newItem);
 
-    await auditLog(db, actor?.id ?? 'unknown', 'catalog.subject.create', 'subject', id, {
+    await auditLog(db, actor?.userId ?? 'unknown', 'catalog.subject.create', 'subject', id, {
       label,
       status,
     });
@@ -670,17 +748,97 @@ export async function registerCatalogRoutes(
     return reply.status(201).send({ data: newItem });
   });
 
+  // ── Admin read endpoints (superadmin only) ────────────────────────────────
+  //
+  // BUG-11/12: `/ops/catalog` and its "Tambah Materi" form are driven from the
+  // superadmin console, so the same catalog the public routes serve must also be
+  // reachable under `/v1/admin/catalog/*`. These previously fell through to the
+  // not-found handler ("Module admin belum di-register"), which is what the
+  // audit saw as 404.
+
+  // GET /v1/admin/catalog/grades
+  app.get('/v1/admin/catalog/grades', { preHandler: adminGuard }, async (request, reply) => {
+    return reply.status(200).send({ data: await listGradesFor(db, request) });
+  });
+
+  // GET /v1/admin/catalog/subjects?gradeId=…
+  app.get('/v1/admin/catalog/subjects', { preHandler: adminGuard }, async (request, reply) => {
+    const gradeId = String((request.query as { gradeId?: string }).gradeId ?? '');
+    const requestId = getRequestId(request);
+    if (!gradeId) return validationError(reply, 'Query gradeId wajib diisi.', requestId);
+    return reply.status(200).send({ data: await listSubjectsFor(db, gradeId, request) });
+  });
+
+  // GET /v1/admin/catalog/materials?gradeId=…&subjectId=…&curriculumVersionId=…
+  //
+  // Unlike the public route this also returns unpublished drafts, so a material
+  // saved without "Publikasikan sekarang" is still visible to the admin who
+  // created it.
+  app.get('/v1/admin/catalog/materials', { preHandler: adminGuard }, async (request, reply) => {
+    const q = request.query as {
+      gradeId?: string;
+      subjectId?: string;
+      curriculumVersionId?: string;
+    };
+    const requestId = getRequestId(request);
+    if (!q.gradeId || !q.subjectId || !q.curriculumVersionId) {
+      return validationError(
+        reply,
+        'Query gradeId, subjectId, dan curriculumVersionId wajib diisi.',
+        requestId,
+      );
+    }
+    const tenantId = request.jwtUser?.workspaceId ?? null;
+    if (db && tenantId && isUuid(q.subjectId)) {
+      try {
+        const rows = await db
+          .select({
+            id: materials.id,
+            label: materials.title,
+            outcomeId: materials.outcomeId,
+            publishedVersion: materials.publishedVersion,
+            tenantId: materials.tenantId,
+          })
+          .from(materials)
+          .where(
+            and(
+              eq(materials.tenantId, tenantId),
+              eq(materials.gradeId, q.gradeId),
+              eq(materials.subjectId, q.subjectId),
+            ),
+          );
+        return reply.status(200).send({
+          data: rows.map((r) => ({
+            id: r.id,
+            label: r.label,
+            outcomeId: r.outcomeId ?? null,
+            status: r.publishedVersion ? ('active' as const) : ('draft' as const),
+          })),
+        });
+      } catch {
+        // fall through to the official catalog
+      }
+    }
+    return reply.status(200).send({ data: listOfficialMaterials(q.gradeId, q.subjectId) });
+  });
+
   app.get('/v1/admin/catalog/outcomes', { preHandler: adminGuard }, async (request, reply) => {
     const subjectId = String((request.query as { subjectId?: string }).subjectId ?? '');
     const requestId = getRequestId(request);
     if (!subjectId) return validationError(reply, 'subjectId wajib diisi.', requestId);
     const pool = db ? getPool(db) : undefined;
-    if (!pool) return reply.status(503).send({ error: { code: 'CATALOG_UNAVAILABLE', message: 'Penyimpanan katalog belum tersedia.', requestId } });
-    const result = await pool.query(
-      `SELECT id, code, text FROM outcomes WHERE subject_id = $1 ORDER BY ordering, code`,
-      [subjectId],
-    );
-    return reply.status(200).send({ data: result.rows.map((row) => ({ id: row.id, label: `${row.code} — ${row.text}` })) });
+    if (!pool) {
+      return reply.status(503).send({
+        error: {
+          code: 'CATALOG_UNAVAILABLE',
+          message: 'Penyimpanan katalog belum tersedia.',
+          requestId,
+        },
+      });
+    }
+    return reply
+      .status(200)
+      .send({ data: await listOutcomeOptions(pool, subjectId, request.jwtUser?.workspaceId ?? null) });
   });
 
   // POST /v1/admin/catalog/materials — trusted parent linkage is derived from outcome.
@@ -694,7 +852,7 @@ export async function registerCatalogRoutes(
       publish?: unknown;
     };
     const requestId = getRequestId(request);
-    const actor = (request as unknown as { user?: { id?: string } }).user;
+    const actor = request.jwtUser;
     if (
       typeof body.outcomeId !== 'string' || !body.outcomeId ||
       typeof body.code !== 'string' || !body.code.trim() ||
@@ -706,33 +864,97 @@ export async function registerCatalogRoutes(
     }
     const pool = db ? getPool(db) : undefined;
     if (!pool) return reply.status(503).send({ error: { code: 'CATALOG_UNAVAILABLE', message: 'Penyimpanan katalog belum tersedia.', requestId } });
-    const parent = await pool.query(
-      `SELECT id, subject_id, phase_id, grade_id, curriculum_id, tenant_id FROM outcomes WHERE id = $1 LIMIT 1`,
-      [body.outcomeId],
-    );
-    if (!parent.rows[0]) return notFoundError(reply, 'CP/Outcome tidak ditemukan.', requestId);
     const publish = body.publish === true;
     if (publish && !(APPROVED_SOURCE_RIGHTS as readonly string[]).includes(body.sourceRights)) {
       return validationError(reply, 'Hak sumber harus internal, CC BY, atau CC BY-SA sebelum materi dipublikasikan.', requestId);
     }
-    const p = parent.rows[0] as Record<string, string>;
-    try {
-      const inserted = await pool.query(
-        `INSERT INTO materials (outcome_id, subject_id, phase_id, grade_id, curriculum_id, tenant_id, code, kind, title, source_rights, ordering)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,0) RETURNING id, title, published_version`,
-        [p.id, p.subject_id, p.phase_id, p.grade_id, p.curriculum_id, p.tenant_id, body.code.trim(), body.kind, body.title.trim(), body.sourceRights],
+
+    // The outcome id is either a tenant outcome uuid or the derived official CP
+    // id (`<officialSubjectId>-cp`). Official ids have no DB row yet, so the
+    // parent chain is materialized on demand — otherwise the insert would have
+    // no FK parent and the caller would be stuck.
+    let p: {
+      id: string;
+      subject_id: string;
+      phase_id: string;
+      grade_id: string;
+      curriculum_id: string;
+      tenant_id: string;
+    };
+    if (isUuid(body.outcomeId)) {
+      const parent = await pool.query(
+        `SELECT id, subject_id, phase_id, grade_id, curriculum_id, tenant_id FROM outcomes WHERE id = $1 LIMIT 1`,
+        [body.outcomeId],
       );
-      const item = inserted.rows[0] as { id: string; title: string };
-      if (publish) {
-        await pool.query(
-          `INSERT INTO material_versions (material_id, version, payload, published_by)
-           VALUES ($1, 1, jsonb_build_object('outcome_id',$2,'subject_id',$3,'phase_id',$4,'grade_id',$5,'curriculum_id',$6,'code',$7,'kind',$8,'title',$9,'source_rights',$10,'ordering',0), $11)`,
-          [item.id, p.id, p.subject_id, p.phase_id, p.grade_id, p.curriculum_id, body.code.trim(), body.kind, item.title, body.sourceRights, actor?.id ?? null],
+      if (!parent.rows[0]) return notFoundError(reply, 'CP/Outcome tidak ditemukan.', requestId);
+      p = parent.rows[0] as typeof p;
+    } else {
+      const officialSubjectId = officialSubjectIdFromOutcomeId(body.outcomeId);
+      if (!officialSubjectId) return notFoundError(reply, 'CP/Outcome tidak ditemukan.', requestId);
+      try {
+        const chain = await materializeOfficialOutcome(
+          pool,
+          officialSubjectId,
+          request.jwtUser?.workspaceId ?? null,
         );
-        await pool.query(`UPDATE materials SET published_version = 1, current_version = 1 WHERE id = $1`, [item.id]);
+        p = {
+          id: chain.outcomeId,
+          subject_id: chain.subjectId,
+          phase_id: chain.phaseId,
+          grade_id: chain.gradeId,
+          curriculum_id: chain.curriculumId,
+          tenant_id: chain.tenantId,
+        };
+      } catch (err) {
+        if (err instanceof OfficialOutcomeNotFound) {
+          return notFoundError(reply, 'CP/Outcome tidak ditemukan.', requestId);
+        }
+        throw err;
       }
-      await auditLog(db, actor?.id ?? 'unknown', 'catalog.material.create', 'material', item.id, { publish });
-      return reply.status(201).send({ data: { id: item.id, title: item.title, published: publish } });
+    }
+
+    try {
+      // One transaction so a failed publish (material_versions insert or the
+      // published_version update) cannot leave a half-created material behind.
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const inserted = await client.query(
+          `INSERT INTO materials (outcome_id, subject_id, phase_id, grade_id, curriculum_id, tenant_id, code, kind, title, source_rights, ordering)
+           VALUES ($1::uuid,$2::uuid,$3::uuid,$4::uuid,$5::uuid,$6::uuid,$7,$8,$9,$10,0)
+           RETURNING id, title, published_version`,
+          [p.id, p.subject_id, p.phase_id, p.grade_id, p.curriculum_id, p.tenant_id, body.code.trim(), body.kind, body.title.trim(), body.sourceRights],
+        );
+        const item = inserted.rows[0] as { id: string; title: string };
+        if (publish) {
+          // jsonb_build_object takes variadic `any` arguments, so every
+          // parameter needs an explicit cast or Postgres cannot infer its type
+          // ("could not determine data type of parameter $2").
+          await client.query(
+            `INSERT INTO material_versions (material_id, version, payload, published_by)
+             VALUES ($1::uuid, 1,
+                     jsonb_build_object(
+                       'outcome_id', $2::text, 'subject_id', $3::text, 'phase_id', $4::text,
+                       'grade_id', $5::text, 'curriculum_id', $6::text, 'code', $7::text,
+                       'kind', $8::text, 'title', $9::text, 'source_rights', $10::text, 'ordering', 0
+                     ),
+                     $11::text)`,
+            [item.id, p.id, p.subject_id, p.phase_id, p.grade_id, p.curriculum_id, body.code.trim(), body.kind, item.title, body.sourceRights, actor?.userId ?? null],
+          );
+          await client.query(
+            `UPDATE materials SET published_version = 1, current_version = 1 WHERE id = $1::uuid`,
+            [item.id],
+          );
+        }
+        await client.query('COMMIT');
+        await auditLog(db, actor?.userId ?? 'unknown', 'catalog.material.create', 'material', item.id, { publish });
+        return reply.status(201).send({ data: { id: item.id, title: item.title, published: publish } });
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
     } catch (err) {
       if ((err as { code?: string }).code === '23505') return validationError(reply, 'Kode materi sudah digunakan pada CP ini.', requestId);
       throw err;
@@ -743,7 +965,7 @@ export async function registerCatalogRoutes(
   app.delete('/v1/admin/catalog/grades/:id', { preHandler: adminGuard }, async (request, reply) => {
     const { id } = request.params as { id: string };
     const requestId = getRequestId(request);
-    const actor = (request as unknown as { user?: { id?: string } }).user;
+    const actor = request.jwtUser;
 
     const item = FALLBACK_GRADES.find((g) => g.id === id);
     if (!item) {
@@ -752,7 +974,7 @@ export async function registerCatalogRoutes(
 
     item.status = 'archived';
 
-    await auditLog(db, actor?.id ?? 'unknown', 'catalog.grade.delete', 'grade', id, {});
+    await auditLog(db, actor?.userId ?? 'unknown', 'catalog.grade.delete', 'grade', id, {});
 
     return reply.status(200).send({ data: { id, archived: true } });
   });
@@ -764,7 +986,7 @@ export async function registerCatalogRoutes(
     async (request, reply) => {
       const { id } = request.params as { id: string };
       const requestId = getRequestId(request);
-      const actor = (request as unknown as { user?: { id?: string } }).user;
+      const actor = request.jwtUser;
 
       const item = FALLBACK_SUBJECTS.find((s) => s.id === id);
       if (!item) {
@@ -773,7 +995,7 @@ export async function registerCatalogRoutes(
 
       item.status = 'archived';
 
-      await auditLog(db, actor?.id ?? 'unknown', 'catalog.subject.delete', 'subject', id, {});
+      await auditLog(db, actor?.userId ?? 'unknown', 'catalog.subject.delete', 'subject', id, {});
 
       return reply.status(200).send({ data: { id, archived: true } });
     },
