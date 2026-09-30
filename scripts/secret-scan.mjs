@@ -95,12 +95,63 @@ const DEV_VOCABULARY = [
 const LOCAL_HOST =
   /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]|::1|example\.(?:com|org|net)|.*\.local|.*\.test)$/i;
 
-/** Assignment names that end in a credential word (`apiKey`, `jwtSecret`, `OPENAI_API_KEY`). */
-const SECRET_KEY_NAME =
-  /^(?:.*[_-])?(?:password|passwd|secret|api[_-]?key|access[_-]?key|token|credential|private[_-]?key|signing[_-]?key|webhook[_-]?secret)$/i;
+/**
+ * Credential words. A name is credential-shaped when its LAST word (split on
+ * `_`, `-` or camelCase) is one of these: `apiKey`, `jwtSecret`, `csrfToken`,
+ * `OPENAI_API_KEY` all qualify, while `password_too_short` (last word
+ * `short`) and `trial_claim_links_token_unique` (last word `unique`) do not.
+ */
+const CREDENTIAL_WORDS = new Set([
+  'password',
+  'passwd',
+  'pwd',
+  'secret',
+  'token',
+  'credential',
+  'credentials',
+  'hash',
+  'salt',
+]);
+
+/**
+ * `key` is a credential only when qualified: `apiKey`, `accessKey`,
+ * `privateKey`, `signingKey`, `webhookSecret`... A bare or domain-qualified
+ * `key` (`templateKey`, `idempotencyKey`, `trackingKey`, `key`) is a logical
+ * identifier in this codebase, not credential material.
+ */
+const KEY_QUALIFIERS = new Set([
+  'api',
+  'access',
+  'private',
+  'public',
+  'signing',
+  'encryption',
+  'webhook',
+  'service',
+  'auth',
+  'client',
+  'master',
+  'secret',
+]);
 
 /** All-caps identifier values (`VALIDATION_FAILED`) are error codes, not credentials. */
 const SCREAMING_SNAKE = /^[A-Z0-9_]+$/;
+
+/** True when the last word of `name` names a credential. */
+function isSecretName(name) {
+  const words = name
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word) => word.toLowerCase());
+  const last = words[words.length - 1];
+  if (last === undefined) return false;
+  if (last === 'key' || last === 'keys') {
+    const qualifier = words[words.length - 2];
+    return qualifier !== undefined && KEY_QUALIFIERS.has(qualifier);
+  }
+  return CREDENTIAL_WORDS.has(last);
+}
 
 /** @type {Array<{ id: string, description: string, pattern: RegExp }>} */
 const SHAPE_RULES = [
@@ -264,7 +315,7 @@ function scanFile(rel, allow) {
     while ((assignMatch = QUOTED_ASSIGNMENT.exec(line)) !== null) {
       const name = assignMatch[2] ?? '';
       const value = assignMatch[4] ?? '';
-      if (!SECRET_KEY_NAME.test(name)) continue;
+      if (!isSecretName(name)) continue;
       if (!looksLikeSecretLiteral(value)) continue;
       push('credential-shaped-assignment', `Quoted credential assigned to "${name}"`, i + 1, value);
     }
