@@ -8,13 +8,19 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 
 import type { SchoolService } from '../../application/SchoolService.js';
-import { InvalidInvitationError } from '../../application/SchoolService.js';
+import {
+  ExpiredInvitationError,
+  InvalidInvitationError,
+  WeakPasswordError,
+} from '../../application/SchoolService.js';
 import { createJwtAuthMiddleware, requireRole } from '../../../../common/middleware/jwtMultiRoleAuth.js';
 import type { Database } from '../../../../infrastructure/database/db.js';
 import { throwApiError } from '../../../../common/errors/apiError.js';
 
 function getRequestId(req: FastifyRequest): string {
-  return (req.headers['x-request-id'] as string | undefined) ?? 'req_unknown';
+  // Prefer the caller's correlation id, then Fastify's own generated id — never
+  // the placeholder, or support has nothing to trace with (see FE audit BUG-26).
+  return (req.headers['x-request-id'] as string | undefined) ?? req.id ?? 'req_unknown';
 }
 
 export interface RegisterSchoolRoutesOptions {
@@ -72,6 +78,11 @@ export async function registerSchoolRoutes(
    * Body: { token, password }
    * Accepts invitation, creates user if needed, adds to workspace.
    * Returns { userId, workspaceId }.
+   *
+   * Error contract (BUG-20b):
+   * - 400 VALIDATION_FAILED — password fails the register policy (same rule).
+   * - 404 RESOURCE_NOT_FOUND — token unknown, already used, or revoked.
+   * - 410 INVITATION_EXPIRED  — token exists but past `expires_at`.
    */
   app.post('/v1/invitations/accept', async (request: FastifyRequest, reply: FastifyReply) => {
     const body = request.body as Record<string, unknown> | null | undefined;
@@ -94,6 +105,28 @@ export async function registerSchoolRoutes(
       const result = await service.acceptInvitation({ token, password });
       return reply.status(200).send({ data: result });
     } catch (err) {
+      if (err instanceof WeakPasswordError) {
+        return reply.status(400).send({
+          error: {
+            code: 'VALIDATION_FAILED',
+            message: err.message,
+            requestId: getRequestId(request),
+            retryable: false,
+          },
+        });
+      }
+      if (err instanceof ExpiredInvitationError) {
+        // Distinguishable from "unknown token" so the client can offer to resend
+        // instead of showing a dead-end "not found".
+        return reply.status(410).send({
+          error: {
+            code: 'INVITATION_EXPIRED',
+            message: err.message,
+            requestId: getRequestId(request),
+            retryable: false,
+          },
+        });
+      }
       if (err instanceof InvalidInvitationError) {
         return reply.status(404).send({
           error: {
@@ -106,6 +139,29 @@ export async function registerSchoolRoutes(
       }
       throw err;
     }
+  });
+
+  /**
+   * GET /v1/invitations/preview?token=...
+   * Public, read-only view of an invitation so the activation page can render
+   * "active / expired / used" before the invitee types a password.
+   * Never returns the token or the token hash.
+   */
+  app.get('/v1/invitations/preview', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { token } = request.query as { token?: string };
+    if (!token) {
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: 'Missing required query parameter: token',
+          requestId: getRequestId(request),
+          retryable: false,
+        },
+      });
+    }
+
+    const preview = await service.previewInvitation(token);
+    return reply.status(200).send({ data: preview });
   });
 
   /**

@@ -1,11 +1,21 @@
 /**
  * School module exports (B7-01, B7-02, B7-03, B7-04).
  */
-export { SchoolService, InvalidInvitationError } from './application/SchoolService.js';
+export {
+  SchoolService,
+  InvalidInvitationError,
+  ExpiredInvitationError,
+  WeakPasswordError,
+  UsernameTakenError,
+} from './application/SchoolService.js';
 export type {
   SchoolWorkspaceStore,
   SchoolInvitationStore,
+  SchoolInvitationRecord,
+  SchoolInvitationState,
+  NewInvitedUser,
 } from './application/SchoolService.js';
+export { deriveDisplayName, deriveUsernameBase, usernameCandidate } from './domain/inviteIdentity.js';
 export { SchoolDashboardService } from './application/SchoolDashboardService.js';
 export type { DashboardData } from './application/SchoolDashboardService.js';
 export { TeacherOnboardingService } from './application/TeacherOnboardingService.js';

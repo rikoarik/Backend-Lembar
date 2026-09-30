@@ -26,7 +26,9 @@ import { registerBillingRoutes } from '../../../src/modules/school/adapters/http
 import type {
   SchoolWorkspaceStore,
   SchoolInvitationStore,
+  NewInvitedUser,
 } from '../../../src/modules/school/application/SchoolService.js';
+import { UsernameTakenError } from '../../../src/modules/school/application/SchoolService.js';
 import type { TeacherOnboardingStore } from '../../../src/modules/school/application/TeacherOnboardingService.js';
 import type { WorkspacePlanRepository } from '../../../src/modules/plans/persistence/repository.js';
 import type {
@@ -106,6 +108,7 @@ class StubInvitationStore implements SchoolInvitationStore {
     }
   >();
   private users = new Map<string, { id: string; email: string; passwordHash: string }>();
+  private usernames = new Set<string>();
   private workspaceStore: StubWorkspaceStore;
 
   constructor(workspaceStore: StubWorkspaceStore) {
@@ -128,12 +131,12 @@ class StubInvitationStore implements SchoolInvitationStore {
     return this.invitations.get(tokenHash) ?? null;
   }
 
-  async markAccepted(tokenHash: string, userId: string): Promise<void> {
+  async markAccepted(tokenHash: string, userId: string): Promise<boolean> {
     const inv = this.invitations.get(tokenHash);
-    if (inv) {
-      inv.state = 'accepted';
-      inv.acceptedBy = userId;
-    }
+    if (!inv || inv.state !== 'pending') return false;
+    inv.state = 'accepted';
+    inv.acceptedBy = userId;
+    return true;
   }
 
   async saveMember(tenantId: string, workspaceId: string, member: SchoolMember): Promise<void> {
@@ -143,14 +146,22 @@ class StubInvitationStore implements SchoolInvitationStore {
     members.get(key)!.push(member);
   }
 
-  async saveUser(id: string, email: string, passwordHash: string) {
-    const user = { id, email, passwordHash };
-    this.users.set(email, user);
-    return user;
+  async createUser(user: NewInvitedUser) {
+    if (this.usernames.has(user.username)) {
+      throw new UsernameTakenError(`Username ${user.username} sudah dipakai`);
+    }
+    this.usernames.add(user.username);
+    const stored = { id: user.id, email: user.email, passwordHash: user.passwordHash };
+    this.users.set(user.email, stored);
+    return { id: user.id, email: user.email, username: user.username };
   }
 
   async getUserByEmail(email: string) {
     return this.users.get(email) ?? null;
+  }
+
+  async transaction<T>(fn: (store: SchoolInvitationStore) => Promise<T>): Promise<T> {
+    return fn(this);
   }
 }
 
@@ -469,7 +480,7 @@ describe('B7-05 — School security gate (integration)', () => {
           ...{ 'content-type': 'application/json' },
           authorization: authorization('u-1', ['school_admin'], WS_A),
         },
-        body: JSON.stringify({ token, password: 'Pass123' }),
+        body: JSON.stringify({ token, password: 'SecurePass123!' }),
       });
       expect(accept1.statusCode).toBe(200);
 
@@ -481,7 +492,7 @@ describe('B7-05 — School security gate (integration)', () => {
           ...{ 'content-type': 'application/json' },
           authorization: authorization('u-1', ['school_admin'], WS_A),
         },
-        body: JSON.stringify({ token, password: 'Pass123' }),
+        body: JSON.stringify({ token, password: 'SecurePass123!' }),
       });
       expect(accept2.statusCode).toBe(404);
       expect(accept2.json().error.code).toBe('RESOURCE_NOT_FOUND');
@@ -497,7 +508,7 @@ describe('B7-05 — School security gate (integration)', () => {
           ...{ 'content-type': 'application/json' },
           authorization: authorization('u-1', ['school_admin'], WS_A),
         },
-        body: JSON.stringify({ token: 'invalid-token-12345678', password: 'Pass123' }),
+        body: JSON.stringify({ token: 'invalid-token-12345678', password: 'SecurePass123!' }),
       });
 
       expect(res.statusCode).toBe(404);

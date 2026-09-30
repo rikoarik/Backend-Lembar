@@ -92,6 +92,13 @@
       "when": 1790725000000,
       "tag": "0043_marketing_page_seed",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790725000001,
+      "tag": "0044_school_invitation_accepted_by_fk",
+      "breakpoints": true
     }
   ]
 }

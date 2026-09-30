@@ -11,7 +11,13 @@ import type {
   SchoolWorkspace,
   SchoolMember,
 } from '../domain/types.js';
-import type { SchoolWorkspaceStore, SchoolInvitationStore } from '../application/SchoolService.js';
+import type {
+  SchoolWorkspaceStore,
+  SchoolInvitationStore,
+  SchoolInvitationRecord,
+  NewInvitedUser,
+} from '../application/SchoolService.js';
+import { UsernameTakenError } from '../application/SchoolService.js';
 
 export class PostgresSchoolWorkspaceStore implements SchoolWorkspaceStore {
   constructor(private readonly db: Database) {}
@@ -160,8 +166,33 @@ export class PostgresSchoolWorkspaceStore implements SchoolWorkspaceStore {
     return (rowCount ?? 0) > 0;
   }
 }
+export type QueryRunner = (text: string, values: unknown[]) => Promise<unknown>;
+
 export class PostgresSchoolInvitationStore implements SchoolInvitationStore {
-  constructor(private readonly db: Database) {}
+  /**
+   * `queryOverride` lets `transaction()` re-point every statement at the
+   * checked-out client without duplicating the SQL.
+   */
+  constructor(
+    private readonly db: Database,
+    private readonly queryOverride?: QueryRunner | undefined,
+  ) {}
+
+  private async run(text: string, values: unknown[]): Promise<{ rows: unknown[]; rowCount?: number | null }> {
+    if (this.queryOverride) {
+      const result = (await this.queryOverride(text, values)) as {
+        rows?: unknown[];
+        rowCount?: number | null;
+      };
+      return { rows: result.rows ?? [], rowCount: result.rowCount ?? null };
+    }
+    const pool = getPool(this.db);
+    if (!pool) return { rows: [], rowCount: null };
+    return pool.query(text, values) as unknown as Promise<{
+      rows: unknown[];
+      rowCount?: number | null;
+    }>;
+  }
 
   async saveInvitation(record: {
     tokenHash: string;
@@ -172,9 +203,7 @@ export class PostgresSchoolInvitationStore implements SchoolInvitationStore {
     state: string;
     expiresAt: Date;
   }): Promise<void> {
-    const pool = getPool(this.db);
-    if (!pool) return;
-    await pool.query(
+    await this.run(
       `INSERT INTO auth_school_invitations
          (id, tenant_id, email, role, state, token_hash, expires_at, created_at)
        VALUES
@@ -192,32 +221,24 @@ export class PostgresSchoolInvitationStore implements SchoolInvitationStore {
     );
   }
 
-  async findByTokenHash(tokenHash: string): Promise<{
-    tokenHash: string;
-    email: string;
-    workspaceId: string;
-    tenantId: string;
-    role: string;
-    state: string;
-    expiresAt: Date;
-  } | null> {
-    const pool = getPool(this.db);
-    if (!pool) return null;
-    const { rows } = await pool.query<{
-      token_hash: string;
-      email: string;
-      workspace_id: string;
-      tenant_id: string;
-      role: string;
-      state: string;
-      expires_at: Date;
-    }>(
+  async findByTokenHash(tokenHash: string): Promise<SchoolInvitationRecord | null> {
+    const { rows } = (await this.run(
       `SELECT token_hash, email, tenant_id AS workspace_id, tenant_id, role, state, expires_at
        FROM auth_school_invitations
        WHERE token_hash = $1
        LIMIT 1`,
       [tokenHash],
-    );
+    )) as {
+      rows: {
+        token_hash: string;
+        email: string;
+        workspace_id: string;
+        tenant_id: string;
+        role: string;
+        state: string;
+        expires_at: Date;
+      }[];
+    };
     if (rows.length === 0) return null;
     const row = rows[0]!;
     return {
@@ -231,61 +252,87 @@ export class PostgresSchoolInvitationStore implements SchoolInvitationStore {
     };
   }
 
-  async markAccepted(tokenHash: string, _userId: string): Promise<void> {
-    const pool = getPool(this.db);
-    if (!pool) return;
-    await pool.query(
-      `UPDATE auth_school_invitations SET state = 'accepted' WHERE token_hash = $1`,
-      [tokenHash],
+  async markAccepted(tokenHash: string, userId: string): Promise<boolean> {
+    // `state = 'pending'` guard makes this the one-time-use gate: a concurrent
+    // or replayed accept updates 0 rows and is reported as already consumed.
+    const { rowCount } = await this.run(
+      `UPDATE auth_school_invitations
+       SET state = 'accepted', accepted_by = $2::uuid
+       WHERE token_hash = $1 AND state = 'pending'`,
+      [tokenHash, userId],
     );
+    return (rowCount ?? 0) > 0;
   }
 
-  async saveMember(tenantId: string, _workspaceId: string, member: SchoolMember): Promise<void> {
-    const pool = getPool(this.db);
-    if (!pool) return;
-    // Members are stored in jwt_users.roles; no separate members table — workspace IS the tenant.
-    // Update roles array to include the new role if user exists.
-    await pool.query(
+  async saveMember(_tenantId: string, workspaceId: string, member: SchoolMember): Promise<void> {
+    // Members are stored on jwt_users itself; there is no separate members table
+    // and workspace IS the tenant. `workspace_id` is what `listMembers()` filters
+    // on, so it has to be set here or the accepted invitee stays invisible.
+    // One workspace per user is the current model (see SchoolWorkspaceStore).
+    await this.run(
       `UPDATE jwt_users
-       SET roles = array_append(array_remove(roles, $2::text), $2::text),
+       SET workspace_id = $2::uuid,
+           roles = array_append(array_remove(roles, $3::text), $3::text),
            updated_at = now()
        WHERE id = $1::uuid`,
-      [member.id, member.role],
+      [member.id, workspaceId, member.role],
     );
-    void tenantId;
   }
 
-  async saveUser(
-    id: string,
-    email: string,
-    passwordHash: string,
-  ): Promise<{ id: string; email: string }> {
-    const pool = getPool(this.db);
-    if (!pool) return { id, email };
-    await pool.query(
-      `INSERT INTO jwt_users (id, email, password_hash, created_at)
-       VALUES ($1::uuid, $2, $3, now())
-       ON CONFLICT (email) DO NOTHING`,
-      [id, email, passwordHash],
-    );
-    return { id, email };
+  async createUser(user: NewInvitedUser): Promise<{ id: string; email: string; username: string }> {
+    try {
+      // name / username / roles are NOT NULL on jwt_users — the whole point of
+      // BUG-20b is that this INSERT used to omit them.
+      await this.run(
+        `INSERT INTO jwt_users (id, email, password_hash, name, username, roles, created_at, updated_at)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6::text[], now(), now())`,
+        [user.id, user.email, user.passwordHash, user.name, user.username, user.roles],
+      );
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      const constraint = (error as { constraint?: string }).constraint ?? '';
+      if (code === '23505' && constraint === 'jwt_users_username_unique') {
+        throw new UsernameTakenError(`Username ${user.username} sudah dipakai`);
+      }
+      throw error;
+    }
+    return { id: user.id, email: user.email, username: user.username };
   }
 
   async getUserByEmail(
     email: string,
   ): Promise<{ id: string; email: string; passwordHash: string } | null> {
-    const pool = getPool(this.db);
-    if (!pool) return null;
-    const { rows } = await pool.query<{
-      id: string;
-      email: string;
-      password_hash: string;
-    }>(
+    const { rows } = (await this.run(
       `SELECT id, email, password_hash FROM jwt_users WHERE lower(email) = lower($1) LIMIT 1`,
       [email],
-    );
+    )) as { rows: { id: string; email: string; password_hash: string }[] };
     if (rows.length === 0) return null;
     const row = rows[0]!;
     return { id: row.id, email: row.email, passwordHash: row.password_hash };
+  }
+
+  /**
+   * Accept-invitation writes run on a single pooled client so the user insert,
+   * the membership grant and the token burn commit or roll back together.
+   * Without a pool (no DATABASE_URL) the callback still runs, unguarded.
+   */
+  async transaction<T>(fn: (store: SchoolInvitationStore) => Promise<T>): Promise<T> {
+    const pool = getPool(this.db);
+    if (!pool) return fn(this);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const scoped = new PostgresSchoolInvitationStore(this.db, (text, values) =>
+        client.query(text, values),
+      );
+      const result = await fn(scoped);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }

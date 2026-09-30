@@ -7,6 +7,17 @@
 import { randomBytes, createHash } from 'node:crypto';
 import { randomUUID } from 'node:crypto';
 
+import type { UserRole } from '../../../infrastructure/database/schema.js';
+import { hashPassword } from '../../auth/infrastructure/password.js';
+import {
+  isPasswordCompliant,
+  PASSWORD_POLICY_MESSAGE,
+} from '../../auth/policy/passwordPolicy.js';
+import {
+  deriveDisplayName,
+  deriveUsernameBase,
+  usernameCandidate,
+} from '../domain/inviteIdentity.js';
 import type {
   SchoolWorkspace,
   SchoolMember,
@@ -24,6 +35,34 @@ export interface SchoolWorkspaceStore {
   removeMember(tenantId: string, workspaceId: string, memberId: string): Promise<boolean>;
 }
 
+/** Invitation state as stored in `auth_school_invitations.state`. */
+export type SchoolInvitationState = 'pending' | 'accepted' | 'expired' | 'revoked';
+
+export interface SchoolInvitationRecord {
+  tokenHash: string;
+  email: string;
+  workspaceId: string;
+  tenantId: string;
+  role: string;
+  state: string;
+  expiresAt: Date;
+}
+
+/**
+ * Account row created when an invited email has no account yet.
+ *
+ * `jwt_users` requires `name`, `username` and `roles` NOT NULL, so the caller
+ * must supply all three — that is exactly what BUG-20b was missing.
+ */
+export interface NewInvitedUser {
+  id: string;
+  email: string;
+  passwordHash: string;
+  name: string;
+  username: string;
+  roles: UserRole[];
+}
+
 export interface SchoolInvitationStore {
   saveInvitation(record: {
     tokenHash: string;
@@ -34,30 +73,36 @@ export interface SchoolInvitationStore {
     state: string;
     expiresAt: Date;
   }): Promise<void>;
-  findByTokenHash(tokenHash: string): Promise<{
-    tokenHash: string;
-    email: string;
-    workspaceId: string;
-    tenantId: string;
-    role: string;
-    state: string;
-    expiresAt: Date;
-  } | null>;
-  markAccepted(tokenHash: string, userId: string): Promise<void>;
+  findByTokenHash(tokenHash: string): Promise<SchoolInvitationRecord | null>;
+  /**
+   * Flips a still-pending invitation to accepted. Returns false when the row
+   * was no longer pending (concurrent/replayed accept) — the caller must treat
+   * that as a one-time-token violation, not a success.
+   */
+  markAccepted(tokenHash: string, userId: string): Promise<boolean>;
+  /** Grants workspace membership: workspace pointer + role on the account row. */
   saveMember(tenantId: string, workspaceId: string, member: SchoolMember): Promise<void>;
-  saveUser(id: string, email: string, passwordHash: string): Promise<{ id: string; email: string }>;
+  /** Inserts a complete `jwt_users` row. Throws `UsernameTakenError` on collision. */
+  createUser(user: NewInvitedUser): Promise<{ id: string; email: string; username: string }>;
   getUserByEmail(email: string): Promise<{ id: string; email: string; passwordHash: string } | null>;
+  /** Runs `fn` against a store whose writes commit or roll back together. */
+  transaction<T>(fn: (store: SchoolInvitationStore) => Promise<T>): Promise<T>;
 }
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+/** Bounded retries when the derived username is already taken. */
+const USERNAME_ATTEMPTS = 8;
 
-function hashToken(token: string): string {
+export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-function hashPassword(password: string): string {
-  // Simple hash for test layer — production uses bcrypt via AuthService
-  return createHash('sha256').update(password).digest('hex');
+/** Roles an invitation may grant; anything else is a data error, not a user error. */
+function normalizeInvitationRole(role: string): UserRole {
+  if (role === 'school_admin' || role === 'teacher' || role === 'superadmin' || role === 'subscriber') {
+    return role;
+  }
+  throw new InvalidInvitationError('Undangan tidak valid.');
 }
 
 export class SchoolService {
@@ -99,44 +144,122 @@ export class SchoolService {
     };
   }
 
+  /**
+   * Accepts an invitation: creates the account when the email is new, grants
+   * workspace membership, and burns the token.
+   *
+   * The whole mutation runs in one transaction so a failure can never leave a
+   * user without membership or an invitation burned without a user. The
+   * `state = 'pending'` guard on `markAccepted` makes the token one-time even
+   * under concurrent requests.
+   */
   async acceptInvitation(input: AcceptInvitationInput): Promise<AcceptInvitationResult> {
     const tokenHash = hashToken(input.token);
     const invitation = await this.invitationStore.findByTokenHash(tokenHash);
 
     if (!invitation) {
-      throw new InvalidInvitationError('Invitation not found or already used.');
+      throw new InvalidInvitationError('Undangan tidak ditemukan atau sudah digunakan.');
+    }
+    if (invitation.state === 'pending' && invitation.expiresAt <= this.clock()) {
+      // Distinguishable from "unknown/used" so the client can ask for a new link
+      // instead of showing a dead-end "not found".
+      throw new ExpiredInvitationError('Undangan sudah kedaluwarsa.');
     }
     if (invitation.state !== 'pending') {
-      throw new InvalidInvitationError(`Invitation is ${invitation.state}.`);
+      throw new InvalidInvitationError('Undangan tidak ditemukan atau sudah digunakan.');
+    }
+    if (!isPasswordCompliant(input.password)) {
+      throw new WeakPasswordError(PASSWORD_POLICY_MESSAGE);
+    }
+
+    const role = normalizeInvitationRole(invitation.role);
+    const passwordHash = await hashPassword(input.password);
+
+    return this.invitationStore.transaction(async (store) => {
+      let user = await store.getUserByEmail(invitation.email);
+      if (!user) {
+        const created = await this.createInvitedAccount(store, invitation.email, passwordHash, role);
+        user = { id: created.id, email: created.email, passwordHash };
+      }
+
+      // Burn the token first: if it was already consumed, nothing else runs.
+      const burned = await store.markAccepted(tokenHash, user.id);
+      if (!burned) {
+        throw new InvalidInvitationError('Undangan tidak ditemukan atau sudah digunakan.');
+      }
+
+      await store.saveMember(invitation.tenantId, invitation.workspaceId, {
+        id: user.id,
+        email: user.email,
+        role,
+        state: 'active',
+        joinedAt: this.clock().toISOString(),
+      });
+
+      return { userId: user.id, workspaceId: invitation.workspaceId };
+    });
+  }
+
+  /**
+   * Read-only invitation state for the activation page. Deliberately answers
+   * 200 for every token (including unknown ones) so the endpoint cannot be used
+   * to enumerate valid invitation tokens.
+   */
+  async previewInvitation(token: string): Promise<{
+    status: 'pending' | 'expired' | 'used' | 'invalid';
+    email: string | null;
+    role: string | null;
+    expiresAt: string | null;
+  }> {
+    const invitation = await this.invitationStore.findByTokenHash(hashToken(token));
+    if (!invitation) {
+      return { status: 'invalid', email: null, role: null, expiresAt: null };
+    }
+
+    const expiresAt = invitation.expiresAt.toISOString();
+    if (invitation.state === 'accepted') {
+      return { status: 'used', email: invitation.email, role: invitation.role, expiresAt };
+    }
+    if (invitation.state === 'revoked' || invitation.state === 'expired') {
+      return { status: 'invalid', email: invitation.email, role: invitation.role, expiresAt };
     }
     if (invitation.expiresAt <= this.clock()) {
-      throw new InvalidInvitationError('Invitation has expired.');
+      return { status: 'expired', email: invitation.email, role: invitation.role, expiresAt };
+    }
+    return { status: 'pending', email: invitation.email, role: invitation.role, expiresAt };
+  }
+
+  /**
+   * Retries username derivation until the database accepts one. The invitee
+   * never chose a username, so a collision must not surface as a 500.
+   */
+  private async createInvitedAccount(
+    store: SchoolInvitationStore,
+    email: string,
+    passwordHash: string,
+    role: UserRole,
+  ): Promise<{ id: string; email: string; username: string }> {
+    const name = deriveDisplayName(email);
+    const base = deriveUsernameBase(email);
+
+    for (let attempt = 0; attempt < USERNAME_ATTEMPTS; attempt += 1) {
+      const username = usernameCandidate(base, attempt);
+      try {
+        return await store.createUser({
+          id: randomUUID(),
+          email,
+          passwordHash,
+          name,
+          username,
+          roles: [role],
+        });
+      } catch (error) {
+        if (error instanceof UsernameTakenError) continue;
+        throw error;
+      }
     }
 
-    // Find or create user
-    let user = await this.invitationStore.getUserByEmail(invitation.email);
-    if (!user) {
-      const id = randomUUID();
-      user = await this.invitationStore.saveUser(
-        id,
-        invitation.email,
-        hashPassword(input.password),
-      ) as { id: string; email: string; passwordHash: string };
-    }
-
-    // Add member to workspace
-    await this.invitationStore.saveMember(invitation.tenantId, invitation.workspaceId, {
-      id: user.id,
-      email: user.email,
-      role: invitation.role as SchoolMember['role'],
-      state: 'active',
-      joinedAt: this.clock().toISOString(),
-    });
-
-    // Mark invitation as accepted (one-time use)
-    await this.invitationStore.markAccepted(tokenHash, user.id);
-
-    return { userId: user.id, workspaceId: invitation.workspaceId };
+    throw new UsernameTakenError(`Tidak dapat membuat username unik untuk ${email}`);
   }
 
   async listMembers(tenantId: string, workspaceId: string): Promise<SchoolMember[]> {
@@ -165,5 +288,29 @@ export class InvalidInvitationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'InvalidInvitationError';
+  }
+}
+
+/** Token exists but is past `expires_at` — the client should request a new one. */
+export class ExpiredInvitationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ExpiredInvitationError';
+  }
+}
+
+/** Password rejected by the shared register/invite policy. */
+export class WeakPasswordError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WeakPasswordError';
+  }
+}
+
+/** `jwt_users.username` is unique — the store signals a collision with this. */
+export class UsernameTakenError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UsernameTakenError';
   }
 }

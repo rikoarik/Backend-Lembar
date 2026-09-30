@@ -7,6 +7,7 @@ import { jwtUsers, USER_ROLES, type UserRole } from '../persistence/jwtUsersSche
 import { tenants } from '../../../infrastructure/database/schema.js';
 import { eq } from 'drizzle-orm';
 import { ApiError } from '../../../common/errors/envelope.js';
+import { isPasswordCompliant, PASSWORD_POLICY_MESSAGE } from '../policy/passwordPolicy.js';
 
 export interface RegisterInput {
   email: string;
@@ -52,9 +53,6 @@ export interface UserInfo {
 
 const USERNAME_PATTERN = /^[a-zA-Z0-9_.]{3,24}$/;
 const PHONE_DIGITS_PATTERN = /^\d{8,15}$/;
-const PASSWORD_UPPER = /[A-Z]/;
-const PASSWORD_NUMBER = /\d/;
-const PASSWORD_SYMBOL = /[^A-Za-z0-9]/;
 
 export class JwtMultiRoleAuthService {
   constructor(
@@ -339,16 +337,8 @@ export class JwtMultiRoleAuthService {
   }
 
   private assertPasswordPolicy(password: string) {
-    if (
-      password.length < 12 ||
-      !PASSWORD_UPPER.test(password) ||
-      !PASSWORD_NUMBER.test(password) ||
-      !PASSWORD_SYMBOL.test(password)
-    ) {
-      throwApiError(
-        'password_policy',
-        'Kata sandi minimal 12 karakter, berisi huruf besar, angka, dan simbol',
-      );
+    if (!isPasswordCompliant(password)) {
+      throwApiError('password_policy', PASSWORD_POLICY_MESSAGE);
     }
   }
 

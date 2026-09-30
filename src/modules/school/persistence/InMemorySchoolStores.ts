@@ -5,8 +5,11 @@ import { randomUUID } from 'node:crypto';
 
 import type {
   SchoolInvitationStore,
+  SchoolInvitationRecord,
   SchoolWorkspaceStore,
+  NewInvitedUser,
 } from '../application/SchoolService.js';
+import { UsernameTakenError } from '../application/SchoolService.js';
 import type { SchoolMember, SchoolWorkspace } from '../domain/types.js';
 
 export class InMemorySchoolWorkspaceStore implements SchoolWorkspaceStore {
@@ -96,42 +99,55 @@ export class InMemorySchoolInvitationStore implements SchoolInvitationStore {
   private invitations = new Map<string, InvitationRecord>();
   private users = new Map<string, { id: string; email: string; passwordHash: string }>();
   private members = new Map<string, SchoolMember[]>();
+  /** Every username ever handed out, so collisions behave like the DB's unique index. */
+  private usernames = new Set<string>();
 
   async saveInvitation(record: InvitationRecord): Promise<void> {
     this.invitations.set(record.tokenHash, { ...record, state: record.state || 'pending' });
   }
 
-  async findByTokenHash(tokenHash: string): Promise<InvitationRecord | null> {
+  async findByTokenHash(tokenHash: string): Promise<SchoolInvitationRecord | null> {
     return this.invitations.get(tokenHash) ?? null;
   }
 
-  async markAccepted(tokenHash: string, userId: string): Promise<void> {
+  async markAccepted(tokenHash: string, userId: string): Promise<boolean> {
     const inv = this.invitations.get(tokenHash);
-    if (!inv) return;
+    if (!inv || inv.state !== 'pending') return false;
     this.invitations.set(tokenHash, { ...inv, state: 'accepted' });
     void userId;
+    return true;
   }
 
   async saveMember(tenantId: string, workspaceId: string, member: SchoolMember): Promise<void> {
     const key = `${tenantId}:${workspaceId}`;
     const list = this.members.get(key) ?? [];
-    list.push(member);
+    if (!list.some((existing) => existing.id === member.id)) list.push(member);
     this.members.set(key, list);
   }
 
-  async saveUser(
-    id: string,
-    email: string,
-    passwordHash: string,
-  ): Promise<{ id: string; email: string }> {
-    const user = { id, email, passwordHash };
-    this.users.set(email.toLowerCase(), user);
-    return { id, email };
+  async createUser(
+    user: NewInvitedUser,
+  ): Promise<{ id: string; email: string; username: string }> {
+    if (this.usernames.has(user.username.toLowerCase())) {
+      throw new UsernameTakenError(`Username ${user.username} sudah dipakai`);
+    }
+    this.usernames.add(user.username.toLowerCase());
+    this.users.set(user.email.toLowerCase(), {
+      id: user.id,
+      email: user.email,
+      passwordHash: user.passwordHash,
+    });
+    return { id: user.id, email: user.email, username: user.username };
   }
 
   async getUserByEmail(
     email: string,
   ): Promise<{ id: string; email: string; passwordHash: string } | null> {
     return this.users.get(email.toLowerCase()) ?? null;
+  }
+
+  /** No real rollback needed in memory — the semantics are already atomic. */
+  async transaction<T>(fn: (store: SchoolInvitationStore) => Promise<T>): Promise<T> {
+    return fn(this);
   }
 }

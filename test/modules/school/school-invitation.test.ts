@@ -12,11 +12,12 @@ import { describe, it, expect } from 'vitest';
 import Fastify from 'fastify';
 import { generateJwt } from '../../../src/modules/auth/infrastructure/jwtMultiRole.js';
 
-import { SchoolService } from '../../../src/modules/school/application/SchoolService.js';
+import { SchoolService, UsernameTakenError } from '../../../src/modules/school/application/SchoolService.js';
 import { registerSchoolRoutes } from '../../../src/modules/school/adapters/http/schoolRoutes.js';
 import type {
   SchoolWorkspaceStore,
   SchoolInvitationStore,
+  NewInvitedUser,
 } from '../../../src/modules/school/application/SchoolService.js';
 import type { SchoolWorkspace, SchoolMember } from '../../../src/modules/school/domain/types.js';
 
@@ -91,6 +92,7 @@ class InMemorySchoolInvitationStore implements SchoolInvitationStore {
     }
   >();
   private users = new Map<string, { id: string; email: string; passwordHash: string }>();
+  private usernames = new Set<string>();
   private workspaceStore: InMemorySchoolWorkspaceStore;
 
   constructor(workspaceStore: InMemorySchoolWorkspaceStore) {
@@ -113,31 +115,41 @@ class InMemorySchoolInvitationStore implements SchoolInvitationStore {
     return this.invitations.get(tokenHash) ?? null;
   }
 
-  async markAccepted(tokenHash: string, userId: string): Promise<void> {
+  async markAccepted(tokenHash: string, userId: string): Promise<boolean> {
     const inv = this.invitations.get(tokenHash);
-    if (inv) {
-      inv.state = 'accepted';
-      inv.acceptedBy = userId;
-    }
+    if (!inv || inv.state !== 'pending') return false;
+    inv.state = 'accepted';
+    inv.acceptedBy = userId;
+    return true;
   }
 
   async saveMember(tenantId: string, workspaceId: string, member: SchoolMember): Promise<void> {
     this.workspaceStore.addMember(tenantId, workspaceId, member);
   }
 
-  async saveUser(
-    id: string,
-    email: string,
-    passwordHash: string,
-  ): Promise<{ id: string; email: string }> {
-    this.users.set(email, { id, email, passwordHash });
-    return { id, email };
+  async createUser(
+    user: NewInvitedUser,
+  ): Promise<{ id: string; email: string; username: string }> {
+    if (this.usernames.has(user.username)) {
+      throw new UsernameTakenError(`Username ${user.username} sudah dipakai`);
+    }
+    this.usernames.add(user.username);
+    this.users.set(user.email, {
+      id: user.id,
+      email: user.email,
+      passwordHash: user.passwordHash,
+    });
+    return { id: user.id, email: user.email, username: user.username };
   }
 
   async getUserByEmail(
     email: string,
   ): Promise<{ id: string; email: string; passwordHash: string } | null> {
     return this.users.get(email) ?? null;
+  }
+
+  async transaction<T>(fn: (store: SchoolInvitationStore) => Promise<T>): Promise<T> {
+    return fn(this);
   }
 }
 
@@ -268,7 +280,7 @@ describe('B7-01 — School workspace & invitation', () => {
         method: 'POST',
         url: '/v1/invitations/accept',
         headers: adminHeaders(),
-        body: JSON.stringify({ token, password: 'Pass123' }),
+        body: JSON.stringify({ token, password: 'SecurePass123!' }),
       });
       expect(accept1.statusCode).toBe(200);
 
@@ -277,7 +289,7 @@ describe('B7-01 — School workspace & invitation', () => {
         method: 'POST',
         url: '/v1/invitations/accept',
         headers: adminHeaders(),
-        body: JSON.stringify({ token, password: 'Pass123' }),
+        body: JSON.stringify({ token, password: 'SecurePass123!' }),
       });
       expect(accept2.statusCode).toBe(404);
     });
@@ -307,7 +319,7 @@ describe('B7-01 — School workspace & invitation', () => {
         method: 'POST',
         url: '/v1/invitations/accept',
         headers: adminHeaders(),
-        body: JSON.stringify({ token, password: 'Pass123' }),
+        body: JSON.stringify({ token, password: 'SecurePass123!' }),
       });
       expect(acceptRes.statusCode).toBe(404);
     });
@@ -336,7 +348,7 @@ describe('B7-01 — School workspace & invitation', () => {
         method: 'POST',
         url: '/v1/invitations/accept',
         headers: adminHeaders(),
-        body: JSON.stringify({ token, password: 'Pass123' }),
+        body: JSON.stringify({ token, password: 'SecurePass123!' }),
       });
 
       const membersRes = await app.inject({
