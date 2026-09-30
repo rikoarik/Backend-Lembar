@@ -3,7 +3,7 @@
 **Task:** `t_bb300b60` ([P1], assignee `lembar-backend`) — follow-up temuan
 FE-VER-02 F-1 (`docs/audit/E2E-VER-02-live-2026-09-30.md`).
 
-**Commit:** BE `21d8734` on `dev` (unpushed, local-only contract).
+**Commit:** BE `21d8734` + `b6e2398` on `dev` (unpushed, local-only contract).
 
 ## Gejala (dari laporan audit, akun `allroles@test.com`)
 
@@ -147,19 +147,75 @@ GET /v1/admin/catalog/materials?gradeId=559cd429-..&subjectId=ef621566-..&curric
 - Data uji (`BUG11-*`, `PROBE-*`, tenant `official-kemendikdasmen`, baris
   `OFFICIAL-CP`) sudah dihapus kembali; cek sisa = 0.
 
+## Tindak lanjut `b6e2398` — materialisasi merusak picker (ditemukan saat re-verifikasi)
+
+Re-verifikasi end-to-end pada build yang sama menemukan tiga cacat yang semuanya
+bermula dari materialisasi rantai resmi (ditulis ke tenant pemanggil):
+
+1. **Grade ganda.** Setelah satu materi dibuat, `GET /v1/admin/catalog/grades`
+   menampilkan setiap grade resmi **dua kali** (snapshot + baris mirror
+   `official-grade-*` di tenant). Baris referensi (`code` berawalan `official-`)
+   kini difilter dari daftar milik tenant.
+2. **Materi baru tak terlihat.** Form mengirim slug (`subjectId=official-…`,
+   `gradeId=official-…`) sedangkan materi tersimpan di uuid hasil materialisasi,
+   jadi query tidak cocok dan jatuh ke snapshot. Query slug sekarang diresolusi
+   dulu ke uuid rantai (`findMaterializedOfficialChain`).
+3. **Topik snapshot hilang.** Begitu cabang DB cocok, cabang resmi tidak lagi
+   dipakai sehingga seluruh topik snapshot lenyap. Topik tidak punya baris DB
+   sama sekali, jadi kini ditambahkan ke hasil cabang DB
+   (`materializedOfficialTopicMaterials()`).
+
+Bukti live (build dengan `b6e2398`, `lembar-api` di-restart, `127.0.0.1:4000`):
+
+```
+### DoD1 — admin read 200 (was 404)
+GET /v1/admin/catalog/grades                                 -> 200  rows=28
+GET /v1/admin/catalog/subjects?gradeId=official-grade-sd-mi-1 -> 200  rows=23
+GET /v1/admin/catalog/materials?gradeId=..&subjectId=..&curriculumVersionId=.. -> 200  rows=7
+
+### DoD2 — outcomes 200 (was 500 INTERNAL_ERROR)
+GET /v1/admin/catalog/outcomes?subjectId=official-subject-sd-mi-a-muatan-lokal-lain-lain
+  -> 200 {"data":[{"id":"c7fd65b9-705e-4483-8995-d8902d08eadb",
+                   "label":"CP — CP Muatan Lokal Lain-lain"}]}
+
+### DoD3 — POST 201 + baris tercipta, diverifikasi lewat GET
+POST /v1/admin/catalog/materials {"outcomeId":"official-subject-sd-mi-a-muatan-lokal-lain-lain-cp",
+  "code":"DOD3-091818","kind":"lesson","title":"Verifikasi BUG-11/12 091818",
+  "sourceRights":"license:internal","publish":true}
+  -> 201 {"data":{"id":"fe57d4e2-0ad9-4a99-8c90-97076c2a22d2","title":"Verifikasi BUG-11/12 091818","published":true}}
+DB: fe57d4e2-0ad9-4a99-8c90-97076c2a22d2 | DOD3-091818 | published_version=1 | current_version=1
+    | tenant=e96e9772-d9e4-4cdf-a960-8c82b68bc1c6   material_versions=1
+    | admin_audit.actor_id=249c9731-e224-46c6-8051-102b2b957dd3  (bukan 'unknown')
+GET /v1/admin/catalog/materials?... -> 200, baris baru terlihat, plus 2 topik snapshot tetap ada
+
+### Regresi
+grade picker entries=28, duplikat 'Kelas 1 SD/MI — Fase A' = 1
+public /v1/catalog/grades -> 200 ; /v1/catalog/curricula -> 200 ; anon admin -> 401
+```
+
+Bukti yang sama juga diambil dari luar host melalui `https://api.lembar.web.id`
+(`grades` 200, `subjects` 200, `materials` 200, `outcomes` 200, `POST` 201),
+sesuai jalur yang dipakai FE.
+
 ## Gates
 
 - `pnpm typecheck` exit 0; `pnpm build` exit 0.
-- `vitest run test/modules/catalog/` **23/23 hijau** (3 berkas lama + 1 baru).
+- `vitest run test/modules/catalog/` **25/25 hijau** (4 berkas; 2 test baru
+  mengunci regresi grade ganda + retensi topik).
 - `eslint src/modules/catalog/ test/modules/catalog/` bersih (exit 0).
-- Suite penuh: 899 passed / 12 failed. Ke-12 kegagalan
-  (`uploads/body-limit`, `uploads/intake-content`, `auth/notification-integration`,
-  `notifications/adapter`, `plan-catalog`) **identik sebelum dan sesudah**
-  perubahan — dibuktikan dengan `git stash -u` lalu menjalankan berkas yang sama
-  (12 failed / 51 passed, sama persis). Bukan dari task ini.
+- Suite penuh: 818 passed / 1 failed / 92 skipped. Satu kegagalan,
+  `plan-catalog.test.ts > pro plan has a finite tokenMonthlyLimit fallback`
+  (`expected 149000 to be 49000`), **tidak tersentuh** oleh perubahan ini —
+  `git diff origin/dev..dev -- src/modules/plans test/plan-catalog.test.ts`
+  kosong, dan test itu terakhir diubah di `5df5ec0` (2026-08-23). Sudah ada
+  sebelum task ini (attempt sebelumnya mencatat `plan-catalog` sebagai gagal).
 
 ## Catatan
 
 - Tidak ada deploy produksi. `lembar-api` di-restart dengan build yang memuat
   perubahan agar bukti live di atas bisa diambil.
 - Commit unpushed (`dev`, local-only contract) — menunggu keputusan publish.
+- Data uji `DOD3-*` / `FINAL-*` / `VERIFY-*` / `LIVE*` / `SIDE-*` dan rantai
+  resmi hasil materialisasi sudah dihapus kembali setelah verifikasi
+  (`probe_materials=0`, `official_rows=0`, `materials_total=25` — sama seperti
+  sebelum task).
