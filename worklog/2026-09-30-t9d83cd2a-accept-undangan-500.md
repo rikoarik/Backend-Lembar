@@ -109,6 +109,7 @@ GET /v1/invitations/preview                  -> 400 VALIDATION_FAILED
 
 ## Gate
 
+- `tsc -p tsconfig.build.json` → exit 0; `tsc -p tsconfig.json --noEmit` → exit 0.
 - `vitest run test/modules/school` → 10 file, **74/74 pass** (termasuk 9 test baru).
 - `vitest run` (full) → **829 passed, 92 skipped, 1 failed**. Kegagalan tunggal
   `test/plan-catalog.test.ts:126` (harga katalog 149000 vs 49000) **pre-existing**:
@@ -116,13 +117,39 @@ GET /v1/invitations/preview                  -> 400 VALIDATION_FAILED
 - `eslint src/modules/school src/modules/auth/policy` → 10 error, semuanya di
   file yang tidak disentuh (mis. `libraryRoutes.ts`, `settingsRoutes.ts`).
 
+## Artefak & status land
+
+- Branch: `fix/t_9d83cd2a-accept-undangan-500`, commit
+  `68eefe65fd3ba7b91d946730dc778fdc2bb0e0d2` (based on `dev` `97c72ce`),
+  sudah di-push ke origin.
+- Fast-forward ke `origin/dev` (`91291d4`) **aman secara isi**: kedua versi
+  `PostgresSchoolStores.ts` / `SchoolService.ts` identik (dibandingkan langsung),
+  dan satu-satunya konflik cherry-pick adalah `meta/_journal.json` — file yang
+  memang sudah berbeda antara `dev` dan `origin/dev` (0043 tidak ada di branch
+  ini). Rekomendasi land: `git checkout dev && git merge --ff-only origin/dev &&
+  git cherry-pick 68eefe6 && <rapikan idx _journal> && git push origin dev`.
+  Worker ini tidak melakukannya supaya tidak menyentuh checkout `dev` yang
+  sedang dipakai task `t_2cd6cd63`, dan karena push ke `dev` = deploy produksi.
+- Migrasi 0044 sudah diterapkan ke DB live dan diverifikasi idempoten
+  (re-apply → NOTICE "does not exist, skipping"; 0 baris di `pg_constraint`).
+- Baris uji `b20b-*` di `jwt_users` / `auth_school_invitations` sudah dibersihkan
+  (0 baris tersisa).
+
+## Temuan lain (di luar scope, tiket terpisah)
+
+`POST /v1/auth/register` dengan password lemah menjawab **500 INTERNAL_ERROR**
+(bukan 400 `VALIDATION_FAILED`) di live: `src/common/errors/apiError.ts`
+`codeMap` tidak memuat `password_policy`, jadi `throwApiError` jatuh ke
+`INTERNAL_ERROR` + `retryable:true`. Sudah ada sebelum patch ini dan tidak
+berhubungan dengan accept undangan (accept memakai `WeakPasswordError` langsung).
+Ditiketkan sebagai `t_c3e6a292`.
+
 ## Batas / non-scope
 
 - Tidak menyentuh FE. BFF FE masih memanggil `/v1/auth/invitations/consume`
   yang tidak ada di BE — itu tiket `t_2cd6cd63` (BUG-20a/BUG-18/21/22). Kontrak
   resmi BE untuk undangan sekolah: `POST /v1/invitations` →
   `GET /v1/invitations/preview` → `POST /v1/invitations/accept`.
-- Perubahan belum di-commit: checkout `~/Projects/Backend-Lembar` sedang dipakai
-  worker kanban lain (`t_2cd6cd63`) yang file-nya setengah jadi. Diff bersih
-  disiapkan di worktree `t_9d83cd2a/wt`; menyentuh checkout itu akan mencampur
-  dua task.
+- Perubahan tidak masuk ke checkout `~/Projects/Backend-Lembar` (dipakai worker
+  kanban lain, `t_2cd6cd63`, yang file-nya setengah jadi). Diff bersih sudah
+  di-commit + push di worktree `t_9d83cd2a/wt`.
