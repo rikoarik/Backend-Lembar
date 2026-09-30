@@ -31,12 +31,21 @@ interface SeedFixture {
 
 const STUB_BEARER = 'smoke-stub-token';
 
-function smokeBearer(): string {
+/**
+ * AUDIT-2 / t_02e3d131: the guard fails closed when `CURRICULUM_WRITE_TOKEN`
+ * is unset, so the smoke run configures its own non-secret stub token and
+ * exercises both the wrong-token rejection and the exact-token acceptance.
+ */
+function configureSmokeBearer(): string {
   const configured = process.env.CURRICULUM_WRITE_TOKEN?.trim();
-  return configured && configured.length > 0 ? configured : STUB_BEARER;
+  const token = configured && configured.length > 0 ? configured : STUB_BEARER;
+  process.env.CURRICULUM_WRITE_TOKEN = token;
+  return token;
 }
 
 async function main(): Promise<void> {
+  // Must be set before buildApp() so the curriculum guard sees it.
+  const smokeToken = configureSmokeBearer();
   let env;
   try {
     env = parseDatabaseEnv(process.env);
@@ -105,7 +114,27 @@ async function main(): Promise<void> {
         detail: `status=${denied.statusCode}`,
       });
 
-      const auth = { authorization: `Bearer ${smokeBearer()}` };
+      // 1b. AUDIT-2 / t_02e3d131: a wrong-but-non-empty token is rejected, and
+      // the exact configured token is the only accepted credential.
+      const forged = await app.inject({
+        method: 'POST',
+        url: '/v1/curriculum/curricula',
+        headers: { authorization: 'Bearer junk' },
+        payload: {
+          tenantId: tenant.id,
+          slug: tenantSlug,
+          code: 'K-1',
+          title: 'Kurikulum 1',
+          level: 'sma',
+        },
+      });
+      steps.push({
+        label: 'write-rejects-forged-bearer',
+        ok: forged.statusCode === 401,
+        detail: `status=${forged.statusCode}`,
+      });
+
+      const auth = { authorization: `Bearer ${smokeToken}` };
 
       // 2. Create the mutable curriculum draft.
       const curriculumCreate = await app.inject({

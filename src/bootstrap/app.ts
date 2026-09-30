@@ -4,6 +4,7 @@ import type { Server, IncomingMessage, ServerResponse } from 'node:http';
 import { registerErrorHandlers } from './errorHandlers.js';
 import { registerRequestId } from '../common/middleware/request-id.js';
 import { parseDatabaseEnv } from '../config/database.env.js';
+import { assertCurriculumWriteTokenConfigured } from '../config/curriculum.env.js';
 import { parseQueueEnv } from '../config/queue.env.js';
 import { resolveSourceUploadMaxBytes } from '../config/uploads.env.js';
 import {
@@ -341,6 +342,10 @@ export async function buildApp(
   }
 
   if (curriculumDb) {
+    // AUDIT-2 / t_02e3d131: the curriculum write surface is stub-bearer
+    // protected; mounting it in production without a configured token is a boot
+    // failure rather than a silently open write API.
+    assertCurriculumWriteTokenConfigured();
     await registerCurriculumRoutes(app, { db: curriculumDb });
   }
   if (marketingDb) {

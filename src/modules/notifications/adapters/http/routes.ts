@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync } from 'fastify';
 
+import { bearerTokenFrom, stubBearerAllowed } from '../../../../common/auth/stubBearer.js';
 import { ApiError } from '../../../../common/errors/envelope.js';
 import { REQUEST_ID_HEADER } from '../../../../common/middleware/request-id.js';
 import { parseCurriculumEnv } from '../../../../config/curriculum.env.js';
@@ -116,12 +117,10 @@ function requireDb(
 function requireBearer(request: { headers: Record<string, unknown>; requestId?: string }): void {
   const auth = request.headers['authorization'];
   const headerValue = typeof auth === 'string' ? auth : Array.isArray(auth) ? auth[0] : undefined;
-  const token = headerValue?.startsWith('Bearer ')
-    ? headerValue.slice('Bearer '.length).trim()
-    : '';
-  const expected = parseStubBearer();
-  const allowed = token.length > 0 && (expected === null || token === expected);
-  if (!allowed) {
+  const token = bearerTokenFrom(headerValue);
+  // Fail closed (AUDIT-2 / t_02e3d131): with no configured stub bearer this
+  // route must reject everything, never accept any non-empty token.
+  if (!stubBearerAllowed(parseStubBearer(), token)) {
     throw new ApiError({
       code: 'AUTH_REQUIRED',
       message: 'Autentikasi diperlukan.',

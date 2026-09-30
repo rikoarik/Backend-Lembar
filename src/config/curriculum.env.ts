@@ -40,4 +40,28 @@ export function parseCurriculumEnv(env: NodeJS.ProcessEnv = process.env): Curric
   return { bearerToken, sourceRightsAllowlist };
 }
 
+/**
+ * Boot-time guard for the curriculum write surface (AUDIT-2 / t_02e3d131).
+ *
+ * `parseCurriculumEnv` deliberately keeps `bearerToken` nullable so the request
+ * guard can answer a clean 401 in local/test; this function is the loud
+ * production counterpart. The curriculum module is a stub-protected internal
+ * write surface — it must never be mounted in production without a configured
+ * credential, because an unset token used to mean "accept any Bearer token"
+ * and performed real, committed writes.
+ *
+ * The thrown `ConfigError` names the key only, never a value.
+ */
+export function assertCurriculumWriteTokenConfigured(env: NodeJS.ProcessEnv = process.env): void {
+  if (readString(env, 'APP_ENV') !== 'production') return;
+  if (readString(env, 'CURRICULUM_WRITE_TOKEN') !== undefined) return;
+  throw new ConfigError([
+    {
+      key: 'CURRICULUM_WRITE_TOKEN',
+      reason:
+        'required when APP_ENV=production and the curriculum module is mounted; refusing to expose curriculum write endpoints without a configured bearer',
+    },
+  ]);
+}
+
 export const curriculumEnv = parseCurriculumEnv;

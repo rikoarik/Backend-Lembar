@@ -1,5 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 
+import { bearerTokenFrom, stubBearerAllowed } from '../../../../common/auth/stubBearer.js';
 import { ApiError } from '../../../../common/errors/envelope.js';
 import { parseCurriculumEnv } from '../../../../config/curriculum.env.js';
 import type { ResourceKey } from '../../domain/CurriculumRepository.js';
@@ -27,12 +28,19 @@ export function limitOf(request: FastifyRequest): number {
   return Number.isInteger(value) ? Math.min(Math.max(value, 1), 100) : 20;
 }
 
+/**
+ * Verify the curriculum write bearer (AUDIT-2 / t_02e3d131).
+ *
+ * Fails closed: when `CURRICULUM_WRITE_TOKEN` is unset/empty every request is
+ * rejected with 401, so a missing configuration can never again mean "accept
+ * any non-empty Bearer token". A wrong-but-non-empty token is rejected too; only
+ * the exact configured value passes. `assertCurriculumWriteTokenConfigured`
+ * makes the same condition a boot-time failure in production.
+ */
 export function bearerActor(request: FastifyRequest): string {
-  const auth = request.headers.authorization;
-  const token = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : '';
+  const token = bearerTokenFrom(request.headers.authorization);
   const expected = parseCurriculumEnv(process.env).bearerToken;
-  const allowed = token.length > 0 && (expected === null || token === expected);
-  if (!allowed) {
+  if (!stubBearerAllowed(expected, token)) {
     throw new ApiError({
       code: 'AUTH_REQUIRED',
       message: 'Autentikasi diperlukan.',
