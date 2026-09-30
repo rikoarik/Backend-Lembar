@@ -30,7 +30,7 @@ push ke `dev`**.
 - `.github/workflows/deploy-backend.yml` — job baru `gate`; job `deploy`
   sekarang `needs: gate`, jadi gate merah **memblokir deploy produksi**. Gate
   ditaruh di workflow yang sama karena `needs:` GitHub Actions tidak bisa
-  menyeberangi file workflow — workflow terpisah bisa selesai *setelah* deploy
+  menyeberangi file workflow — workflow terpisah bisa selesai _setelah_ deploy
   sudah jalan. Filter `paths` diperlebar (`test/**`, `scripts/**`,
   `eslint.config.mjs`, `.prettierrc.json`, `.prettierignore`,
   `compose.test.yaml`).
@@ -125,9 +125,9 @@ dibuktikan pada subset yang memang sudah hijau, plus probe terkontrol:
 - Probe terkontrol untuk jalur **gagal** secret-scan: pohon uji
   `/home/hermes/.hermes/profiles/lembar-devops/cache/scratch/ci-gate/broken-probe/`
   berisi 10 kredensial format nyata yang ditanam (private key PEM, `sk-proj-…`,
-  `AKIA…`, `ghp_…`, `sk_live_…`, JWT terserialisasi, `postgres://admin:…@db.prod…`,
-  `jwtSecret`, `apiKey`, `ghToken`). Hasil: **10 finding, exit 1**, semuanya
-  ter-redaksi. Setelah rule nama diperbaiki (camelCase + `key` hanya bila
+  `AKIA…`, `ghp_…`, `sk_live_…`, JWT terserialisasi, connection URL berpassword
+  ke host produksi, `jwtSecret`, `apiKey`, `ghToken`). Hasil: **10 finding, exit 1**,
+  semuanya ter-redaksi. Setelah rule nama diperbaiki (camelCase + `key` hanya bila
   terkuantifikasi), probe ini juga yang membuktikan recall-nya, sementara pohon
   bersih tetap 0 temuan.
 - `npx eslint scripts/secret-scan.ts test/scripts/quality-gate.test.ts` → 0 error.
@@ -139,17 +139,17 @@ dibuktikan pada subset yang memang sudah hijau, plus probe terkontrol:
 
 Diukur pada `3f8dbe0` (= `origin/dev`):
 
-| Langkah | Hasil |
-|---|---|
-| install | PASS |
-| typecheck | PASS |
-| lint | FAIL — 260 problem (258 error) |
-| format:check | FAIL — 168 file |
-| test | FAIL — 1 gagal (`test/plan-catalog.test.ts`, `priceAmount` 49000 → 149000) |
-| test:db | FAIL — 9 gagal |
-| openapi:validate | PASS |
-| openapi:breaking | FAIL — drift baseline |
-| secret:scan | PASS |
+| Langkah          | Hasil                                                                      |
+| ---------------- | -------------------------------------------------------------------------- |
+| install          | PASS                                                                       |
+| typecheck        | PASS                                                                       |
+| lint             | FAIL — 260 problem (258 error)                                             |
+| format:check     | FAIL — 168 file                                                            |
+| test             | FAIL — 1 gagal (`test/plan-catalog.test.ts`, `priceAmount` 49000 → 149000) |
+| test:db          | FAIL — 9 gagal                                                             |
+| openapi:validate | PASS                                                                       |
+| openapi:breaking | FAIL — drift baseline                                                      |
+| secret:scan      | PASS                                                                       |
 
 Konsekuensi: sampai perbaikan lint/format/test/test:db/openapi-breaking mendarat
 (t_e901a838, t_d28d1ef8, t_ee5e0760), push ke `dev` akan menampilkan job `gate`
