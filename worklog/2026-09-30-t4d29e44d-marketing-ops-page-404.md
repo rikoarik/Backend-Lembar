@@ -3,7 +3,7 @@
 **Task:** `t_4d29e44d` ([P1], assignee `lembar-backend`) — follow-up FE-VER-02 **F-2**
 dari `t_9ae972fd` (laporan `docs/audit/E2E-VER-02-live-2026-09-30.md`, commit `5bd0e05`).
 
-**Commit:** BE `9306d09` on `dev` (unpushed, local-only contract).
+**Commit:** BE `82cb9cb` on `dev` (unpushed, local-only contract).
 
 ## Symptom
 
